@@ -1,0 +1,256 @@
+{
+  "name": "fuseraft",
+  "displayName": "Fuseraft",
+  "description": "Run and manage Fuseraft multi-agent orchestration from VS Code",
+  "version": "0.1.0",
+  "publisher": "fuseraft",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fuseraft/fuseraft-vscode"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "AI",
+    "Other"
+  ],
+  "keywords": [
+    "ai",
+    "agents",
+    "orchestration",
+    "fuseraft",
+    "multi-agent"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "fuseraft.run",
+        "title": "Run Task",
+        "category": "Fuseraft",
+        "icon": "$(play)"
+      },
+      {
+        "command": "fuseraft.runFromConfig",
+        "title": "Run Task with This Config",
+        "category": "Fuseraft",
+        "icon": "$(play)"
+      },
+      {
+        "command": "fuseraft.init",
+        "title": "Initialize Config",
+        "category": "Fuseraft",
+        "icon": "$(new-file)"
+      },
+      {
+        "command": "fuseraft.validate",
+        "title": "Validate Config",
+        "category": "Fuseraft",
+        "icon": "$(check)"
+      },
+      {
+        "command": "fuseraft.validateDiagram",
+        "title": "Validate Config and Show Diagram",
+        "category": "Fuseraft",
+        "icon": "$(type-hierarchy)"
+      },
+      {
+        "command": "fuseraft.repl",
+        "title": "Open REPL",
+        "category": "Fuseraft",
+        "icon": "$(terminal)"
+      },
+      {
+        "command": "fuseraft.resumeSession",
+        "title": "Resume Session",
+        "category": "Fuseraft",
+        "icon": "$(debug-continue)"
+      },
+      {
+        "command": "fuseraft.deleteSession",
+        "title": "Delete Session",
+        "category": "Fuseraft",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "fuseraft.openSessionConfig",
+        "title": "Open Session Config",
+        "category": "Fuseraft",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "fuseraft.refreshSessions",
+        "title": "Refresh Sessions",
+        "category": "Fuseraft",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "fuseraft.refreshConfigs",
+        "title": "Refresh Configs",
+        "category": "Fuseraft",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "fuseraft.openConfig",
+        "title": "Open Config",
+        "category": "Fuseraft",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "fuseraft.pickAndRun",
+        "title": "Pick Config and Run Task",
+        "category": "Fuseraft"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "fuseraft",
+          "title": "Fuseraft",
+          "icon": "$(robot)"
+        }
+      ]
+    },
+    "views": {
+      "fuseraft": [
+        {
+          "id": "fuseraft.sessions",
+          "name": "Sessions",
+          "icon": "$(history)"
+        },
+        {
+          "id": "fuseraft.configs",
+          "name": "Configs",
+          "icon": "$(settings-gear)"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "fuseraft.run",
+          "when": "view == fuseraft.sessions",
+          "group": "navigation"
+        },
+        {
+          "command": "fuseraft.refreshSessions",
+          "when": "view == fuseraft.sessions",
+          "group": "navigation"
+        },
+        {
+          "command": "fuseraft.refreshConfigs",
+          "when": "view == fuseraft.configs",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "fuseraft.resumeSession",
+          "when": "view == fuseraft.sessions && viewItem == session-incomplete",
+          "group": "inline"
+        },
+        {
+          "command": "fuseraft.resumeSession",
+          "when": "view == fuseraft.sessions && viewItem == session-incomplete",
+          "group": "1_session"
+        },
+        {
+          "command": "fuseraft.openSessionConfig",
+          "when": "view == fuseraft.sessions && (viewItem == session-incomplete || viewItem == session-complete)",
+          "group": "1_session"
+        },
+        {
+          "command": "fuseraft.deleteSession",
+          "when": "view == fuseraft.sessions && (viewItem == session-incomplete || viewItem == session-complete)",
+          "group": "2_danger"
+        },
+        {
+          "command": "fuseraft.runFromConfig",
+          "when": "view == fuseraft.configs && viewItem == config",
+          "group": "inline"
+        },
+        {
+          "command": "fuseraft.runFromConfig",
+          "when": "view == fuseraft.configs && viewItem == config",
+          "group": "1_config"
+        },
+        {
+          "command": "fuseraft.validate",
+          "when": "view == fuseraft.configs && viewItem == config",
+          "group": "1_config"
+        },
+        {
+          "command": "fuseraft.validateDiagram",
+          "when": "view == fuseraft.configs && viewItem == config",
+          "group": "1_config"
+        },
+        {
+          "command": "fuseraft.openConfig",
+          "when": "view == fuseraft.configs && viewItem == config",
+          "group": "1_config"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "fuseraft.validate",
+          "when": "resourceExtname =~ /\\.(yaml|yml|json)/ && fuseraft.isFuseraftConfig",
+          "group": "fuseraft"
+        },
+        {
+          "command": "fuseraft.runFromConfig",
+          "when": "resourceExtname =~ /\\.(yaml|yml|json)/ && fuseraft.isFuseraftConfig",
+          "group": "fuseraft"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Fuseraft",
+      "properties": {
+        "fuseraft.binaryPath": {
+          "type": "string",
+          "default": "fuseraft",
+          "description": "Path to the fuseraft binary. Defaults to 'fuseraft' (must be on PATH). Set to an absolute path if needed."
+        },
+        "fuseraft.defaultConfigPath": {
+          "type": "string",
+          "default": "",
+          "description": "Default config path relative to the workspace root (e.g. 'config/orchestration.yaml'). Leave blank to be prompted."
+        },
+        "fuseraft.runFlags": {
+          "type": "string",
+          "default": "",
+          "description": "Additional flags to pass to 'fuseraft run' (e.g. '--tools --verbose')."
+        },
+        "fuseraft.openTerminalOnRun": {
+          "type": "boolean",
+          "default": true,
+          "description": "Open and focus the integrated terminal when running a task."
+        }
+      }
+    },
+    "jsonValidation": [
+      {
+        "fileMatch": [
+          "**/orchestration.json",
+          "**/*.fuseraft.json"
+        ],
+        "url": "./schemas/fuseraft-config.schema.json"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.3.0"
+  }
+}

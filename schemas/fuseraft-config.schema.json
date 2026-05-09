@@ -1,0 +1,678 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Fuseraft Orchestration Config",
+  "description": "Configuration schema for fuseraft multi-agent orchestration",
+  "type": "object",
+  "required": ["Orchestration"],
+  "properties": {
+    "Orchestration": {
+      "$ref": "#/definitions/Orchestration"
+    }
+  },
+  "definitions": {
+    "Orchestration": {
+      "type": "object",
+      "description": "Top-level orchestration configuration",
+      "required": ["Agents"],
+      "properties": {
+        "Name": {
+          "type": "string",
+          "description": "Human-readable name displayed at startup"
+        },
+        "Description": {
+          "type": "string",
+          "description": "Optional description shown at startup"
+        },
+        "SystemPromptPath": {
+          "type": "string",
+          "description": "Path to a Markdown file that replaces the embedded base prompt for every agent"
+        },
+        "SystemPrompt": {
+          "type": "string",
+          "description": "Inline text that replaces the embedded base prompt. Ignored when SystemPromptPath is set"
+        },
+        "Models": {
+          "type": "object",
+          "description": "Named model aliases reusable across agents",
+          "additionalProperties": {
+            "$ref": "#/definitions/ModelDefinition"
+          }
+        },
+        "Agents": {
+          "type": "array",
+          "description": "Ordered list of agents. At least one is required",
+          "items": {
+            "$ref": "#/definitions/Agent"
+          },
+          "minItems": 1
+        },
+        "Selection": {
+          "$ref": "#/definitions/SelectionStrategy",
+          "description": "Controls which agent speaks next"
+        },
+        "Termination": {
+          "$ref": "#/definitions/TerminationStrategy",
+          "description": "Controls when the run ends"
+        },
+        "Security": {
+          "$ref": "#/definitions/Security",
+          "description": "Sandbox constraints for plugins"
+        },
+        "MaxTotalTokens": {
+          "type": "integer",
+          "description": "Token budget (input + output combined). Run stops before the next turn if exceeded"
+        },
+        "McpServers": {
+          "type": "array",
+          "description": "External MCP servers to connect at startup",
+          "items": {
+            "$ref": "#/definitions/McpServer"
+          }
+        },
+        "Compaction": {
+          "$ref": "#/definitions/Compaction",
+          "description": "Automatic history summarization settings"
+        },
+        "ChangeTracking": {
+          "$ref": "#/definitions/ChangeTracking",
+          "description": "Cross-agent change log configuration"
+        },
+        "Validation": {
+          "$ref": "#/definitions/Validation",
+          "description": "Routing validator settings"
+        },
+        "EvidenceStore": {
+          "$ref": "#/definitions/EvidenceStore",
+          "description": "Structured evidence graph. Required for evidence contracts and lossless compaction"
+        },
+        "Contracts": {
+          "type": "array",
+          "description": "Named evidence contracts reusable across routes and state machine transitions",
+          "items": {
+            "$ref": "#/definitions/Contract"
+          }
+        },
+        "FailureHandling": {
+          "$ref": "#/definitions/FailureHandling",
+          "description": "Per-failure-type policies applied when routing validators or contracts block a handoff"
+        },
+        "Verifier": {
+          "$ref": "#/definitions/Verifier",
+          "description": "Self-verification meta-agent that audits the evidence graph for inconsistencies"
+        },
+        "ApiProfiles": {
+          "type": "object",
+          "description": "Named API endpoint profiles for the Http plugin",
+          "additionalProperties": {
+            "$ref": "#/definitions/ApiProfile"
+          }
+        },
+        "Checkpoint": {
+          "$ref": "#/definitions/Checkpoint",
+          "description": "Checkpoint storage settings"
+        },
+        "Telemetry": {
+          "$ref": "#/definitions/Telemetry",
+          "description": "OpenTelemetry export settings"
+        },
+        "Saga": {
+          "$ref": "#/definitions/Saga",
+          "description": "Compensating rollback settings"
+        },
+        "Brownfield": {
+          "$ref": "#/definitions/Brownfield",
+          "description": "Brownfield-mode settings"
+        },
+        "TestSelector": {
+          "$ref": "#/definitions/TestSelector",
+          "description": "Incremental test-selection settings"
+        }
+      }
+    },
+    "Agent": {
+      "type": "object",
+      "description": "Agent definition",
+      "properties": {
+        "AgentFile": {
+          "type": "string",
+          "description": "Path to a YAML file providing the base agent definition"
+        },
+        "Name": {
+          "type": "string",
+          "description": "Unique name used in routing and logs"
+        },
+        "Instructions": {
+          "type": "string",
+          "description": "System prompt defining the agent's persona and behavior"
+        },
+        "Description": {
+          "type": "string",
+          "description": "Short description used by LLM selection strategies"
+        },
+        "Model": {
+          "oneOf": [
+            { "type": "string", "description": "Model alias or ID" },
+            { "$ref": "#/definitions/ModelRef" }
+          ],
+          "description": "Model to use. Can be an alias, model ID string, or model object"
+        },
+        "Plugins": {
+          "type": "array",
+          "description": "Built-in or MCP plugin names to load into this agent's kernel",
+          "items": {
+            "type": "string",
+            "enum": [
+              "FileSystem", "Shell", "Git", "Http", "Json", "Search",
+              "Changes", "Scratchpad", "Chatroom", "Probe", "CodeExecution",
+              "SubAgent", "Demo"
+            ]
+          }
+        },
+        "Capabilities": {
+          "type": "object",
+          "description": "Per-plugin capability filter. Only tools covered by listed tags are registered",
+          "properties": {
+            "FileSystem": {
+              "type": "array",
+              "items": { "type": "string", "enum": ["read", "write", "delete"] }
+            },
+            "Shell": {
+              "type": "array",
+              "items": { "type": "string", "enum": ["read", "run"] }
+            },
+            "Git": {
+              "type": "array",
+              "items": { "type": "string", "enum": ["read", "write"] }
+            },
+            "Http": {
+              "type": "array",
+              "items": { "type": "string", "enum": ["get", "head", "post", "put", "patch", "delete"] }
+            },
+            "Json": {
+              "type": "array",
+              "items": { "type": "string", "enum": ["read", "write"] }
+            },
+            "Search": {
+              "type": "array",
+              "items": { "type": "string", "enum": ["read"] }
+            },
+            "Changes": {
+              "type": "array",
+              "items": { "type": "string", "enum": ["read"] }
+            },
+            "Scratchpad": {
+              "type": "array",
+              "items": { "type": "string", "enum": ["read", "write"] }
+            },
+            "Chatroom": {
+              "type": "array",
+              "items": { "type": "string", "enum": ["read", "write"] }
+            }
+          },
+          "additionalProperties": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        },
+        "FunctionChoice": {
+          "type": "string",
+          "description": "Tool-use enforcement",
+          "enum": ["auto", "required", "none"],
+          "default": "auto"
+        },
+        "MaxToolCallsPerTurn": {
+          "type": "integer",
+          "description": "Hard cap on tool calls per turn. 0 means no limit",
+          "default": 0
+        },
+        "MaxInTurnContextTokens": {
+          "type": "integer",
+          "description": "Soft cap on in-turn context tokens. 0 means no limit",
+          "default": 0
+        },
+        "TrustScore": {
+          "type": "number",
+          "description": "Governance trust score (0.0–1.0) used to assign an execution ring",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0.7
+        },
+        "EnableMemory": {
+          "type": "boolean",
+          "description": "When true, persistent memories from ~/.fuseraft/memory/agents/{Name}/ are prepended to instructions at session start",
+          "default": false
+        },
+        "SubAgentModel": {
+          "type": "string",
+          "description": "Model ID override for the sub-agent spawned by the SubAgent plugin"
+        },
+        "SubAgentPlugins": {
+          "type": "array",
+          "description": "Explicit plugin names for the sub-agent",
+          "items": { "type": "string" }
+        },
+        "RemoteAgent": {
+          "$ref": "#/definitions/RemoteAgent"
+        },
+        "ContextWindow": {
+          "$ref": "#/definitions/ContextWindow"
+        },
+        "Routes": {
+          "type": "array",
+          "description": "Keyword or state machine routing rules for this agent's output",
+          "items": {
+            "$ref": "#/definitions/Route"
+          }
+        }
+      }
+    },
+    "ModelDefinition": {
+      "type": "object",
+      "description": "Named model alias definition",
+      "required": ["ModelId"],
+      "properties": {
+        "ModelId": {
+          "type": "string",
+          "description": "Model identifier (e.g. claude-sonnet-4-6, gpt-4o)"
+        },
+        "Endpoint": {
+          "type": "string",
+          "description": "Provider base URL (e.g. https://api.anthropic.com/v1)"
+        },
+        "ApiKeyEnvVar": {
+          "type": "string",
+          "description": "Environment variable containing the API key"
+        }
+      }
+    },
+    "ModelRef": {
+      "type": "object",
+      "description": "Inline model configuration",
+      "properties": {
+        "ModelId": {
+          "type": "string",
+          "description": "Model identifier or alias name"
+        },
+        "Endpoint": {
+          "type": "string",
+          "description": "Provider base URL"
+        },
+        "ApiKeyEnvVar": {
+          "type": "string",
+          "description": "Environment variable containing the API key"
+        }
+      }
+    },
+    "Route": {
+      "type": "object",
+      "description": "Routing rule",
+      "properties": {
+        "Keyword": {
+          "type": "string",
+          "description": "Keyword or phrase that triggers this route when found in agent output"
+        },
+        "Agent": {
+          "type": "string",
+          "description": "Name of the agent to route to"
+        },
+        "Validator": {
+          "type": "string",
+          "description": "Named contract that must pass before the route fires"
+        },
+        "RequireHumanApproval": {
+          "type": "boolean",
+          "description": "When true, pauses and prompts for human approval before routing",
+          "default": false
+        }
+      }
+    },
+    "SelectionStrategy": {
+      "type": "object",
+      "description": "Controls which agent speaks next",
+      "properties": {
+        "Type": {
+          "type": "string",
+          "enum": ["Sequential", "RoundRobin", "LLMBased", "Magentic", "StateMachine", "Graph"],
+          "description": "Selection strategy type"
+        }
+      }
+    },
+    "TerminationStrategy": {
+      "type": "object",
+      "description": "Controls when the session ends",
+      "properties": {
+        "Type": {
+          "type": "string",
+          "enum": ["MaxIterations", "Keyword", "Combined"],
+          "description": "Termination strategy type"
+        },
+        "MaxIterations": {
+          "type": "integer",
+          "description": "Maximum number of agent turns before the session terminates",
+          "default": 10
+        },
+        "Keyword": {
+          "type": "string",
+          "description": "Keyword that triggers termination when found in agent output"
+        }
+      }
+    },
+    "Security": {
+      "type": "object",
+      "description": "Sandbox constraints for agent plugins",
+      "properties": {
+        "FileSystemSandboxPath": {
+          "type": "string",
+          "description": "Root directory agents are allowed to read/write. Relative paths resolve from the config directory"
+        },
+        "AllowedHosts": {
+          "type": "array",
+          "description": "Hostnames agents are allowed to contact via the Http plugin",
+          "items": { "type": "string" }
+        },
+        "AllowShellExecution": {
+          "type": "boolean",
+          "description": "Whether agents are allowed to execute shell commands",
+          "default": true
+        }
+      }
+    },
+    "Compaction": {
+      "type": "object",
+      "description": "Automatic history summarization settings",
+      "properties": {
+        "TriggerTurnCount": {
+          "type": "integer",
+          "description": "Number of turns after which compaction is triggered"
+        },
+        "KeepRecentTurns": {
+          "type": "integer",
+          "description": "Number of recent turns to preserve verbatim after compaction"
+        },
+        "Mode": {
+          "type": "string",
+          "enum": ["lossless", "lossy"],
+          "description": "Compaction mode. lossless requires EvidenceStore to be configured"
+        }
+      }
+    },
+    "ChangeTracking": {
+      "type": "object",
+      "description": "Cross-agent change log configuration",
+      "properties": {
+        "Path": {
+          "type": "string",
+          "description": "Path to the change log JSON file"
+        }
+      }
+    },
+    "Validation": {
+      "type": "object",
+      "description": "Routing validator settings",
+      "properties": {
+        "BriefPath": {
+          "type": "string",
+          "description": "Path to the planning brief JSON file"
+        },
+        "TestReportPath": {
+          "type": "string",
+          "description": "Path to the test report JSON file"
+        },
+        "ChangeLogPath": {
+          "type": "string",
+          "description": "Path to the change log JSON file"
+        },
+        "TestAssertionPatterns": {
+          "type": "array",
+          "description": "Regex patterns that count as test assertions",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "EvidenceStore": {
+      "type": "object",
+      "description": "Structured evidence graph",
+      "properties": {
+        "Path": {
+          "type": "string",
+          "description": "Path to the evidence JSON file"
+        }
+      }
+    },
+    "Contract": {
+      "type": "object",
+      "description": "Named evidence contract",
+      "required": ["Name", "Requires"],
+      "properties": {
+        "Name": {
+          "type": "string",
+          "description": "Contract identifier referenced in routes and state machine transitions"
+        },
+        "Requires": {
+          "type": "array",
+          "description": "List of evidence requirements that must all pass",
+          "items": {
+            "$ref": "#/definitions/ContractRequirement"
+          }
+        }
+      }
+    },
+    "ContractRequirement": {
+      "type": "object",
+      "description": "Single evidence requirement",
+      "required": ["Type"],
+      "properties": {
+        "Type": {
+          "type": "string",
+          "enum": ["FileExists", "FilesWritten", "CommandSucceeded", "TestReport"],
+          "description": "Type of evidence to check"
+        },
+        "Path": {
+          "type": "string",
+          "description": "File path to check (for FileExists)"
+        },
+        "Source": {
+          "type": "string",
+          "description": "Source file path (for FilesWritten)"
+        },
+        "Field": {
+          "type": "string",
+          "description": "JSON field name in the source file (for FilesWritten)"
+        },
+        "Pattern": {
+          "type": "string",
+          "description": "Regex pattern to match against recent shell commands (for CommandSucceeded)"
+        },
+        "NoFailures": {
+          "type": "boolean",
+          "description": "Require no failed test criteria (for TestReport)"
+        },
+        "HasAssertions": {
+          "type": "boolean",
+          "description": "Require at least one test assertion (for TestReport)"
+        }
+      }
+    },
+    "FailureHandling": {
+      "type": "object",
+      "description": "Per-failure-type handling policies",
+      "properties": {
+        "MissingEvidence": {
+          "$ref": "#/definitions/FailurePolicy"
+        },
+        "ConflictingEvidence": {
+          "$ref": "#/definitions/FailurePolicy"
+        },
+        "NoProgress": {
+          "$ref": "#/definitions/FailurePolicy"
+        }
+      }
+    },
+    "FailurePolicy": {
+      "type": "object",
+      "properties": {
+        "Action": {
+          "type": "string",
+          "enum": ["Reinstruct", "Abort", "Skip"],
+          "description": "Action to take when this failure type occurs"
+        },
+        "Threshold": {
+          "type": "integer",
+          "description": "Number of consecutive failures before the action fires"
+        }
+      }
+    },
+    "Verifier": {
+      "type": "object",
+      "description": "Self-verification meta-agent configuration",
+      "properties": {
+        "AgentName": {
+          "type": "string",
+          "description": "Name of the agent to use as verifier"
+        },
+        "EveryNTurns": {
+          "type": "integer",
+          "description": "Run the verifier every N turns"
+        },
+        "TriggerOnSuspiciousTransition": {
+          "type": "boolean",
+          "description": "Also trigger the verifier when a suspicious state transition is detected"
+        },
+        "FindingsKeyword": {
+          "type": "string",
+          "description": "Keyword the verifier emits when it finds an inconsistency"
+        }
+      }
+    },
+    "RemoteAgent": {
+      "type": "object",
+      "description": "Delegates this agent slot to a remote A2A agent",
+      "properties": {
+        "Url": {
+          "type": "string",
+          "description": "A2A endpoint URL for the remote agent"
+        }
+      }
+    },
+    "ContextWindow": {
+      "type": "object",
+      "description": "Filters conversation history before it reaches this agent",
+      "properties": {
+        "IncludeAgents": {
+          "type": "array",
+          "description": "Only include messages from these agents",
+          "items": { "type": "string" }
+        },
+        "ExcludeAgents": {
+          "type": "array",
+          "description": "Exclude messages from these agents",
+          "items": { "type": "string" }
+        },
+        "MaxMessages": {
+          "type": "integer",
+          "description": "Maximum number of messages to include"
+        }
+      }
+    },
+    "McpServer": {
+      "type": "object",
+      "description": "External MCP server configuration",
+      "properties": {
+        "Name": {
+          "type": "string",
+          "description": "Server name (used in tool registration)"
+        },
+        "Command": {
+          "type": "string",
+          "description": "Command to launch the MCP server process (stdio transport)"
+        },
+        "Args": {
+          "type": "array",
+          "description": "Arguments to pass to the MCP server command",
+          "items": { "type": "string" }
+        },
+        "Url": {
+          "type": "string",
+          "description": "URL for HTTP/SSE transport MCP servers"
+        }
+      }
+    },
+    "ApiProfile": {
+      "type": "object",
+      "description": "Named API endpoint profile for the Http plugin",
+      "properties": {
+        "BaseUrl": {
+          "type": "string",
+          "description": "Base URL for this API"
+        },
+        "Headers": {
+          "type": "object",
+          "description": "Default headers to include in requests",
+          "additionalProperties": { "type": "string" }
+        },
+        "TimeoutSeconds": {
+          "type": "integer",
+          "description": "Request timeout in seconds"
+        }
+      }
+    },
+    "Checkpoint": {
+      "type": "object",
+      "description": "Checkpoint storage settings",
+      "properties": {
+        "Path": {
+          "type": "string",
+          "description": "Directory or file path for session checkpoints"
+        }
+      }
+    },
+    "Telemetry": {
+      "type": "object",
+      "description": "OpenTelemetry export settings",
+      "properties": {
+        "OtlpEndpoint": {
+          "type": "string",
+          "description": "OTLP collector endpoint URL"
+        },
+        "ServiceName": {
+          "type": "string",
+          "description": "Service name reported in traces"
+        }
+      }
+    },
+    "Saga": {
+      "type": "object",
+      "description": "Compensating rollback settings",
+      "properties": {
+        "Enabled": {
+          "type": "boolean",
+          "description": "When true, wraps execution with SagaOrchestrator for automatic compensation on failure"
+        }
+      }
+    },
+    "Brownfield": {
+      "type": "object",
+      "description": "Brownfield-mode settings",
+      "properties": {
+        "ReconAgent": {
+          "type": "string",
+          "description": "Name of the agent to use for recon phase"
+        },
+        "ConventionProfilePath": {
+          "type": "string",
+          "description": "Path to the convention profile injected into all agents"
+        }
+      }
+    },
+    "TestSelector": {
+      "type": "object",
+      "description": "Incremental test-selection settings",
+      "properties": {
+        "CommandTemplate": {
+          "type": "string",
+          "description": "Shell command template for finding the minimal test set for a changed file. Use {file} as placeholder"
+        }
+      }
+    }
+  }
+}
