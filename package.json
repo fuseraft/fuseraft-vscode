@@ -119,7 +119,7 @@
         {
           "id": "fuseraft",
           "title": "Fuseraft",
-          "icon": "$(robot)"
+          "icon": "media/fuseraft.svg"
         }
       ]
     },
