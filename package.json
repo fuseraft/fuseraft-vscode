@@ -108,11 +108,6 @@
         "icon": "$(go-to-file)"
       },
       {
-        "command": "fuseraft.pickAndRun",
-        "title": "Pick Config and Run Task",
-        "category": "Fuseraft"
-      },
-      {
         "command": "fuseraft.viewSession",
         "title": "View Session Transcript",
         "category": "Fuseraft",
