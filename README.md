@@ -5,10 +5,32 @@ Run and manage [Fuseraft](https://github.com/fuseraft/fuseraft-cli) multi-agent 
 ## Features
 
 ### Activity Bar Panel
-A dedicated Fuseraft panel in the activity bar gives you two persistent views:
+A dedicated Fuseraft panel in the activity bar gives you three persistent views:
 
-- **Sessions** — lists all past sessions from `~/.fuseraft/sessions/`, showing session ID, task preview, age, and status (complete / incomplete). The list auto-refreshes as sessions change on disk. Click an incomplete session to resume it.
-- **Configs** — discovers every YAML or JSON file in your workspace that contains an `Orchestration:` key. Click any config to open it. The list updates automatically when files are added or removed.
+**Run Task** — a webview form for composing and launching tasks:
+- Multi-line textarea for your task description (paste prose, markdown specs, or bullet lists)
+- Config dropdown auto-populated from configs found in your workspace
+- Checkboxes for common flags with inline descriptions:
+  - **Human-in-the-loop** (`--hitl`) — pause after every agent turn to review or redirect
+  - **Show tool calls** (`--tools`) — print tool invocations inline in the output
+  - **Verbose** (`--verbose`) — enable debug logging and token counts
+  - **DevUI** (`--devui`) — open real-time session visualization in the browser
+- **Run Task** button (`Ctrl+Enter`) — builds and runs the command in the integrated terminal
+- **Run Task File…** button — opens a file picker to select a `.md` or `.txt` task file
+
+**Sessions** — lists all past sessions from `~/.fuseraft/sessions/`, showing session ID, task preview, age, and status (complete / incomplete). The list auto-refreshes as sessions change on disk.
+- Click an incomplete session to resume it
+- Click the preview icon or right-click → **View Session Transcript** to open a formatted transcript panel
+
+**Configs** — discovers every YAML or JSON file in your workspace that contains an `Orchestration:` key. Click any config to open it. The list updates automatically when files are added or removed.
+
+### Session Transcript Viewer
+Click the preview icon next to any session to open a rich transcript panel showing:
+- Session metadata: ID, task, config path, start time, completion status
+- Every agent turn as a card with a color-coded header per agent
+- Tool calls with ✓ / ✗ status indicators and argument summaries (click the label to collapse)
+- Per-turn token usage (input / output) and cost
+- Session-level totals: turn count, total tokens, total cost
 
 ### CodeLens on Config Files
 When you open a fuseraft config, three inline actions appear above the first line:
@@ -19,15 +41,13 @@ When you open a fuseraft config, three inline actions appear above the first lin
 
 ### Right-Click Menus
 
-**Config files** (`orchestration.yaml`, `*.fuseraft.yaml`, etc.) — right-click in the file explorer or inside the editor to get:
+**Config files** (`orchestration.yaml`, `*.fuseraft.yaml`, etc.) — right-click in the file explorer or inside the editor:
+- **Run Task with This Config**
+- **Validate Config**
+- **Validate Config and Show Diagram**
 
-- **Run Task with This Config** — prompt for a task and run it against this config
-- **Validate Config** — validate the config and print results
-- **Validate Config and Show Diagram** — validate and print a Mermaid flowchart
-
-**Task files** (`.md`, `.txt`) — right-click in the file explorer, inside the editor, or on the editor tab to get:
-
-- **Run Task File with Fuseraft** — runs `fuseraft run -f <file>`, prompting you to pick a config if multiple are found
+**Task files** (`.md`, `.txt`) — right-click in the file explorer, inside the editor, or on the editor tab:
+- **Run Task File with Fuseraft** — runs `fuseraft run -f <file>`, prompting for a config if multiple are found
 
 ### Command Palette
 All commands are available via `Ctrl+Shift+P` / `Cmd+Shift+P` under the `Fuseraft:` prefix:
@@ -36,16 +56,17 @@ All commands are available via `Ctrl+Shift+P` / `Cmd+Shift+P` under the `Fuseraf
 |---------|-------------|
 | `Fuseraft: Run Task` | Prompt for a task, pick a config, and run in the integrated terminal |
 | `Fuseraft: Run Task File with Fuseraft` | Run a `.md` or `.txt` task file with `fuseraft run -f` |
-| `Fuseraft: Initialize Config` | 4-step wizard: pick a template, model, provider endpoint, and output path |
+| `Fuseraft: Initialize Config` | 4-step wizard: template, model, provider endpoint, output path |
 | `Fuseraft: Validate Config` | Validate a config file and print results |
 | `Fuseraft: Validate Config and Show Diagram` | Validate and print a Mermaid flowchart of the pipeline |
 | `Fuseraft: Open REPL` | Start an interactive single-agent chat session |
 | `Fuseraft: Resume Session` | Pick an incomplete session to resume |
+| `Fuseraft: View Session Transcript` | Open a formatted transcript for a session |
 
 ### Initialize Config Wizard
 `Fuseraft: Initialize Config` walks through four steps:
 
-1. **Template** — choose from all available templates with descriptions:
+1. **Template** — choose from all available templates:
 
    | Template | Description |
    |----------|-------------|
