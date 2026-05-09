@@ -17,17 +17,54 @@ When you open a fuseraft config, three inline actions appear above the first lin
 ▶ Run Task   ✓ Validate   ⎇ Diagram
 ```
 
+### Right-Click Menus
+
+**Config files** (`orchestration.yaml`, `*.fuseraft.yaml`, etc.) — right-click in the file explorer or inside the editor to get:
+
+- **Run Task with This Config** — prompt for a task and run it against this config
+- **Validate Config** — validate the config and print results
+- **Validate Config and Show Diagram** — validate and print a Mermaid flowchart
+
+**Task files** (`.md`, `.txt`) — right-click in the file explorer, inside the editor, or on the editor tab to get:
+
+- **Run Task File with Fuseraft** — runs `fuseraft run -f <file>`, prompting you to pick a config if multiple are found
+
 ### Command Palette
 All commands are available via `Ctrl+Shift+P` / `Cmd+Shift+P` under the `Fuseraft:` prefix:
 
 | Command | Description |
 |---------|-------------|
 | `Fuseraft: Run Task` | Prompt for a task, pick a config, and run in the integrated terminal |
-| `Fuseraft: Initialize Config` | Generate a new config from a template (`dev-team`, `graph`, `brownfield`, etc.) |
+| `Fuseraft: Run Task File with Fuseraft` | Run a `.md` or `.txt` task file with `fuseraft run -f` |
+| `Fuseraft: Initialize Config` | 4-step wizard: pick a template, model, provider endpoint, and output path |
 | `Fuseraft: Validate Config` | Validate a config file and print results |
 | `Fuseraft: Validate Config and Show Diagram` | Validate and print a Mermaid flowchart of the pipeline |
 | `Fuseraft: Open REPL` | Start an interactive single-agent chat session |
 | `Fuseraft: Resume Session` | Pick an incomplete session to resume |
+
+### Initialize Config Wizard
+`Fuseraft: Initialize Config` walks through four steps:
+
+1. **Template** — choose from all available templates with descriptions:
+
+   | Template | Description |
+   |----------|-------------|
+   | `dev-team` | Planner → Developer → Tester → Reviewer with keyword routing and a periodic Verifier |
+   | `graph` | Same four-agent pipeline as a declarative directed graph with back-edges for revision cycles |
+   | `brownfield` | Archaeologist recons the codebase first, then Planner → Developer → Reviewer |
+   | `brownfield-graph` | Brownfield pipeline as a directed graph with separate back-edges to Developer and Planner |
+   | `magentic` | Manager LLM dynamically coordinates Researcher + Developer (no fixed routing) |
+   | `research` | Researcher gathers information, Writer produces the final report |
+   | `devops` | Three-agent pipeline for infrastructure and deployment tasks |
+   | `content` | Writer drafts, Editor refines and approves |
+   | `minimal` | Single general-purpose agent — simplest possible setup |
+   | `designer` | Describe your use case in plain language and get a validated config back |
+
+2. **Model** — pick from common models across all providers, use auto-detection, or type any model ID
+3. **Provider endpoint** — pick a known provider URL, use your saved default, or enter a custom URL
+4. **Output path** — defaults to `config/orchestration.yaml`, fully editable
+
+The generated config file opens automatically in the editor as soon as fuseraft writes it to disk.
 
 ### Status Bar
 A `⊙ Fuseraft` button is always visible in the status bar. Click it to run a task.
@@ -39,7 +76,7 @@ Schema validation is enabled automatically for files matching `**/orchestration.
 
 ```json
 "yaml.schemas": {
-  "./node_modules/fuseraft/schemas/fuseraft-config.schema.json": [
+  "<extension-path>/schemas/fuseraft-config.schema.json": [
     "**/orchestration.yaml",
     "**/*.fuseraft.yaml"
   ]
@@ -49,7 +86,7 @@ Schema validation is enabled automatically for files matching `**/orchestration.
 Or reference the schema inline at the top of any config file:
 
 ```yaml
-# yaml-language-server: $schema=<path-to-extension>/schemas/fuseraft-config.schema.json
+# yaml-language-server: $schema=<extension-path>/schemas/fuseraft-config.schema.json
 Orchestration:
   Name: MyTeam
   ...
