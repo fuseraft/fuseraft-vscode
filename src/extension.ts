@@ -96,49 +96,124 @@ export function activate(context: vscode.ExtensionContext): void {
         })
     );
 
-    // fuseraft.init — generate a new config
+    // fuseraft.init — multi-step wizard: template → model → endpoint → output path → run
     context.subscriptions.push(
         vscode.commands.registerCommand('fuseraft.init', async () => {
-            const templates = [
-                { label: 'dev-team', description: 'Planner → Developer → Tester → Reviewer pipeline' },
-                { label: 'minimal', description: 'Single-agent minimal setup' },
-                { label: 'graph', description: 'Directed-graph pipeline with parallel fan-out' },
-                { label: 'brownfield', description: 'Brownfield codebase with recon phase' },
-                { label: 'designer', description: 'AI-assisted config designer (interactive)' },
-                { label: 'interactive', description: 'Run interactive wizard in terminal' },
+            // Step 1: template
+            const TEMPLATES = [
+                { label: 'dev-team',        description: 'Planner → Developer → Tester → Reviewer with keyword routing and a periodic Verifier' },
+                { label: 'graph',           description: 'Same four-agent pipeline as a declarative directed graph with back-edges for revision cycles' },
+                { label: 'brownfield',      description: 'Archaeologist recons the codebase first, then Planner → Developer → Reviewer' },
+                { label: 'brownfield-graph',description: 'Brownfield pipeline as a directed graph; Reviewer has separate back-edges to Developer and Planner' },
+                { label: 'magentic',        description: 'Manager LLM dynamically coordinates Researcher + Developer agents (no fixed routing)' },
+                { label: 'research',        description: 'Researcher gathers information, Writer produces the final report' },
+                { label: 'devops',          description: 'Three-agent pipeline for infrastructure and deployment tasks' },
+                { label: 'content',         description: 'Writer drafts, Editor refines and approves' },
+                { label: 'minimal',         description: 'Single general-purpose agent — simplest possible setup' },
+                { label: 'designer',        description: 'Describe your use case in plain language and get a validated config back' },
+                { label: '$(terminal) Interactive wizard', description: 'Run the full fuseraft init wizard in the terminal' },
             ];
 
-            const picked = await vscode.window.showQuickPick(templates, {
-                title: 'Fuseraft — Initialize Config',
+            const templatePick = await vscode.window.showQuickPick(TEMPLATES, {
+                title: 'Fuseraft Init  (1 / 4)  — Template',
                 placeHolder: 'Select a template',
+                matchOnDescription: true,
             });
-            if (!picked) { return; }
+            if (!templatePick) { return; }
 
-            if (picked.label === 'interactive') {
+            if (templatePick.label.startsWith('$(terminal)')) {
                 runInTerminal(`${getBinary()} init`, 'Fuseraft Init');
                 return;
             }
 
+            const template = templatePick.label;
+
+            // Step 2: model
+            const MODEL_ITEMS = [
+                { label: '$(settings-gear) Auto-detect from API keys', description: 'uses ~/.fuseraft/config or env vars', modelFlag: '' },
+                { label: 'claude-sonnet-4-6',       description: 'Anthropic',  modelFlag: 'claude-sonnet-4-6' },
+                { label: 'claude-opus-4-7',          description: 'Anthropic',  modelFlag: 'claude-opus-4-7' },
+                { label: 'claude-haiku-4-5',         description: 'Anthropic',  modelFlag: 'claude-haiku-4-5' },
+                { label: 'gpt-4o',                   description: 'OpenAI',     modelFlag: 'gpt-4o' },
+                { label: 'gpt-4o-mini',              description: 'OpenAI',     modelFlag: 'gpt-4o-mini' },
+                { label: 'grok-4',                   description: 'xAI',        modelFlag: 'grok-4' },
+                { label: 'grok-4-1-fast-reasoning',  description: 'xAI',        modelFlag: 'grok-4-1-fast-reasoning' },
+                { label: 'gemini-2.5-flash',         description: 'Google',     modelFlag: 'gemini-2.5-flash' },
+                { label: 'mistral-medium-latest',    description: 'Mistral',    modelFlag: 'mistral-medium-latest' },
+                { label: 'deepseek-chat',            description: 'DeepSeek',   modelFlag: 'deepseek-chat' },
+                { label: '$(edit) Enter model ID…',  description: '',           modelFlag: '' },
+            ] as const;
+
+            const modelPick = await vscode.window.showQuickPick([...MODEL_ITEMS], {
+                title: 'Fuseraft Init  (2 / 4)  — Model',
+                placeHolder: 'Pick a model or use auto-detection',
+            });
+            if (!modelPick) { return; }
+
+            let modelFlag = (modelPick as { modelFlag: string }).modelFlag;
+            if (modelPick.label === '$(edit) Enter model ID…') {
+                const custom = await vscode.window.showInputBox({
+                    title: 'Model ID',
+                    placeHolder: 'e.g. claude-sonnet-4-6',
+                    ignoreFocusOut: true,
+                });
+                if (custom === undefined) { return; }
+                modelFlag = custom.trim();
+            }
+
+            // Step 3: endpoint (optional)
+            const endpointPick = await vscode.window.showQuickPick(
+                [
+                    { label: '$(settings-gear) Use saved endpoint', description: 'from ~/.fuseraft/config', endpoint: '' },
+                    { label: 'https://api.anthropic.com',            description: 'Anthropic',   endpoint: 'https://api.anthropic.com' },
+                    { label: 'https://api.openai.com/v1',            description: 'OpenAI',      endpoint: 'https://api.openai.com/v1' },
+                    { label: 'https://api.x.ai/v1',                  description: 'xAI',         endpoint: 'https://api.x.ai/v1' },
+                    { label: 'https://generativelanguage.googleapis.com', description: 'Google', endpoint: 'https://generativelanguage.googleapis.com' },
+                    { label: 'https://api.mistral.ai/v1',            description: 'Mistral',     endpoint: 'https://api.mistral.ai/v1' },
+                    { label: 'https://api.deepseek.com/v1',          description: 'DeepSeek',    endpoint: 'https://api.deepseek.com/v1' },
+                    { label: '$(edit) Enter endpoint URL…',          description: '',            endpoint: '' },
+                ],
+                {
+                    title: 'Fuseraft Init  (3 / 4)  — Provider Endpoint',
+                    placeHolder: 'Pick a provider endpoint or use saved default',
+                }
+            );
+            if (!endpointPick) { return; }
+
+            let endpointFlag = (endpointPick as { endpoint: string }).endpoint;
+            if (endpointPick.label === '$(edit) Enter endpoint URL…') {
+                const custom = await vscode.window.showInputBox({
+                    title: 'Provider endpoint URL',
+                    placeHolder: 'e.g. https://chat.mycompany.com/openai/',
+                    ignoreFocusOut: true,
+                });
+                if (custom === undefined) { return; }
+                endpointFlag = custom.trim();
+            }
+
+            // Step 4: output path
+            const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
             const outputPath = await vscode.window.showInputBox({
-                title: 'Output path',
-                prompt: 'Config file path (relative to workspace root)',
+                title: 'Fuseraft Init  (4 / 4)  — Output Path',
+                prompt: 'Config file path (relative to workspace root, or absolute)',
                 value: 'config/orchestration.yaml',
                 ignoreFocusOut: true,
             });
             if (!outputPath) { return; }
 
-            const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '.';
             const fullPath = path.isAbsolute(outputPath)
                 ? outputPath
-                : path.join(workspaceRoot, outputPath);
+                : path.join(workspaceRoot ?? '.', outputPath);
 
-            runInTerminal(
-                `${getBinary()} init '${fullPath}' --template ${picked.label} --no-interactive`,
-                'Fuseraft Init'
-            );
+            // Build command
+            let cmd = `${getBinary()} init '${fullPath}' --template ${template} --no-interactive`;
+            if (modelFlag) { cmd += ` --model ${modelFlag}`; }
+            if (endpointFlag) { cmd += ` --endpoint '${endpointFlag}'`; }
 
-            // Refresh configs tree after a short delay
-            setTimeout(() => configProvider.refresh(), 3000);
+            runInTerminal(cmd, 'Fuseraft Init');
+
+            // Open the generated file once it appears on disk (poll up to 15 s)
+            openWhenReady(fullPath, configProvider);
         })
     );
 
@@ -306,6 +381,20 @@ async function resolveConfigPath(arg?: ConfigItem | string): Promise<string | un
     const configs = await findFuseraftConfigs();
     const picked = await pickConfig(configs);
     return picked?.fsPath;
+}
+
+function openWhenReady(filePath: string, configProvider: ConfigTreeProvider, timeoutMs = 15_000): void {
+    const start = Date.now();
+    const interval = setInterval(() => {
+        if (fs.existsSync(filePath)) {
+            clearInterval(interval);
+            configProvider.refresh();
+            vscode.window.showTextDocument(vscode.Uri.file(filePath));
+        } else if (Date.now() - start > timeoutMs) {
+            clearInterval(interval);
+            configProvider.refresh();
+        }
+    }, 500);
 }
 
 export function deactivate(): void {}
