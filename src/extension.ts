@@ -44,16 +44,21 @@ export function activate(context: vscode.ExtensionContext): void {
     statusBar.show();
     context.subscriptions.push(statusBar);
 
-    // Track context key for editor/context menu
+    // Track context key for editor/context menu — seed immediately and on every tab change
+    const setConfigContext = (editor: vscode.TextEditor | undefined) => {
+        vscode.commands.executeCommand(
+            'setContext',
+            'fuseraft.isFuseraftConfig',
+            editor ? isFuseraftConfig(editor.document.getText()) : false
+        );
+    };
+    setConfigContext(vscode.window.activeTextEditor);
     context.subscriptions.push(
-        vscode.window.onDidChangeActiveTextEditor(editor => {
-            if (!editor) { return; }
-            const text = editor.document.getText();
-            vscode.commands.executeCommand(
-                'setContext',
-                'fuseraft.isFuseraftConfig',
-                isFuseraftConfig(text)
-            );
+        vscode.window.onDidChangeActiveTextEditor(setConfigContext),
+        vscode.workspace.onDidChangeTextDocument(e => {
+            if (e.document === vscode.window.activeTextEditor?.document) {
+                setConfigContext(vscode.window.activeTextEditor);
+            }
         })
     );
 
@@ -73,13 +78,15 @@ export function activate(context: vscode.ExtensionContext): void {
         })
     );
 
-    // fuseraft.runFromConfig — run using a specific config (from tree or codelens)
+    // fuseraft.runFromConfig — run using a specific config (from tree, codelens, or explorer)
     context.subscriptions.push(
-        vscode.commands.registerCommand('fuseraft.runFromConfig', async (arg?: ConfigItem | string) => {
+        vscode.commands.registerCommand('fuseraft.runFromConfig', async (arg?: ConfigItem | string | vscode.Uri) => {
             let configPath: string | undefined;
 
             if (typeof arg === 'string') {
                 configPath = arg;
+            } else if (arg instanceof vscode.Uri) {
+                configPath = arg.fsPath;
             } else if (arg instanceof ConfigItem && arg.config.fsPath) {
                 configPath = arg.config.fsPath;
             } else {
@@ -217,9 +224,24 @@ export function activate(context: vscode.ExtensionContext): void {
         })
     );
 
+    // fuseraft.runTaskFile — run fuseraft with a task file (-f flag)
+    context.subscriptions.push(
+        vscode.commands.registerCommand('fuseraft.runTaskFile', async (arg?: vscode.Uri) => {
+            const taskFilePath = arg?.fsPath ?? vscode.window.activeTextEditor?.document.uri.fsPath;
+            if (!taskFilePath) { return; }
+
+            const configs = await findFuseraftConfigs();
+            const config = await pickConfig(configs);
+
+            const configFlag = config ? ` -c '${config.fsPath}'` : '';
+            const flags = getRunFlags() ? ` ${getRunFlags()}` : '';
+            runInTerminal(`${getBinary()} run${configFlag}${flags} -f '${taskFilePath}'`);
+        })
+    );
+
     // fuseraft.validate — validate a config file
     context.subscriptions.push(
-        vscode.commands.registerCommand('fuseraft.validate', async (arg?: ConfigItem | string) => {
+        vscode.commands.registerCommand('fuseraft.validate', async (arg?: ConfigItem | string | vscode.Uri) => {
             const configPath = await resolveConfigPath(arg);
             if (!configPath) { return; }
             runInTerminal(`${getBinary()} validate '${configPath}'`, 'Fuseraft Validate', true);
@@ -228,7 +250,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
     // fuseraft.validateDiagram — validate + show Mermaid diagram
     context.subscriptions.push(
-        vscode.commands.registerCommand('fuseraft.validateDiagram', async (arg?: ConfigItem | string) => {
+        vscode.commands.registerCommand('fuseraft.validateDiagram', async (arg?: ConfigItem | string | vscode.Uri) => {
             const configPath = await resolveConfigPath(arg);
             if (!configPath) { return; }
             runInTerminal(`${getBinary()} validate '${configPath}' --diagram`, 'Fuseraft Validate', true);
@@ -368,8 +390,9 @@ export function activate(context: vscode.ExtensionContext): void {
     context.subscriptions.push(sessionProvider, configProvider);
 }
 
-async function resolveConfigPath(arg?: ConfigItem | string): Promise<string | undefined> {
+async function resolveConfigPath(arg?: ConfigItem | string | vscode.Uri): Promise<string | undefined> {
     if (typeof arg === 'string') { return arg; }
+    if (arg instanceof vscode.Uri) { return arg.fsPath; }
     if (arg instanceof ConfigItem && arg.config.fsPath) { return arg.config.fsPath; }
 
     // Try active editor first

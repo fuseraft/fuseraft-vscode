@@ -42,6 +42,12 @@
         "icon": "$(play)"
       },
       {
+        "command": "fuseraft.runTaskFile",
+        "title": "Run Task File with Fuseraft",
+        "category": "Fuseraft",
+        "icon": "$(play)"
+      },
+      {
         "command": "fuseraft.init",
         "title": "Initialize Config",
         "category": "Fuseraft",
@@ -197,14 +203,53 @@
       ],
       "editor/context": [
         {
-          "command": "fuseraft.validate",
-          "when": "resourceExtname =~ /\\.(yaml|yml|json)/ && fuseraft.isFuseraftConfig",
-          "group": "fuseraft"
+          "command": "fuseraft.runFromConfig",
+          "when": "fuseraft.isFuseraftConfig",
+          "group": "fuseraft@1"
         },
         {
+          "command": "fuseraft.validate",
+          "when": "fuseraft.isFuseraftConfig",
+          "group": "fuseraft@2"
+        },
+        {
+          "command": "fuseraft.validateDiagram",
+          "when": "fuseraft.isFuseraftConfig",
+          "group": "fuseraft@3"
+        },
+        {
+          "command": "fuseraft.runTaskFile",
+          "when": "resourceExtname =~ /\\.(md|txt)/",
+          "group": "fuseraft@1"
+        }
+      ],
+      "explorer/context": [
+        {
           "command": "fuseraft.runFromConfig",
-          "when": "resourceExtname =~ /\\.(yaml|yml|json)/ && fuseraft.isFuseraftConfig",
-          "group": "fuseraft"
+          "when": "resourceExtname =~ /\\.(yaml|yml|json)/ && resourceFilename =~ /orchestration|fuseraft/",
+          "group": "fuseraft@1"
+        },
+        {
+          "command": "fuseraft.validate",
+          "when": "resourceExtname =~ /\\.(yaml|yml|json)/ && resourceFilename =~ /orchestration|fuseraft/",
+          "group": "fuseraft@2"
+        },
+        {
+          "command": "fuseraft.validateDiagram",
+          "when": "resourceExtname =~ /\\.(yaml|yml|json)/ && resourceFilename =~ /orchestration|fuseraft/",
+          "group": "fuseraft@3"
+        },
+        {
+          "command": "fuseraft.runTaskFile",
+          "when": "resourceExtname =~ /\\.(md|txt)/",
+          "group": "fuseraft@1"
+        }
+      ],
+      "editor/title/context": [
+        {
+          "command": "fuseraft.runTaskFile",
+          "when": "resourceExtname =~ /\\.(md|txt)/",
+          "group": "fuseraft@1"
         }
       ]
     },
