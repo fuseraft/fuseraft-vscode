@@ -111,6 +111,12 @@
         "command": "fuseraft.pickAndRun",
         "title": "Pick Config and Run Task",
         "category": "Fuseraft"
+      },
+      {
+        "command": "fuseraft.viewSession",
+        "title": "View Session Transcript",
+        "category": "Fuseraft",
+        "icon": "$(open-preview)"
       }
     ],
     "viewsContainers": {
@@ -124,6 +130,11 @@
     },
     "views": {
       "fuseraft": [
+        {
+          "id": "fuseraft.taskPanel",
+          "name": "Run Task",
+          "type": "webview"
+        },
         {
           "id": "fuseraft.sessions",
           "name": "Sessions",
@@ -163,6 +174,16 @@
         {
           "command": "fuseraft.resumeSession",
           "when": "view == fuseraft.sessions && viewItem == session-incomplete",
+          "group": "1_session"
+        },
+        {
+          "command": "fuseraft.viewSession",
+          "when": "view == fuseraft.sessions && (viewItem == session-incomplete || viewItem == session-complete)",
+          "group": "inline"
+        },
+        {
+          "command": "fuseraft.viewSession",
+          "when": "view == fuseraft.sessions && (viewItem == session-incomplete || viewItem == session-complete)",
           "group": "1_session"
         },
         {

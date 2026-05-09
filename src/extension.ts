@@ -4,6 +4,8 @@ import * as fs from 'fs';
 import { SessionTreeProvider, SessionItem } from './sessionTreeProvider';
 import { ConfigTreeProvider, ConfigItem } from './configTreeProvider';
 import { FuseraftCodeLensProvider, isFuseraftConfig } from './codeLensProvider';
+import { TaskPanelProvider } from './taskPanelProvider';
+import { SessionViewPanel } from './sessionViewPanel';
 import {
     getBinary, getRunFlags, findFuseraftConfigs, pickConfig,
     promptForTask, buildRunCommand, runInTerminal,
@@ -14,6 +16,7 @@ export function activate(context: vscode.ExtensionContext): void {
     const sessionProvider = new SessionTreeProvider();
     const configProvider = new ConfigTreeProvider();
     const codeLensProvider = new FuseraftCodeLensProvider();
+    const taskPanel = new TaskPanelProvider(context.extensionUri);
 
     // Tree views
     vscode.window.createTreeView('fuseraft.sessions', {
@@ -24,6 +27,11 @@ export function activate(context: vscode.ExtensionContext): void {
         treeDataProvider: configProvider,
         showCollapseAll: false,
     });
+
+    // Task panel webview (sidebar)
+    context.subscriptions.push(
+        vscode.window.registerWebviewViewProvider(TaskPanelProvider.viewType, taskPanel)
+    );
 
     // CodeLens for YAML/JSON config files
     context.subscriptions.push(
@@ -294,6 +302,15 @@ export function activate(context: vscode.ExtensionContext): void {
             }
 
             runInTerminal(cmd, 'Fuseraft REPL');
+        })
+    );
+
+    // fuseraft.viewSession — open session transcript in a webview panel
+    context.subscriptions.push(
+        vscode.commands.registerCommand('fuseraft.viewSession', (arg?: SessionItem) => {
+            if (arg?.session?.sessionId) {
+                SessionViewPanel.show(arg.session);
+            }
         })
     );
 
