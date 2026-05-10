@@ -43,7 +43,8 @@ export class TaskPanelProvider implements vscode.WebviewViewProvider {
             getRunFlags(),
         ].filter(Boolean).join(' ');
 
-        runInTerminal(buildRunCommand(getBinary(), task, configPath || undefined, extra || undefined));
+        const label = task.split('\n')[0].trim().slice(0, 40) || 'Task';
+        runInTerminal(buildRunCommand(getBinary(), task, configPath || undefined, extra || undefined), `Fuseraft — ${label}`);
     }
 
     private async _browseTaskFile(configPath: string, flags: Record<string, boolean>): Promise<void> {
@@ -254,6 +255,10 @@ runBtn.addEventListener('click', () => {
     const task = taskEl.value.trim();
     if (!task) { taskEl.focus(); return; }
     vscode.postMessage({ type: 'run', task, configPath: configEl.value, flags: getFlags() });
+    const prev = runBtn.textContent;
+    runBtn.textContent = '✓ Started';
+    runBtn.disabled = true;
+    setTimeout(() => { runBtn.textContent = prev; runBtn.disabled = false; }, 1500);
 });
 
 fileBtn.addEventListener('click', () => {
