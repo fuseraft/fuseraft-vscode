@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { SessionTreeProvider, SessionItem } from './sessionTreeProvider';
 import { ConfigTreeProvider, ConfigItem } from './configTreeProvider';
+import { ContextTreeProvider, ContextItemNode, getContextDir, readContextIndex } from './contextTreeProvider';
 import { FuseraftCodeLensProvider, isFuseraftConfig } from './codeLensProvider';
 import { TaskPanelProvider } from './taskPanelProvider';
 import { SessionViewPanel } from './sessionViewPanel';
@@ -15,6 +16,7 @@ import {
 export function activate(context: vscode.ExtensionContext): void {
     const sessionProvider = new SessionTreeProvider();
     const configProvider = new ConfigTreeProvider();
+    const contextProvider = new ContextTreeProvider();
     const codeLensProvider = new FuseraftCodeLensProvider();
     const taskPanel = new TaskPanelProvider(context.extensionUri);
 
@@ -25,6 +27,10 @@ export function activate(context: vscode.ExtensionContext): void {
     });
     vscode.window.createTreeView('fuseraft.configs', {
         treeDataProvider: configProvider,
+        showCollapseAll: false,
+    });
+    vscode.window.createTreeView('fuseraft.context', {
+        treeDataProvider: contextProvider,
         showCollapseAll: false,
     });
 
@@ -404,7 +410,93 @@ export function activate(context: vscode.ExtensionContext): void {
         })
     );
 
-    context.subscriptions.push(sessionProvider, configProvider);
+    // fuseraft.refreshContext
+    context.subscriptions.push(
+        vscode.commands.registerCommand('fuseraft.refreshContext', () => {
+            contextProvider.refresh();
+        })
+    );
+
+    // fuseraft.contextAdd — pick file/folder, optional name + description, run context add
+    context.subscriptions.push(
+        vscode.commands.registerCommand('fuseraft.contextAdd', async () => {
+            const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            if (!workspaceRoot) {
+                vscode.window.showWarningMessage('Open a workspace folder to manage context.');
+                return;
+            }
+
+            const uris = await vscode.window.showOpenDialog({
+                canSelectMany: false,
+                canSelectFiles: true,
+                canSelectFolders: true,
+                title: 'Select file or folder to add to context',
+            });
+            if (!uris?.[0]) { return; }
+
+            const sourcePath = uris[0].fsPath;
+            const defaultName = path.basename(sourcePath, path.extname(sourcePath));
+
+            const name = await vscode.window.showInputBox({
+                title: 'Context item name',
+                prompt: 'Short alias used to reference this item (leave blank to use filename)',
+                value: defaultName,
+                ignoreFocusOut: true,
+            });
+            if (name === undefined) { return; }
+
+            const description = await vscode.window.showInputBox({
+                title: 'Description (optional)',
+                prompt: 'Human-readable description appended to agent prompts',
+                placeHolder: 'e.g. Product specifications',
+                ignoreFocusOut: true,
+            });
+            if (description === undefined) { return; }
+
+            const binary = getBinary();
+            const nameFlag = name.trim() ? ` --name '${name.trim()}'` : '';
+            const descFlag = description.trim() ? ` --description '${description.trim()}'` : '';
+            runInTerminal(
+                `${binary} context add '${sourcePath}'${nameFlag}${descFlag} --dir '${workspaceRoot}'`,
+                'Fuseraft — Context'
+            );
+            setTimeout(() => contextProvider.refresh(), 2000);
+        })
+    );
+
+    // fuseraft.contextRemove — remove a context item by name
+    context.subscriptions.push(
+        vscode.commands.registerCommand('fuseraft.contextRemove', async (arg?: ContextItemNode) => {
+            const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            if (!workspaceRoot) { return; }
+
+            let name: string | undefined;
+            if (arg?.entry?.name) {
+                name = arg.entry.name;
+            } else {
+                const entries = readContextIndex();
+                if (entries.length === 0) {
+                    vscode.window.showInformationMessage('No context items to remove.');
+                    return;
+                }
+                const picked = await vscode.window.showQuickPick(
+                    entries.map(e => ({ label: e.name, description: e.description ?? e.sourcePath })),
+                    { title: 'Remove Context Item', placeHolder: 'Select an item to remove' }
+                );
+                if (!picked) { return; }
+                name = picked.label;
+            }
+
+            const binary = getBinary();
+            runInTerminal(
+                `${binary} context remove '${name}' --dir '${workspaceRoot}'`,
+                'Fuseraft — Context'
+            );
+            setTimeout(() => contextProvider.refresh(), 1500);
+        })
+    );
+
+    context.subscriptions.push(sessionProvider, configProvider, contextProvider);
 }
 
 async function resolveConfigPath(arg?: ConfigItem | string | vscode.Uri): Promise<string | undefined> {

@@ -1,8 +1,8 @@
 {
   "name": "fuseraft",
   "displayName": "Fuseraft",
-  "description": "Run and manage Fuseraft multi-agent orchestration from VS Code",
-  "version": "0.1.3",
+  "description": "Run and manage fuseraft multi-agent orchestrations from VS Code",
+  "version": "0.1.4",
   "publisher": "fuseraft",
   "license": "MIT",
   "repository": {
@@ -112,6 +112,24 @@
         "title": "View Session Transcript",
         "category": "Fuseraft",
         "icon": "$(open-preview)"
+      },
+      {
+        "command": "fuseraft.contextAdd",
+        "title": "Add Context",
+        "category": "Fuseraft",
+        "icon": "$(add)"
+      },
+      {
+        "command": "fuseraft.contextRemove",
+        "title": "Remove Context Item",
+        "category": "Fuseraft",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "fuseraft.refreshContext",
+        "title": "Refresh Context",
+        "category": "Fuseraft",
+        "icon": "$(refresh)"
       }
     ],
     "viewsContainers": {
@@ -139,6 +157,11 @@
           "id": "fuseraft.configs",
           "name": "Configs",
           "icon": "$(settings-gear)"
+        },
+        {
+          "id": "fuseraft.context",
+          "name": "Context",
+          "icon": "$(book)"
         }
       ]
     },
@@ -157,6 +180,16 @@
         {
           "command": "fuseraft.refreshConfigs",
           "when": "view == fuseraft.configs",
+          "group": "navigation"
+        },
+        {
+          "command": "fuseraft.contextAdd",
+          "when": "view == fuseraft.context",
+          "group": "navigation"
+        },
+        {
+          "command": "fuseraft.refreshContext",
+          "when": "view == fuseraft.context",
           "group": "navigation"
         }
       ],
@@ -215,6 +248,22 @@
           "command": "fuseraft.openConfig",
           "when": "view == fuseraft.configs && viewItem == config",
           "group": "1_config"
+        },
+        {
+          "command": "fuseraft.contextRemove",
+          "when": "view == fuseraft.context && viewItem == contextItem",
+          "group": "inline"
+        },
+        {
+          "command": "fuseraft.contextRemove",
+          "when": "view == fuseraft.context && viewItem == contextItem",
+          "group": "1_context"
+        }
+      ],
+      "views/welcome": [
+        {
+          "view": "fuseraft.context",
+          "contents": "No context items.\n\n[Add Context](command:fuseraft.contextAdd)\n\nContext lets agents reference your files, docs, and specs during a session."
         }
       ],
       "editor/context": [
