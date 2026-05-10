@@ -40,13 +40,15 @@ export class SessionViewPanel {
             require('os').homedir(), '.fuseraft', 'sessions', `${session.sessionId}.json`
         );
 
-        let data: SessionData;
+        let messages: Message[];
         try {
-            data = JSON.parse(fs.readFileSync(sessionFile, 'utf8'));
+            const raw = JSON.parse(fs.readFileSync(sessionFile, 'utf8'));
+            messages = raw.Messages ?? [];
         } catch {
             vscode.window.showErrorMessage(`Could not read session ${session.sessionId}`);
             return;
         }
+        const data: SessionData = { ...session, Messages: messages };
 
         const panel = vscode.window.createWebviewPanel(
             SessionViewPanel.viewType,
