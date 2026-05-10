@@ -2,7 +2,7 @@
   "name": "fuseraft",
   "displayName": "Fuseraft",
   "description": "Run and manage fuseraft multi-agent orchestrations from VS Code",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "publisher": "fuseraft",
   "license": "MIT",
   "repository": {

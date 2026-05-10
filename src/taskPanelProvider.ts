@@ -255,6 +255,7 @@ runBtn.addEventListener('click', () => {
     const task = taskEl.value.trim();
     if (!task) { taskEl.focus(); return; }
     vscode.postMessage({ type: 'run', task, configPath: configEl.value, flags: getFlags() });
+    taskEl.value = '';
     const prev = runBtn.textContent;
     runBtn.textContent = '✓ Started';
     runBtn.disabled = true;
