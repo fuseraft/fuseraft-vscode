@@ -5,26 +5,35 @@ Run and manage [Fuseraft](https://github.com/fuseraft/fuseraft-cli) multi-agent 
 ## Features
 
 ### Activity Bar Panel
-A dedicated Fuseraft panel in the activity bar gives you three persistent views:
+
+A dedicated Fuseraft panel in the activity bar gives you four persistent views:
 
 **Run Task** — a webview form for composing and launching tasks:
 - Multi-line textarea for your task description (paste prose, markdown specs, or bullet lists)
 - Config dropdown auto-populated from configs found in your workspace
-- Checkboxes for common flags with inline descriptions:
+- Checkboxes for common flags:
   - **Human-in-the-loop** (`--hitl`) — pause after every agent turn to review or redirect
   - **Show tool calls** (`--tools`) — print tool invocations inline in the output
   - **Verbose** (`--verbose`) — enable debug logging and token counts
   - **DevUI** (`--devui`) — open real-time session visualization in the browser
-- **Run Task** button (`Ctrl+Enter`) — builds and runs the command in the integrated terminal
+- **Run Task** button (`Ctrl+Enter`) — opens a dedicated terminal named after the first 40 characters of your task. Multiple tasks can run simultaneously, each in their own terminal.
 - **Run Task File…** button — opens a file picker to select a `.md` or `.txt` task file
 
-**Sessions** — lists all past sessions from `~/.fuseraft/sessions/`, showing session ID, task preview, age, and status (complete / incomplete). The list auto-refreshes as sessions change on disk.
-- Click an incomplete session to resume it
-- Click the preview icon or right-click → **View Session Transcript** to open a formatted transcript panel
+**Sessions** — lists all past sessions from `~/.fuseraft/sessions/`, showing session ID, task preview, age, and status. The list auto-refreshes as sessions change on disk.
+- Click an incomplete session to resume it in the terminal
+- Click the preview icon or right-click → **View Session Transcript** to open a formatted transcript panel for any session (complete or incomplete)
+- Right-click → **Open Session Config** to jump to the config used for a session
+- Right-click → **Delete Session** to permanently remove a session
 
 **Configs** — discovers every YAML or JSON file in your workspace that contains an `Orchestration:` key. Click any config to open it. The list updates automatically when files are added or removed.
 
+**Context** — manages reference material that agents can access during sessions. Items are stored in `.fuseraft/context/` relative to your workspace root and auto-refresh when the index changes.
+- Click **+** in the toolbar or right-click → **Add Context** to import a file or folder. You will be prompted for an optional name (defaults to the filename) and description.
+- Right-click any item → **Remove Context Item** to delete it and its copied files
+- Hover over an item to see its source path, import time, and file count
+
 ### Session Transcript Viewer
+
 Click the preview icon next to any session to open a rich transcript panel showing:
 - Session metadata: ID, task, config path, start time, completion status
 - Every agent turn as a card with a color-coded header per agent
@@ -33,6 +42,7 @@ Click the preview icon next to any session to open a rich transcript panel showi
 - Session-level totals: turn count, total tokens, total cost
 
 ### CodeLens on Config Files
+
 When you open a fuseraft config, three inline actions appear above the first line:
 
 ```
@@ -46,10 +56,11 @@ When you open a fuseraft config, three inline actions appear above the first lin
 - **Validate Config**
 - **Validate Config and Show Diagram**
 
-**Task files** (`.md`, `.txt`) — right-click in the file explorer, inside the editor, or on the editor tab:
+**Task files** (`.md`, `.txt`) — right-click in the file explorer or inside the editor:
 - **Run Task File with Fuseraft** — runs `fuseraft run -f <file>`, prompting for a config if multiple are found
 
 ### Command Palette
+
 All commands are available via `Ctrl+Shift+P` / `Cmd+Shift+P` under the `Fuseraft:` prefix:
 
 | Command | Description |
@@ -62,8 +73,11 @@ All commands are available via `Ctrl+Shift+P` / `Cmd+Shift+P` under the `Fuseraf
 | `Fuseraft: Open REPL` | Start an interactive single-agent chat session |
 | `Fuseraft: Resume Session` | Pick an incomplete session to resume |
 | `Fuseraft: View Session Transcript` | Open a formatted transcript for a session |
+| `Fuseraft: Add Context` | Import a file or folder into the session context store |
+| `Fuseraft: Remove Context Item` | Remove a context item and delete its copied files |
 
 ### Initialize Config Wizard
+
 `Fuseraft: Initialize Config` walks through four steps:
 
 1. **Template** — choose from all available templates:
@@ -88,9 +102,11 @@ All commands are available via `Ctrl+Shift+P` / `Cmd+Shift+P` under the `Fuseraf
 The generated config file opens automatically in the editor as soon as fuseraft writes it to disk.
 
 ### Status Bar
+
 A `⊙ Fuseraft` button is always visible in the status bar. Click it to run a task.
 
 ### YAML / JSON IntelliSense
+
 The extension ships a full JSON Schema for fuseraft config files. You get autocomplete, inline documentation, and validation for all fields — `Agents`, `Models`, `Plugins`, `Capabilities`, `Contracts`, `Routes`, `Security`, `Compaction`, and more.
 
 Schema validation is enabled automatically for files matching `**/orchestration.json` and `**/*.fuseraft.json`. For YAML files, add this to your VS Code settings (requires the [YAML extension](https://marketplace.visualstudio.com/items?itemName=redhat.vscode-yaml)):
