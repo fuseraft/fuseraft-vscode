@@ -91,12 +91,5 @@ export class SessionItem extends vscode.TreeItem {
                 : new vscode.ThemeColor('testing.iconQueued')
         );
 
-        if (!session.isComplete) {
-            this.command = {
-                command: 'fuseraft.resumeSession',
-                title: 'Resume Session',
-                arguments: [this],
-            };
-        }
     }
 }
