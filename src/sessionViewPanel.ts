@@ -313,7 +313,8 @@ function buildAgentColors(messages: Message[]): Map<string, string> {
     return map;
 }
 
-function esc(s: string): string {
+function esc(s: string | null | undefined): string {
+    if (s == null) { return ''; }
     return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
