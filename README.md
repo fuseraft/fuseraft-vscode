@@ -19,13 +19,13 @@ A dedicated fuseraft panel in the activity bar gives you four persistent views:
 - **Run Task** button (`Ctrl+Enter`) — opens a dedicated terminal named after the first 40 characters of your task. Multiple tasks can run simultaneously, each in their own terminal.
 - **Run Task File…** button — opens a file picker to select a `.md` or `.txt` task file
 
-**Sessions** — lists all past sessions from `~/.fuseraft/sessions/`, showing session ID, task preview, age, and status. The list auto-refreshes as sessions change on disk.
+**Sessions** — lists sessions from `~/.fuseraft/sessions/` scoped to the current workspace (filtered by config path). Shows session ID, task preview, age, and status. The list auto-refreshes as sessions change on disk.
 - Click an incomplete session to resume it in the terminal
 - Click the preview icon or right-click → **View Session Transcript** to open a formatted transcript panel for any session (complete or incomplete)
 - Right-click → **Open Session Config** to jump to the config used for a session
 - Right-click → **Delete Session** to permanently remove a session
 
-**Configs** — discovers every YAML or JSON file in your workspace that contains an `Orchestration:` key. Click any config to open it. The list updates automatically when files are added or removed.
+**Configs** — discovers every YAML or JSON file in your workspace that contains an `Orchestration:` key. Click any config to open it. The list updates automatically when files are added or removed. Click **+** in the toolbar to run the Initialize Config wizard.
 
 **Context** — manages reference material that agents can access during sessions. Items are stored in `.fuseraft/context/` relative to your workspace root and auto-refresh when the index changes.
 - Click **+** in the toolbar or right-click → **Add Context** to import a file or folder. You will be prompted for an optional name (defaults to the filename) and description.
@@ -103,7 +103,7 @@ The generated config file opens automatically in the editor as soon as fuseraft 
 
 ### Status Bar
 
-A `⊙ fuseraft` button is always visible in the status bar. Click it to run a task.
+A `fuseraft` button is always visible in the status bar. Click it to run a task.
 
 ### YAML / JSON IntelliSense
 
