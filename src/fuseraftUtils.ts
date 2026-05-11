@@ -126,7 +126,7 @@ export function formatRelativeTime(isoDate: string): string {
     return `${days}d ago`;
 }
 
-export function runInTerminal(command: string, name = 'Fuseraft', reuse = false): void {
+export function runInTerminal(command: string, name = 'fuseraft', reuse = false): void {
     const openOnRun = vscode.workspace.getConfiguration('fuseraft').get<boolean>('openTerminalOnRun', true);
 
     let terminal: vscode.Terminal | undefined;
@@ -187,7 +187,7 @@ export async function pickConfig(configs: ConfigInfo[]): Promise<ConfigInfo | un
 
 export async function promptForTask(): Promise<string | undefined> {
     return vscode.window.showInputBox({
-        title: 'Fuseraft — Run Task',
+        title: 'fuseraft — Run Task',
         prompt: 'Describe the task for the agent team',
         placeHolder: 'e.g. Add pagination to the user list endpoint',
         ignoreFocusOut: true,

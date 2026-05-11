@@ -44,7 +44,7 @@ export class TaskPanelProvider implements vscode.WebviewViewProvider {
         ].filter(Boolean).join(' ');
 
         const label = task.split('\n')[0].trim().slice(0, 40) || 'Task';
-        runInTerminal(buildRunCommand(getBinary(), task, configPath || undefined, extra || undefined), `Fuseraft — ${label}`);
+        runInTerminal(buildRunCommand(getBinary(), task, configPath || undefined, extra || undefined), `fuseraft — ${label}`);
     }
 
     private async _browseTaskFile(configPath: string, flags: Record<string, boolean>): Promise<void> {

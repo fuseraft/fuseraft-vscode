@@ -1,6 +1,6 @@
 {
   "name": "fuseraft",
-  "displayName": "Fuseraft",
+  "displayName": "fuseraft",
   "description": "Run and manage fuseraft multi-agent orchestrations from VS Code",
   "version": "0.1.9",
   "publisher": "fuseraft",
@@ -33,103 +33,103 @@
       {
         "command": "fuseraft.run",
         "title": "Run Task",
-        "category": "Fuseraft",
+        "category": "fuseraft",
         "icon": "$(play)"
       },
       {
         "command": "fuseraft.runFromConfig",
         "title": "Run Task with This Config",
-        "category": "Fuseraft",
+        "category": "fuseraft",
         "icon": "$(play)"
       },
       {
         "command": "fuseraft.runTaskFile",
-        "title": "Run Task File with Fuseraft",
-        "category": "Fuseraft",
+        "title": "Run Task File with fuseraft",
+        "category": "fuseraft",
         "icon": "$(play)"
       },
       {
         "command": "fuseraft.init",
         "title": "Initialize Config",
-        "category": "Fuseraft",
+        "category": "fuseraft",
         "icon": "$(new-file)"
       },
       {
         "command": "fuseraft.validate",
         "title": "Validate Config",
-        "category": "Fuseraft",
+        "category": "fuseraft",
         "icon": "$(check)"
       },
       {
         "command": "fuseraft.validateDiagram",
         "title": "Validate Config and Show Diagram",
-        "category": "Fuseraft",
+        "category": "fuseraft",
         "icon": "$(type-hierarchy)"
       },
       {
         "command": "fuseraft.repl",
         "title": "Open REPL",
-        "category": "Fuseraft",
+        "category": "fuseraft",
         "icon": "$(terminal)"
       },
       {
         "command": "fuseraft.resumeSession",
         "title": "Resume Session",
-        "category": "Fuseraft",
+        "category": "fuseraft",
         "icon": "$(debug-continue)"
       },
       {
         "command": "fuseraft.deleteSession",
         "title": "Delete Session",
-        "category": "Fuseraft",
+        "category": "fuseraft",
         "icon": "$(trash)"
       },
       {
         "command": "fuseraft.openSessionConfig",
         "title": "Open Session Config",
-        "category": "Fuseraft",
+        "category": "fuseraft",
         "icon": "$(go-to-file)"
       },
       {
         "command": "fuseraft.refreshSessions",
         "title": "Refresh Sessions",
-        "category": "Fuseraft",
+        "category": "fuseraft",
         "icon": "$(refresh)"
       },
       {
         "command": "fuseraft.refreshConfigs",
         "title": "Refresh Configs",
-        "category": "Fuseraft",
+        "category": "fuseraft",
         "icon": "$(refresh)"
       },
       {
         "command": "fuseraft.openConfig",
         "title": "Open Config",
-        "category": "Fuseraft",
+        "category": "fuseraft",
         "icon": "$(go-to-file)"
       },
       {
         "command": "fuseraft.viewSession",
         "title": "View Session Transcript",
-        "category": "Fuseraft",
+        "category": "fuseraft",
         "icon": "$(open-preview)"
       },
       {
         "command": "fuseraft.contextAdd",
         "title": "Add Context",
-        "category": "Fuseraft",
+        "category": "fuseraft",
         "icon": "$(add)"
       },
       {
         "command": "fuseraft.contextRemove",
         "title": "Remove Context Item",
-        "category": "Fuseraft",
+        "category": "fuseraft",
         "icon": "$(trash)"
       },
       {
         "command": "fuseraft.refreshContext",
         "title": "Refresh Context",
-        "category": "Fuseraft",
+        "category": "fuseraft",
         "icon": "$(refresh)"
       }
     ],
@@ -137,7 +137,7 @@
       "activitybar": [
         {
           "id": "fuseraft",
-          "title": "Fuseraft",
+          "title": "fuseraft",
           "icon": "media/fuseraft.svg"
         }
       ]
@@ -325,7 +325,7 @@
       ]
     },
     "configuration": {
-      "title": "Fuseraft",
+      "title": "fuseraft",
       "properties": {
         "fuseraft.binaryPath": {
           "type": "string",

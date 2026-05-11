@@ -1,12 +1,12 @@
-# Fuseraft for VS Code
+# fuseraft for VS Code
 
-Run and manage [Fuseraft](https://github.com/fuseraft/fuseraft-cli) multi-agent orchestration without leaving your editor.
+Run and manage [fuseraft](https://github.com/fuseraft/fuseraft-cli) multi-agent orchestration without leaving your editor.
 
 ## Features
 
 ### Activity Bar Panel
 
-A dedicated Fuseraft panel in the activity bar gives you four persistent views:
+A dedicated fuseraft panel in the activity bar gives you four persistent views:
 
 **Run Task** — a webview form for composing and launching tasks:
 - Multi-line textarea for your task description (paste prose, markdown specs, or bullet lists)
@@ -57,28 +57,28 @@ When you open a fuseraft config, three inline actions appear above the first lin
 - **Validate Config and Show Diagram**
 
 **Task files** (`.md`, `.txt`) — right-click in the file explorer or inside the editor:
-- **Run Task File with Fuseraft** — runs `fuseraft run -f <file>`, prompting for a config if multiple are found
+- **Run Task File with fuseraft** — runs `fuseraft run -f <file>`, prompting for a config if multiple are found
 
 ### Command Palette
 
-All commands are available via `Ctrl+Shift+P` / `Cmd+Shift+P` under the `Fuseraft:` prefix:
+All commands are available via `Ctrl+Shift+P` / `Cmd+Shift+P` under the `fuseraft:` prefix:
 
 | Command | Description |
 |---------|-------------|
-| `Fuseraft: Run Task` | Prompt for a task, pick a config, and run in the integrated terminal |
-| `Fuseraft: Run Task File with Fuseraft` | Run a `.md` or `.txt` task file with `fuseraft run -f` |
-| `Fuseraft: Initialize Config` | 4-step wizard: template, model, provider endpoint, output path |
-| `Fuseraft: Validate Config` | Validate a config file and print results |
-| `Fuseraft: Validate Config and Show Diagram` | Validate and print a Mermaid flowchart of the pipeline |
-| `Fuseraft: Open REPL` | Start an interactive single-agent chat session |
-| `Fuseraft: Resume Session` | Pick an incomplete session to resume |
-| `Fuseraft: View Session Transcript` | Open a formatted transcript for a session |
-| `Fuseraft: Add Context` | Import a file or folder into the session context store |
-| `Fuseraft: Remove Context Item` | Remove a context item and delete its copied files |
+| `fuseraft: Run Task` | Prompt for a task, pick a config, and run in the integrated terminal |
+| `fuseraft: Run Task File with fuseraft` | Run a `.md` or `.txt` task file with `fuseraft run -f` |
+| `fuseraft: Initialize Config` | 4-step wizard: template, model, provider endpoint, output path |
+| `fuseraft: Validate Config` | Validate a config file and print results |
+| `fuseraft: Validate Config and Show Diagram` | Validate and print a Mermaid flowchart of the pipeline |
+| `fuseraft: Open REPL` | Start an interactive single-agent chat session |
+| `fuseraft: Resume Session` | Pick an incomplete session to resume |
+| `fuseraft: View Session Transcript` | Open a formatted transcript for a session |
+| `fuseraft: Add Context` | Import a file or folder into the session context store |
+| `fuseraft: Remove Context Item` | Remove a context item and delete its copied files |
 
 ### Initialize Config Wizard
 
-`Fuseraft: Initialize Config` walks through four steps:
+`fuseraft: Initialize Config` walks through four steps:
 
 1. **Template** — choose from all available templates:
 
@@ -103,7 +103,7 @@ The generated config file opens automatically in the editor as soon as fuseraft 
 
 ### Status Bar
 
-A `⊙ Fuseraft` button is always visible in the status bar. Click it to run a task.
+A `⊙ fuseraft` button is always visible in the status bar. Click it to run a task.
 
 ### YAML / JSON IntelliSense
 

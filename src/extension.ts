@@ -52,8 +52,8 @@ export function activate(context: vscode.ExtensionContext): void {
 
     // Status bar
     const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 10);
-    statusBar.text = '$(robot) Fuseraft';
-    statusBar.tooltip = 'Fuseraft: Run Task';
+    statusBar.text = '$(circuit-board) fuseraft';
+    statusBar.tooltip = 'fuseraft: Run Task';
     statusBar.command = 'fuseraft.run';
     statusBar.show();
     context.subscriptions.push(statusBar);
@@ -136,14 +136,14 @@ export function activate(context: vscode.ExtensionContext): void {
             ];
 
             const templatePick = await vscode.window.showQuickPick(TEMPLATES, {
-                title: 'Fuseraft Init  (1 / 4)  — Template',
+                title: 'fuseraft init  (1 / 4)  — Template',
                 placeHolder: 'Select a template',
                 matchOnDescription: true,
             });
             if (!templatePick) { return; }
 
             if (templatePick.label.startsWith('$(terminal)')) {
-                runInTerminal(`${getBinary()} init`, 'Fuseraft Init');
+                runInTerminal(`${getBinary()} init`, 'fuseraft init');
                 return;
             }
 
@@ -166,7 +166,7 @@ export function activate(context: vscode.ExtensionContext): void {
             ] as const;
 
             const modelPick = await vscode.window.showQuickPick([...MODEL_ITEMS], {
-                title: 'Fuseraft Init  (2 / 4)  — Model',
+                title: 'fuseraft init  (2 / 4)  — Model',
                 placeHolder: 'Pick a model or use auto-detection',
             });
             if (!modelPick) { return; }
@@ -195,7 +195,7 @@ export function activate(context: vscode.ExtensionContext): void {
                     { label: '$(edit) Enter endpoint URL…',          description: '',            endpoint: '' },
                 ],
                 {
-                    title: 'Fuseraft Init  (3 / 4)  — Provider Endpoint',
+                    title: 'fuseraft init  (3 / 4)  — Provider Endpoint',
                     placeHolder: 'Pick a provider endpoint or use saved default',
                 }
             );
@@ -215,7 +215,7 @@ export function activate(context: vscode.ExtensionContext): void {
             // Step 4: output path
             const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
             const outputPath = await vscode.window.showInputBox({
-                title: 'Fuseraft Init  (4 / 4)  — Output Path',
+                title: 'fuseraft init  (4 / 4)  — Output Path',
                 prompt: 'Config file path (relative to workspace root, or absolute)',
                 value: 'config/orchestration.yaml',
                 ignoreFocusOut: true,
@@ -231,7 +231,7 @@ export function activate(context: vscode.ExtensionContext): void {
             if (modelFlag) { cmd += ` --model ${modelFlag}`; }
             if (endpointFlag) { cmd += ` --endpoint '${endpointFlag}'`; }
 
-            runInTerminal(cmd, 'Fuseraft Init');
+            runInTerminal(cmd, 'fuseraft init');
 
             // Open the generated file once it appears on disk (poll up to 15 s)
             openWhenReady(fullPath, configProvider);
@@ -258,7 +258,7 @@ export function activate(context: vscode.ExtensionContext): void {
         vscode.commands.registerCommand('fuseraft.validate', async (arg?: ConfigItem | string | vscode.Uri) => {
             const configPath = await resolveConfigPath(arg);
             if (!configPath) { return; }
-            runInTerminal(`${getBinary()} validate '${configPath}'`, 'Fuseraft Validate', true);
+            runInTerminal(`${getBinary()} validate '${configPath}'`, 'fuseraft validate', true);
         })
     );
 
@@ -267,7 +267,7 @@ export function activate(context: vscode.ExtensionContext): void {
         vscode.commands.registerCommand('fuseraft.validateDiagram', async (arg?: ConfigItem | string | vscode.Uri) => {
             const configPath = await resolveConfigPath(arg);
             if (!configPath) { return; }
-            runInTerminal(`${getBinary()} validate '${configPath}' --diagram`, 'Fuseraft Validate', true);
+            runInTerminal(`${getBinary()} validate '${configPath}' --diagram`, 'fuseraft validate', true);
         })
     );
 
@@ -281,6 +281,7 @@ export function activate(context: vscode.ExtensionContext): void {
                 'gpt-4o',
                 'gpt-4o-mini',
                 'grok-4-1-fast-reasoning',
+                'grok-code-fast-1',
                 'gemini-2.0-flash',
             ];
 
@@ -290,7 +291,7 @@ export function activate(context: vscode.ExtensionContext): void {
                     ...models.map(m => ({ label: m, description: '' })),
                     { label: '$(edit) Enter model ID…', description: '' },
                 ],
-                { title: 'Fuseraft REPL — Select model', placeHolder: 'Pick a model or use default' }
+                { title: 'fuseraft repl — Select model', placeHolder: 'Pick a model or use default' }
             );
             if (!picked) { return; }
 
@@ -307,7 +308,7 @@ export function activate(context: vscode.ExtensionContext): void {
                 cmd += ` --model ${picked.label}`;
             }
 
-            runInTerminal(cmd, 'Fuseraft REPL');
+            runInTerminal(cmd, 'fuseraft repl');
         })
     );
 
@@ -348,7 +349,7 @@ export function activate(context: vscode.ExtensionContext): void {
             }
 
             if (!sessionId) { return; }
-            runInTerminal(`${getBinary()} run --resume ${sessionId}`, 'Fuseraft');
+            runInTerminal(`${getBinary()} run --resume ${sessionId}`, 'fuseraft');
         })
     );
 
@@ -368,7 +369,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
             runInTerminal(
                 `${getBinary()} sessions --delete ${session.sessionId}`,
-                'Fuseraft Sessions',
+                'fuseraft sessions',
                 true
             );
             setTimeout(() => sessionProvider.refresh(), 1500);
@@ -458,7 +459,7 @@ export function activate(context: vscode.ExtensionContext): void {
             const descFlag = description.trim() ? ` --description '${description.trim()}'` : '';
             runInTerminal(
                 `${binary} context add '${sourcePath}'${nameFlag}${descFlag} --dir '${workspaceRoot}'`,
-                'Fuseraft — Context'
+                'fuseraft context'
             );
             setTimeout(() => contextProvider.refresh(), 2000);
         })
@@ -490,7 +491,7 @@ export function activate(context: vscode.ExtensionContext): void {
             const binary = getBinary();
             runInTerminal(
                 `${binary} context remove '${name}' --dir '${workspaceRoot}'`,
-                'Fuseraft — Context'
+                'fuseraft context'
             );
             setTimeout(() => contextProvider.refresh(), 1500);
         })
