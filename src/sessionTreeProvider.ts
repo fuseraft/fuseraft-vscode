@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import { SessionInfo, readSessions, formatTaskPreview, formatRelativeTime, getSessionsDir } from './fuseraftUtils';
+import { SessionInfo, readSessions, filterSessionsToWorkspace, formatTaskPreview, formatRelativeTime, getSessionsDir } from './fuseraftUtils';
 
 export class SessionTreeProvider implements vscode.TreeDataProvider<SessionItem> {
     private _onDidChangeTreeData = new vscode.EventEmitter<SessionItem | undefined | void>();
@@ -38,7 +38,7 @@ export class SessionTreeProvider implements vscode.TreeDataProvider<SessionItem>
     async getChildren(element?: SessionItem): Promise<SessionItem[]> {
         if (element) { return []; }
 
-        const sessions = readSessions();
+        const sessions = filterSessionsToWorkspace(readSessions());
         if (sessions.length === 0) {
             return [new SessionItem({
                 sessionId: '',

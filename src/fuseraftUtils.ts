@@ -64,6 +64,13 @@ export function readSessions(): SessionInfo[] {
     );
 }
 
+export function filterSessionsToWorkspace(sessions: SessionInfo[]): SessionInfo[] {
+    const folders = vscode.workspace.workspaceFolders;
+    if (!folders || folders.length === 0) { return sessions; }
+    const roots = folders.map(f => f.uri.fsPath);
+    return sessions.filter(s => s.configPath && roots.some(r => s.configPath.startsWith(r + path.sep) || s.configPath.startsWith(r + '/')));
+}
+
 export async function findFuseraftConfigs(): Promise<ConfigInfo[]> {
     const configs: ConfigInfo[] = [];
     const seen = new Set<string>();
