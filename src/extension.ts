@@ -12,6 +12,7 @@ import {
     promptForTask, buildRunCommand, runInTerminal,
     getSessionsDir,
 } from './fuseraftUtils';
+import { isConfigured, runSetupWizard } from './setupWizard';
 
 export function activate(context: vscode.ExtensionContext): void {
     const sessionProvider = new SessionTreeProvider();
@@ -57,6 +58,18 @@ export function activate(context: vscode.ExtensionContext): void {
     statusBar.command = 'fuseraft.run';
     statusBar.show();
     context.subscriptions.push(statusBar);
+
+    // First-run: prompt to configure if ~/.fuseraft/config is missing or incomplete
+    if (!isConfigured()) {
+        vscode.window.showInformationMessage(
+            'fuseraft is not configured. Set up your provider and API key to get started.',
+            'Set Up Now'
+        ).then(choice => {
+            if (choice === 'Set Up Now') {
+                vscode.commands.executeCommand('fuseraft.setup');
+            }
+        });
+    }
 
     // Track context key for editor/context menu — seed immediately and on every tab change
     const setConfigContext = (editor: vscode.TextEditor | undefined) => {
@@ -495,6 +508,11 @@ export function activate(context: vscode.ExtensionContext): void {
             );
             setTimeout(() => contextProvider.refresh(), 1500);
         })
+    );
+
+    // fuseraft.setup — first-run provider/model/API key wizard
+    context.subscriptions.push(
+        vscode.commands.registerCommand('fuseraft.setup', () => runSetupWizard())
     );
 
     context.subscriptions.push(sessionProvider, configProvider, contextProvider);

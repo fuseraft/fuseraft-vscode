@@ -131,6 +131,12 @@
         "title": "Refresh Context",
         "category": "fuseraft",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "fuseraft.setup",
+        "title": "Set Up Provider",
+        "category": "fuseraft",
+        "icon": "$(account)"
       }
     ],
     "viewsContainers": {
