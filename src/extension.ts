@@ -10,7 +10,7 @@ import { SessionViewPanel } from './sessionViewPanel';
 import {
     getBinary, getRunFlags, findFuseraftConfigs, pickConfig,
     promptForTask, buildRunCommand, runInTerminal,
-    getSessionsDir, validateBinaryPath,
+    getSessionsDir, validateBinaryPath, resetBinaryValidation, disposeOutputChannel,
 } from './fuseraftUtils';
 import { isConfigured, runSetupWizard } from './setupWizard';
 
@@ -101,6 +101,15 @@ export function activate(context: vscode.ExtensionContext): void {
         vscode.workspace.onDidChangeTextDocument(e => {
             if (e.document === vscode.window.activeTextEditor?.document) {
                 setConfigContext(vscode.window.activeTextEditor);
+            }
+        })
+    );
+
+    // Listen for binary path configuration changes and reset validation state
+    context.subscriptions.push(
+        vscode.workspace.onDidChangeConfiguration(e => {
+            if (e.affectsConfiguration('fuseraft.binaryPath')) {
+                resetBinaryValidation();
             }
         })
     );
@@ -564,4 +573,6 @@ function openWhenReady(filePath: string, configProvider: ConfigTreeProvider, tim
     }, 500);
 }
 
-export function deactivate(): void {}
+export function deactivate(): void {
+    disposeOutputChannel();
+}

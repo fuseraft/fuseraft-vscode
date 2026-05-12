@@ -7,6 +7,16 @@ import { promisify } from 'util';
 
 const execFileAsync = promisify(execFile);
 
+let outputChannel: vscode.OutputChannel | undefined;
+let binaryValidationChecked = false;
+
+function getOutputChannel(): vscode.OutputChannel {
+    if (!outputChannel) {
+        outputChannel = vscode.window.createOutputChannel('fuseraft');
+    }
+    return outputChannel;
+}
+
 export interface SessionInfo {
     sessionId: string;
     task: string;
@@ -23,7 +33,36 @@ export interface ConfigInfo {
 }
 
 export function getBinary(): string {
-    return vscode.workspace.getConfiguration('fuseraft').get<string>('binaryPath', 'fuseraft');
+    const binaryPath = vscode.workspace.getConfiguration('fuseraft').get<string>('binaryPath', 'fuseraft');
+    
+    // Lazy validation on first call — log warning to output channel if invalid
+    if (!binaryValidationChecked) {
+        binaryValidationChecked = true;
+        validateBinaryPath(binaryPath).then(validation => {
+            if (!validation.valid) {
+                const channel = getOutputChannel();
+                channel.appendLine(`[WARNING] fuseraft binary path is invalid: ${validation.error}`);
+                channel.appendLine(`  Current setting: fuseraft.binaryPath = "${binaryPath}"`);
+                channel.appendLine(`  Configure via: VS Code Settings > Extensions > fuseraft > Binary Path`);
+                channel.appendLine(`  Or run: "fuseraft: Set Up Provider" from the command palette`);
+            }
+        }).catch(() => {
+            // Validation failure already logged via validateBinaryPath error handling
+        });
+    }
+    
+    return binaryPath;
+}
+
+export function resetBinaryValidation(): void {
+    binaryValidationChecked = false;
+}
+
+export function disposeOutputChannel(): void {
+    if (outputChannel) {
+        outputChannel.dispose();
+        outputChannel = undefined;
+    }
 }
 
 export async function validateBinaryPath(binaryPath: string): Promise<{ valid: boolean; version?: string; error?: string }> {
