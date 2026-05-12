@@ -75,7 +75,7 @@ All commands are available via `Ctrl+Shift+P` / `Cmd+Shift+P` under the `fuseraf
 | `fuseraft: View Session Transcript` | Open a formatted transcript for a session |
 | `fuseraft: Add Context` | Import a file or folder into the session context store |
 | `fuseraft: Remove Context Item` | Remove a context item and delete its copied files |
-| `fuseraft: Set Up Provider` | Configure your AI provider, model, and API key |
+| `fuseraft: Set Up Provider` | Configure your AI provider, model, API key, and binary path |
 
 ### Initialize Config Wizard
 
@@ -104,13 +104,14 @@ The generated config file opens automatically in the editor as soon as fuseraft 
 
 ### Set Up Provider Wizard
 
-`fuseraft: Set Up Provider` runs automatically on first use when `~/.fuseraft/config` is missing or incomplete. You can also invoke it at any time from the command palette.
+`fuseraft: Set Up Provider` runs automatically on first use when the fuseraft binary is not found or when `~/.fuseraft/config` is missing or incomplete. You can also invoke it at any time from the command palette.
 
-The wizard walks through three steps:
+The wizard walks through four steps:
 
-1. **Provider** — choose from Anthropic, OpenAI, xAI, Google, Mistral, DeepSeek, or Custom / Self-hosted (any OpenAI-compatible endpoint)
-2. **Model** — pick a common model for the selected provider, or enter any model ID
-3. **API Key** — paste your key (stored temporarily in `~/.fuseraft/config`; migrated to your OS keychain the next time you run `fuseraft repl`)
+1. **Binary Path** — validate the current binary path or configure a new one. If the current path is invalid, you can browse for the binary or enter a path manually. The wizard validates the binary by running `fuseraft --version`.
+2. **Provider** — choose from Anthropic, OpenAI, xAI, Google, Mistral, DeepSeek, or Custom / Self-hosted (any OpenAI-compatible endpoint)
+3. **Model** — pick a common model for the selected provider, or enter any model ID
+4. **API Key** — paste your key (stored temporarily in `~/.fuseraft/config`; migrated to your OS keychain the next time you run `fuseraft repl`)
 
 After entering your credentials, you can **Test Connection** to verify the API key before saving, or **Save Configuration** to proceed immediately.
 
@@ -151,7 +152,7 @@ Orchestration:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `fuseraft.binaryPath` | `fuseraft` | Path to the fuseraft binary. Set to an absolute path if it is not on `PATH`. |
+| `fuseraft.binaryPath` | `fuseraft` | Path to the fuseraft binary. Can be absolute (e.g. `/usr/local/bin/fuseraft`) or relative. If not on `PATH`, set to an absolute path. The extension validates this on startup and prompts to configure if invalid. |
 | `fuseraft.defaultConfigPath` | _(blank)_ | Default config path relative to workspace root. Leave blank to be prompted each time. |
 | `fuseraft.runFlags` | _(blank)_ | Extra flags appended to every `fuseraft run` invocation (e.g. `--tools --verbose`). |
 | `fuseraft.openTerminalOnRun` | `true` | Focus the integrated terminal when a task starts. |

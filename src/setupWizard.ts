@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as https from 'https';
 import * as os from 'os';
 import * as path from 'path';
+import { validateBinaryPath } from './fuseraftUtils';
 
 const CONFIG_DIR  = path.join(os.homedir(), '.fuseraft');
 const CONFIG_PATH = path.join(CONFIG_DIR, 'config');
@@ -67,22 +68,155 @@ const PROVIDERS: ProviderDef[] = [
     },
 ];
 
-export function isConfigured(): boolean {
+export async function isConfigured(): Promise<boolean> {
+    // Check model configuration
     if (!fs.existsSync(CONFIG_PATH)) { return false; }
     try {
         const cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
-        return typeof cfg.modelId === 'string' && cfg.modelId.trim().length > 0;
+        if (typeof cfg.modelId !== 'string' || cfg.modelId.trim().length === 0) {
+            return false;
+        }
     } catch {
         return false;
     }
+    
+    // Check binary path validity
+    const binaryPath = vscode.workspace.getConfiguration('fuseraft').get<string>('binaryPath', 'fuseraft');
+    const validation = await validateBinaryPath(binaryPath);
+    return validation.valid;
 }
 
 export async function runSetupWizard(): Promise<void> {
-    // Step 1: Provider
+    // Step 1: Binary Path
+    const currentBinaryPath = vscode.workspace.getConfiguration('fuseraft').get<string>('binaryPath', 'fuseraft');
+    const validation = await validateBinaryPath(currentBinaryPath);
+    
+    let binaryPath = currentBinaryPath;
+    if (!validation.valid) {
+        const binaryAction = await vscode.window.showQuickPick(
+            [
+                { label: '$(folder-opened) Browse for binary…', action: 'browse' },
+                { label: '$(edit) Enter path manually…', action: 'manual' },
+                { label: '$(arrow-right) Skip (use current: ' + currentBinaryPath + ')', action: 'skip' },
+            ],
+            {
+                title: 'fuseraft setup  (1 / 4)  — Binary Path',
+                placeHolder: `Current binary path is invalid: ${validation.error}`,
+            }
+        );
+        
+        if (!binaryAction || binaryAction.action === 'skip') {
+            binaryPath = currentBinaryPath;
+        } else if (binaryAction.action === 'browse') {
+            const uris = await vscode.window.showOpenDialog({
+                canSelectMany: false,
+                canSelectFiles: true,
+                canSelectFolders: false,
+                title: 'Select fuseraft binary',
+                openLabel: 'Select Binary',
+            });
+            if (uris && uris[0]) {
+                binaryPath = uris[0].fsPath;
+                const newValidation = await validateBinaryPath(binaryPath);
+                if (!newValidation.valid) {
+                    vscode.window.showWarningMessage(`Selected binary is not valid: ${newValidation.error}`);
+                    return;
+                }
+                await vscode.workspace.getConfiguration('fuseraft').update('binaryPath', binaryPath, vscode.ConfigurationTarget.Global);
+                vscode.window.showInformationMessage(`Binary path updated: ${binaryPath} (version ${newValidation.version})`);
+            } else {
+                return;
+            }
+        } else if (binaryAction.action === 'manual') {
+            const manualPath = await vscode.window.showInputBox({
+                title: 'fuseraft binary path',
+                prompt: 'Enter absolute or relative path to fuseraft binary',
+                value: currentBinaryPath,
+                ignoreFocusOut: true,
+            });
+            if (manualPath === undefined) { return; }
+            binaryPath = manualPath.trim();
+            const newValidation = await validateBinaryPath(binaryPath);
+            if (!newValidation.valid) {
+                vscode.window.showWarningMessage(`Entered binary path is not valid: ${newValidation.error}`);
+                return;
+            }
+            await vscode.workspace.getConfiguration('fuseraft').update('binaryPath', binaryPath, vscode.ConfigurationTarget.Global);
+            vscode.window.showInformationMessage(`Binary path updated: ${binaryPath} (version ${newValidation.version})`);
+        }
+    } else {
+        const skipBinary = await vscode.window.showQuickPick(
+            [
+                { label: `$(check) Use current binary: ${currentBinaryPath}`, description: `version ${validation.version}`, action: 'continue' },
+                { label: '$(edit) Change binary path…', action: 'change' },
+            ],
+            {
+                title: 'fuseraft setup  (1 / 4)  — Binary Path',
+                placeHolder: 'Binary path is valid',
+            }
+        );
+        
+        if (!skipBinary || skipBinary.action === 'continue') {
+            // Continue with current binary
+        } else {
+            const changeAction = await vscode.window.showQuickPick(
+                [
+                    { label: '$(folder-opened) Browse for binary…', action: 'browse' },
+                    { label: '$(edit) Enter path manually…', action: 'manual' },
+                ],
+                {
+                    title: 'fuseraft setup  — Change Binary Path',
+                    placeHolder: 'Select how to configure binary path',
+                }
+            );
+            
+            if (!changeAction) { return; }
+            
+            if (changeAction.action === 'browse') {
+                const uris = await vscode.window.showOpenDialog({
+                    canSelectMany: false,
+                    canSelectFiles: true,
+                    canSelectFolders: false,
+                    title: 'Select fuseraft binary',
+                    openLabel: 'Select Binary',
+                });
+                if (uris && uris[0]) {
+                    binaryPath = uris[0].fsPath;
+                    const newValidation = await validateBinaryPath(binaryPath);
+                    if (!newValidation.valid) {
+                        vscode.window.showWarningMessage(`Selected binary is not valid: ${newValidation.error}`);
+                        return;
+                    }
+                    await vscode.workspace.getConfiguration('fuseraft').update('binaryPath', binaryPath, vscode.ConfigurationTarget.Global);
+                    vscode.window.showInformationMessage(`Binary path updated: ${binaryPath} (version ${newValidation.version})`);
+                } else {
+                    return;
+                }
+            } else {
+                const manualPath = await vscode.window.showInputBox({
+                    title: 'fuseraft binary path',
+                    prompt: 'Enter absolute or relative path to fuseraft binary',
+                    value: currentBinaryPath,
+                    ignoreFocusOut: true,
+                });
+                if (manualPath === undefined) { return; }
+                binaryPath = manualPath.trim();
+                const newValidation = await validateBinaryPath(binaryPath);
+                if (!newValidation.valid) {
+                    vscode.window.showWarningMessage(`Entered binary path is not valid: ${newValidation.error}`);
+                    return;
+                }
+                await vscode.workspace.getConfiguration('fuseraft').update('binaryPath', binaryPath, vscode.ConfigurationTarget.Global);
+                vscode.window.showInformationMessage(`Binary path updated: ${binaryPath} (version ${newValidation.version})`);
+            }
+        }
+    }
+
+    // Step 2: Provider
     const providerPick = await vscode.window.showQuickPick(
         PROVIDERS.map(p => ({ ...p })),
         {
-            title: 'fuseraft setup  (1 / 3)  — Provider',
+            title: 'fuseraft setup  (2 / 4)  — Provider',
             placeHolder: 'Select your AI provider',
             matchOnDescription: true,
         }
@@ -110,7 +244,7 @@ export async function runSetupWizard(): Promise<void> {
     ];
 
     const modelPick = await vscode.window.showQuickPick(modelItems, {
-        title: 'fuseraft setup  (2 / 3)  — Model',
+        title: 'fuseraft setup  (3 / 4)  — Model',
         placeHolder: 'Select a model',
     });
     if (!modelPick) { return; }
@@ -126,9 +260,9 @@ export async function runSetupWizard(): Promise<void> {
         modelId = custom.trim();
     }
 
-    // Step 3: API key
+    // Step 4: API key
     const apiKey = await vscode.window.showInputBox({
-        title: 'fuseraft setup  (3 / 3)  — API Key',
+        title: 'fuseraft setup  (4 / 4)  — API Key',
         prompt: 'Stored temporarily in ~/.fuseraft/config; migrated to your OS keychain on the next fuseraft repl run.',
         placeHolder: 'Paste your API key here',
         password: true,
@@ -136,7 +270,7 @@ export async function runSetupWizard(): Promise<void> {
     });
     if (apiKey === undefined) { return; }
 
-    // Final step: test or save
+    // Final step: test or save (validate binary before testing connection)
     const summary = `${modelId}  ·  ${endpoint || '(default endpoint)'}`;
     let keepGoing = true;
     while (keepGoing) {
@@ -155,6 +289,13 @@ export async function runSetupWizard(): Promise<void> {
         if (!action || action.action === 'cancel') { return; }
 
         if (action.action === 'test') {
+            // Validate binary first
+            const binValidation = await validateBinaryPath(binaryPath);
+            if (!binValidation.valid) {
+                vscode.window.showErrorMessage(`Cannot test connection: binary path is invalid (${binValidation.error})`);
+                continue;
+            }
+            
             await vscode.window.withProgress(
                 { location: vscode.ProgressLocation.Notification, title: 'Testing connection…', cancellable: false },
                 async () => {
