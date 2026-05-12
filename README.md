@@ -1,6 +1,6 @@
 # fuseraft for VS Code
 
-Run and manage [fuseraft](https://github.com/fuseraft/fuseraft-cli) multi-agent orchestration without leaving your editor.
+Run and manage [fuseraft](https://github.com/fuseraft/fuseraft-cli) multi-agent orchestrations without leaving your editor.
 
 ## Features
 
@@ -75,6 +75,7 @@ All commands are available via `Ctrl+Shift+P` / `Cmd+Shift+P` under the `fuseraf
 | `fuseraft: View Session Transcript` | Open a formatted transcript for a session |
 | `fuseraft: Add Context` | Import a file or folder into the session context store |
 | `fuseraft: Remove Context Item` | Remove a context item and delete its copied files |
+| `fuseraft: Set Up Provider` | Configure your AI provider, model, and API key |
 
 ### Initialize Config Wizard
 
@@ -87,8 +88,8 @@ All commands are available via `Ctrl+Shift+P` / `Cmd+Shift+P` under the `fuseraf
    | `dev-team` | Planner → Developer → Tester → Reviewer with keyword routing and a periodic Verifier |
    | `graph` | Same four-agent pipeline as a declarative directed graph with back-edges for revision cycles |
    | `brownfield` | Archaeologist recons the codebase first, then Planner → Developer → Reviewer |
-   | `brownfield-graph` | Brownfield pipeline as a directed graph with separate back-edges to Developer and Planner |
-   | `magentic` | Manager LLM dynamically coordinates Researcher + Developer (no fixed routing) |
+   | `brownfield-graph` | Brownfield pipeline as a directed graph; Reviewer has separate back-edges to Developer and Planner |
+   | `magentic` | Manager LLM dynamically coordinates Researcher + Developer agents (no fixed routing) |
    | `research` | Researcher gathers information, Writer produces the final report |
    | `devops` | Three-agent pipeline for infrastructure and deployment tasks |
    | `content` | Writer drafts, Editor refines and approves |
@@ -100,6 +101,18 @@ All commands are available via `Ctrl+Shift+P` / `Cmd+Shift+P` under the `fuseraf
 4. **Output path** — defaults to `config/orchestration.yaml`, fully editable
 
 The generated config file opens automatically in the editor as soon as fuseraft writes it to disk.
+
+### Set Up Provider Wizard
+
+`fuseraft: Set Up Provider` runs automatically on first use when `~/.fuseraft/config` is missing or incomplete. You can also invoke it at any time from the command palette.
+
+The wizard walks through three steps:
+
+1. **Provider** — choose from Anthropic, OpenAI, xAI, Google, Mistral, DeepSeek, or Custom / Self-hosted (any OpenAI-compatible endpoint)
+2. **Model** — pick a common model for the selected provider, or enter any model ID
+3. **API Key** — paste your key (stored temporarily in `~/.fuseraft/config`; migrated to your OS keychain the next time you run `fuseraft repl`)
+
+After entering your credentials, you can **Test Connection** to verify the API key before saving, or **Save Configuration** to proceed immediately.
 
 ### Status Bar
 
@@ -131,7 +144,7 @@ Orchestration:
 
 ## Requirements
 
-- [fuseraft CLI](https://github.com/fuseraft/fuseraft-cli) must be installed and on your `PATH` (or configure the path in settings).
+- [fuseraft CLI](https://github.com/fuseraft/fuseraft-cli) must be installed and on your `PATH` (or its path set in extension settings).
 - VS Code 1.85 or later.
 
 ## Extension Settings
