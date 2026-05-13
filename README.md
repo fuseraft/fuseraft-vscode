@@ -102,18 +102,19 @@ All commands are available via `Ctrl+Shift+P` / `Cmd+Shift+P` under the `fuseraf
 
 The generated config file opens automatically in the editor as soon as fuseraft writes it to disk.
 
-### Set Up Provider Wizard
+### Set Up Provider
 
 `fuseraft: Set Up Provider` runs automatically on first use when the fuseraft binary is not found or when `~/.fuseraft/config` is missing or incomplete. You can also invoke it at any time from the command palette.
 
-The wizard walks through four steps:
+It opens a **Set Up Provider** panel — a single form with all fields visible at once:
 
-1. **Binary Path** — validate the current binary path or configure a new one. If the current path is invalid, you can browse for the binary or enter a path manually. The wizard validates the binary by running `fuseraft --version`.
-2. **Provider** — choose from Anthropic, OpenAI, xAI, Google, Mistral, DeepSeek, or Custom / Self-hosted (any OpenAI-compatible endpoint)
-3. **Model** — pick a common model for the selected provider, or enter any model ID
-4. **API Key** — paste your key (stored temporarily in `~/.fuseraft/config`; migrated to your OS keychain the next time you run `fuseraft repl`)
+- **Binary** — path to the fuseraft binary. Click **Browse…** to pick one from disk, or **Validate** to verify the current path. The panel shows the detected version inline.
+- **Preset** — choose from Anthropic, OpenAI, xAI, Google, Mistral, DeepSeek, or Custom / Self-hosted. Selecting a preset auto-fills the endpoint URL and suggests models, but both fields remain fully editable.
+- **Endpoint URL** — the provider's API base URL.
+- **Model** — the model ID to use. Typing opens suggestions for the selected provider, or enter any ID directly.
+- **API Key** — paste your key. Stored in `~/.fuseraft/config`; migrated to your OS keychain the next time you run `fuseraft repl`.
 
-After entering your credentials, you can **Test Connection** to verify the API key before saving, or **Save Configuration** to proceed immediately.
+Click **Test Connection** to verify the key against the provider — the result appears inline without leaving the form. Click **Save** when ready.
 
 ### Status Bar
 
