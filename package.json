@@ -172,8 +172,19 @@
         }
       ]
     },
+    "viewsWelcome": [
+      {
+        "view": "fuseraft.context",
+        "contents": "No context items.\n\n[Add Context](command:fuseraft.contextAdd)\n\nContext lets agents reference your files, docs, and specs during a session."
+      }
+    ],
     "menus": {
       "view/title": [
+        {
+          "command": "fuseraft.setup",
+          "when": "view == fuseraft.taskPanel",
+          "group": "navigation"
+        },
         {
           "command": "fuseraft.run",
           "when": "view == fuseraft.sessions",
@@ -270,12 +281,6 @@
           "command": "fuseraft.contextRemove",
           "when": "view == fuseraft.context && viewItem == contextItem",
           "group": "1_context"
-        }
-      ],
-      "views/welcome": [
-        {
-          "view": "fuseraft.context",
-          "contents": "No context items.\n\n[Add Context](command:fuseraft.contextAdd)\n\nContext lets agents reference your files, docs, and specs during a session."
         }
       ],
       "editor/context": [

@@ -102,17 +102,18 @@ All commands are available via `Ctrl+Shift+P` / `Cmd+Shift+P` under the `fuseraf
 
 The generated config file opens automatically in the editor as soon as fuseraft writes it to disk.
 
-### Set Up Provider Wizard
+### Set Up Provider Screen
 
-`fuseraft: Set Up Provider` runs automatically on first use when `~/.fuseraft/config` is missing or incomplete. You can also invoke it at any time from the command palette.
+`fuseraft: Set Up Provider` runs automatically on first use when `~/.fuseraft/config` is missing or incomplete. You can also invoke it at any time from the command palette, or by clicking the **👤 (Set Up Provider)** icon at the top of the **Run Task** panel.
 
-The wizard walks through three steps:
+The setup screen provides a single, easy-to-use form to configure your connection:
 
-1. **Provider** — choose from Anthropic, OpenAI, xAI, Google, Mistral, DeepSeek, or Custom / Self-hosted (any OpenAI-compatible endpoint)
-2. **Model** — pick a common model for the selected provider, or enter any model ID
-3. **API Key** — paste your key (stored temporarily in `~/.fuseraft/config`; migrated to your OS keychain the next time you run `fuseraft repl`)
+- **Provider** — choose from Anthropic, OpenAI, xAI, Google, Mistral, DeepSeek, or Custom / Self-hosted (any OpenAI-compatible endpoint)
+- **Endpoint URL** — customize the base URL for the provider's API
+- **Model** — pick a common model for the selected provider, or enter any custom model ID
+- **API Key** — paste your key (stored temporarily in `~/.fuseraft/config`; migrated to your OS keychain the next time you run `fuseraft repl`)
 
-After entering your credentials, you can **Test Connection** to verify the API key before saving, or **Save Configuration** to proceed immediately.
+After entering your credentials, you can click **Test Connection** to verify the API key before saving, or **Save Configuration** to proceed immediately.
 
 ### Status Bar
 
