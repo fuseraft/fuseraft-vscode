@@ -1,5 +1,7 @@
 # fuseraft for VS Code
 
+![fuseraft banner](media/fuseraft-banner.png)
+
 Run and manage [fuseraft](https://github.com/fuseraft/fuseraft-cli) multi-agent orchestrations without leaving your editor.
 
 ## Features
