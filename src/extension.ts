@@ -10,7 +10,7 @@ import { SessionViewPanel } from './sessionViewPanel';
 import {
     getBinary, getRunFlags, findFuseraftConfigs, pickConfig,
     promptForTask, buildRunCommand, runInTerminal,
-    getSessionsDir,
+    getSessionsDir, validateBinaryPath, resetBinaryValidation, disposeOutputChannel,
 } from './fuseraftUtils';
 import { isConfigured, runSetupWizard } from './setupWizard';
 
@@ -59,17 +59,33 @@ export function activate(context: vscode.ExtensionContext): void {
     statusBar.show();
     context.subscriptions.push(statusBar);
 
-    // First-run: prompt to configure if ~/.fuseraft/config is missing or incomplete
-    if (!isConfigured()) {
-        vscode.window.showInformationMessage(
-            'fuseraft is not configured. Set up your provider and API key to get started.',
-            'Set Up Now'
-        ).then(choice => {
-            if (choice === 'Set Up Now') {
-                vscode.commands.executeCommand('fuseraft.setup');
-            }
-        });
-    }
+    // First-run: validate binary and configuration
+    isConfigured().then(configured => {
+        if (!configured) {
+            validateBinaryPath(getBinary()).then(validation => {
+                if (!validation.valid) {
+                    vscode.window.showWarningMessage(
+                        `fuseraft binary not found or invalid: ${validation.error}`,
+                        'Configure Binary',
+                        'Set Up Extension'
+                    ).then(choice => {
+                        if (choice === 'Configure Binary' || choice === 'Set Up Extension') {
+                            vscode.commands.executeCommand('fuseraft.setup');
+                        }
+                    });
+                } else {
+                    vscode.window.showInformationMessage(
+                        'fuseraft is not configured. Set up your provider and API key to get started.',
+                        'Set Up Now'
+                    ).then(choice => {
+                        if (choice === 'Set Up Now') {
+                            vscode.commands.executeCommand('fuseraft.setup');
+                        }
+                    });
+                }
+            });
+        }
+    });
 
     // Track context key for editor/context menu — seed immediately and on every tab change
     const setConfigContext = (editor: vscode.TextEditor | undefined) => {
@@ -85,6 +101,15 @@ export function activate(context: vscode.ExtensionContext): void {
         vscode.workspace.onDidChangeTextDocument(e => {
             if (e.document === vscode.window.activeTextEditor?.document) {
                 setConfigContext(vscode.window.activeTextEditor);
+            }
+        })
+    );
+
+    // Listen for binary path configuration changes and reset validation state
+    context.subscriptions.push(
+        vscode.workspace.onDidChangeConfiguration(e => {
+            if (e.affectsConfiguration('fuseraft.binaryPath')) {
+                resetBinaryValidation();
             }
         })
     );
@@ -548,4 +573,6 @@ function openWhenReady(filePath: string, configProvider: ConfigTreeProvider, tim
     }, 500);
 }
 
-export function deactivate(): void {}
+export function deactivate(): void {
+    disposeOutputChannel();
+}

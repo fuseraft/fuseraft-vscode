@@ -1,5 +1,7 @@
 # fuseraft for VS Code
 
+![fuseraft banner](media/fuseraft-banner.png)
+
 Run and manage [fuseraft](https://github.com/fuseraft/fuseraft-cli) multi-agent orchestrations without leaving your editor.
 
 ## Features
@@ -75,7 +77,7 @@ All commands are available via `Ctrl+Shift+P` / `Cmd+Shift+P` under the `fuseraf
 | `fuseraft: View Session Transcript` | Open a formatted transcript for a session |
 | `fuseraft: Add Context` | Import a file or folder into the session context store |
 | `fuseraft: Remove Context Item` | Remove a context item and delete its copied files |
-| `fuseraft: Set Up Provider` | Configure your AI provider, model, and API key |
+| `fuseraft: Set Up Provider` | Configure your AI provider, model, API key, and binary path |
 
 ### Initialize Config Wizard
 
@@ -102,18 +104,19 @@ All commands are available via `Ctrl+Shift+P` / `Cmd+Shift+P` under the `fuseraf
 
 The generated config file opens automatically in the editor as soon as fuseraft writes it to disk.
 
-### Set Up Provider Screen
+### Set Up Provider
 
-`fuseraft: Set Up Provider` runs automatically on first use when `~/.fuseraft/config` is missing or incomplete. You can also invoke it at any time from the command palette, or by clicking the **👤 (Set Up Provider)** icon at the top of the **Run Task** panel.
+`fuseraft: Set Up Provider` runs automatically on first use when the fuseraft binary is not found or when `~/.fuseraft/config` is missing or incomplete. You can also invoke it at any time from the command palette.
 
-The setup screen provides a single, easy-to-use form to configure your connection:
+It opens a **Set Up Provider** panel — a single form with all fields visible at once:
 
-- **Provider** — choose from Anthropic, OpenAI, xAI, Google, Mistral, DeepSeek, or Custom / Self-hosted (any OpenAI-compatible endpoint)
-- **Endpoint URL** — customize the base URL for the provider's API
-- **Model** — pick a common model for the selected provider, or enter any custom model ID
-- **API Key** — paste your key (stored temporarily in `~/.fuseraft/config`; migrated to your OS keychain the next time you run `fuseraft repl`)
+- **Binary** — path to the fuseraft binary. Click **Browse…** to pick one from disk, or **Validate** to verify the current path. The panel shows the detected version inline.
+- **Preset** — choose from Anthropic, OpenAI, xAI, Google, Mistral, DeepSeek, or Custom / Self-hosted. Selecting a preset auto-fills the endpoint URL and suggests models, but both fields remain fully editable.
+- **Endpoint URL** — the provider's API base URL.
+- **Model** — the model ID to use. Typing opens suggestions for the selected provider, or enter any ID directly.
+- **API Key** — paste your key. Stored in `~/.fuseraft/config`; migrated to your OS keychain the next time you run `fuseraft repl`.
 
-After entering your credentials, you can click **Test Connection** to verify the API key before saving, or **Save Configuration** to proceed immediately.
+Click **Test Connection** to verify the key against the provider — the result appears inline without leaving the form. Click **Save** when ready.
 
 ### Status Bar
 
@@ -152,7 +155,7 @@ Orchestration:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `fuseraft.binaryPath` | `fuseraft` | Path to the fuseraft binary. Set to an absolute path if it is not on `PATH`. |
+| `fuseraft.binaryPath` | `fuseraft` | Path to the fuseraft binary. Can be absolute (e.g. `/usr/local/bin/fuseraft`) or relative. If not on `PATH`, set to an absolute path. The extension validates this on startup and prompts to configure if invalid. |
 | `fuseraft.defaultConfigPath` | _(blank)_ | Default config path relative to workspace root. Leave blank to be prompted each time. |
 | `fuseraft.runFlags` | _(blank)_ | Extra flags appended to every `fuseraft run` invocation (e.g. `--tools --verbose`). |
 | `fuseraft.openTerminalOnRun` | `true` | Focus the integrated terminal when a task starts. |
