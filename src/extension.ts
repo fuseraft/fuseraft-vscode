@@ -59,6 +59,11 @@ export function activate(context: vscode.ExtensionContext): void {
     statusBar.show();
     context.subscriptions.push(statusBar);
 
+    // Restore FUSERAFT_API_KEY in every VS Code terminal (survives extension restart).
+    context.secrets.get('fuseraft.apiKey').then(key => {
+        if (key) { context.environmentVariableCollection.replace('FUSERAFT_API_KEY', key); }
+    });
+
     // First-run: validate binary and configuration
     isConfigured().then(configured => {
         if (!configured) {
@@ -287,7 +292,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
             const configFlag = config ? ` -c '${config.fsPath}'` : '';
             const flags = getRunFlags() ? ` ${getRunFlags()}` : '';
-            runInTerminal(`${getBinary()} run${configFlag}${flags} -f '${taskFilePath}'`);
+            runInTerminal(`${getBinary()} run --vscode${configFlag}${flags} -f '${taskFilePath}'`);
         })
     );
 
@@ -333,7 +338,7 @@ export function activate(context: vscode.ExtensionContext): void {
             );
             if (!picked) { return; }
 
-            let cmd = `${getBinary()} repl`;
+            let cmd = `${getBinary()} repl --vscode`;
             if (picked.label === '$(edit) Enter model ID…') {
                 const modelId = await vscode.window.showInputBox({
                     title: 'Model ID',
@@ -387,7 +392,7 @@ export function activate(context: vscode.ExtensionContext): void {
             }
 
             if (!sessionId) { return; }
-            runInTerminal(`${getBinary()} run --resume ${sessionId}`, 'fuseraft');
+            runInTerminal(`${getBinary()} run --vscode --resume ${sessionId}`, 'fuseraft');
         })
     );
 
@@ -537,7 +542,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
     // fuseraft.setup — first-run provider/model/API key wizard
     context.subscriptions.push(
-        vscode.commands.registerCommand('fuseraft.setup', () => runSetupWizard())
+        vscode.commands.registerCommand('fuseraft.setup', () => runSetupWizard(context))
     );
 
     context.subscriptions.push(sessionProvider, configProvider, contextProvider);
