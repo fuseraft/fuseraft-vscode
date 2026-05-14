@@ -114,7 +114,7 @@ It opens a **Set Up Provider** panel — a single form with all fields visible a
 - **Preset** — choose from Anthropic, OpenAI, xAI, Google, Mistral, DeepSeek, or Custom / Self-hosted. Selecting a preset auto-fills the endpoint URL and suggests models, but both fields remain fully editable.
 - **Endpoint URL** — the provider's API base URL.
 - **Model** — the model ID to use. Typing opens suggestions for the selected provider, or enter any ID directly.
-- **API Key** — paste your key. Stored in `~/.fuseraft/config`; migrated to your OS keychain the next time you run `fuseraft repl`.
+- **API Key** — paste your key. Stored in VS Code's secure storage (backed by the OS credential store). The extension injects the key as `FUSERAFT_API_KEY` into every terminal it opens and passes `--vscode` to the CLI so it reads the key from that variable instead of the OS keychain. The key is never written to disk in plain text.
 
 Click **Test Connection** to verify the key against the provider — the result appears inline without leaving the form. Click **Save** when ready.
 
