@@ -12,9 +12,9 @@ A dedicated fuseraft panel in the activity bar gives you four persistent views:
 
 **Run Task** — a webview form for composing and launching tasks:
 - Multi-line textarea for your task description (paste prose, markdown specs, or bullet lists)
-- **+ Files** button — attach one or more files as context. Each attached file is passed to the CLI via `--context-file` and its content is appended to the task. Attached files appear as removable chips below the textarea.
+- **+ Files** button — attach one or more files as context. Each attached file is passed to the CLI via `--context-file` and its content is appended to the task. Attached files appear as removable chips below the textarea. You can also drag files from your OS file manager (Windows Explorer, Finder, Nautilus, etc.) directly onto the task area.
   - PDF, DOCX, PPTX, and XLSX files are automatically extracted to plain text by the CLI — attach documents directly without any manual conversion.
-  - **Drag-and-drop note:** Due to VS Code webview sandboxing, dragging files from the VS Code Explorer panel or from a Windows Explorer window into the task area does not work. Use the **+ Files** button instead.
+  - **Drag-and-drop note:** Dragging files from the **VS Code Explorer panel** into the task area is not supported. Use the **+ Files** button or drag from your OS file manager instead.
 - Config dropdown auto-populated from configs found in your workspace
 - Checkboxes for common flags:
   - **Human-in-the-loop** (`--hitl`) — pause after every agent turn to review or redirect
