@@ -58,6 +58,10 @@ export function resetBinaryValidation(): void {
     binaryValidationChecked = false;
 }
 
+export function logToChannel(msg: string): void {
+    getOutputChannel().appendLine(`[${new Date().toISOString()}] ${msg}`);
+}
+
 export function disposeOutputChannel(): void {
     if (outputChannel) {
         outputChannel.dispose();
