@@ -1,5 +1,12 @@
 import * as vscode from 'vscode';
+import * as fs from 'fs';
+import * as nodePath from 'path';
 import { ConfigInfo, findFuseraftConfigs, getBinary, getRunFlags, runInTerminal, buildRunCommand } from './fuseraftUtils';
+
+interface AttachedFile {
+    path: string;
+    name: string;
+}
 
 export class TaskPanelProvider implements vscode.WebviewViewProvider {
     static readonly viewType = 'fuseraft.taskPanel';
@@ -21,6 +28,10 @@ export class TaskPanelProvider implements vscode.WebviewViewProvider {
                 this._run(msg);
             } else if (msg.type === 'browseTaskFile') {
                 await this._browseTaskFile(msg.configPath, msg.flags);
+            } else if (msg.type === 'pickFiles') {
+                await this._pickFiles(webviewView.webview);
+            } else if (msg.type === 'dropFiles') {
+                await this._handleDropFiles(webviewView.webview, msg);
             }
         });
     }
@@ -31,15 +42,20 @@ export class TaskPanelProvider implements vscode.WebviewViewProvider {
         this._view.webview.postMessage({ type: 'configs', configs });
     }
 
-    private _run(msg: { task: string; configPath: string; flags: Record<string, boolean> }): void {
+    private _run(msg: { task: string; configPath: string; flags: Record<string, boolean>; files?: AttachedFile[] }): void {
         const { task, configPath, flags } = msg;
         if (!task.trim()) { return; }
+
+        const contextFlags = (msg.files ?? [])
+            .map(f => `--context-file '${f.path.replace(/'/g, `'\\''`)}'`)
+            .join(' ');
 
         const extra = [
             flags.hitl    ? '--hitl'    : '',
             flags.tools   ? '--tools'   : '',
             flags.verbose ? '--verbose' : '',
             flags.devui   ? '--devui'   : '',
+            contextFlags,
             getRunFlags(),
         ].filter(Boolean).join(' ');
 
@@ -66,6 +82,57 @@ export class TaskPanelProvider implements vscode.WebviewViewProvider {
         const configFlag = configPath ? ` -c '${configPath}'` : '';
         const flagStr = extra ? ` ${extra}` : '';
         runInTerminal(`${getBinary()} run${configFlag}${flagStr} -f '${uris[0].fsPath}'`);
+    }
+
+    private async _pickFiles(webview: vscode.Webview): Promise<void> {
+        const uris = await vscode.window.showOpenDialog({
+            canSelectMany: true,
+            canSelectFiles: true,
+            canSelectFolders: true,
+            title: 'Attach context files',
+        });
+        if (!uris?.length) { return; }
+        webview.postMessage({ type: 'filesSelected', files: this._expandUris(uris) });
+    }
+
+    private async _handleDropFiles(webview: vscode.Webview, msg: { uris?: string[]; paths?: string[] }): Promise<void> {
+        const rawUris: vscode.Uri[] = [];
+        for (const u of (msg.uris ?? [])) {
+            try { rawUris.push(vscode.Uri.parse(u, true)); } catch { /* skip */ }
+        }
+        for (const p of (msg.paths ?? [])) {
+            try { rawUris.push(vscode.Uri.file(p)); } catch { /* skip */ }
+        }
+        const files = this._expandUris(rawUris);
+        if (files.length) {
+            webview.postMessage({ type: 'filesSelected', files });
+        }
+    }
+
+    // Resolves file/folder URIs to AttachedFile records. Folders expand to their
+    // immediate non-hidden children (up to 20 total across all selections).
+    private _expandUris(uris: vscode.Uri[]): AttachedFile[] {
+        const result: AttachedFile[] = [];
+        for (const uri of uris) {
+            if (result.length >= 20) { break; }
+            let stat: fs.Stats;
+            try { stat = fs.statSync(uri.fsPath); } catch { continue; }
+
+            if (stat.isFile()) {
+                result.push({ path: uri.fsPath, name: nodePath.basename(uri.fsPath) });
+            } else if (stat.isDirectory()) {
+                const base = nodePath.basename(uri.fsPath);
+                let entries: fs.Dirent[];
+                try { entries = fs.readdirSync(uri.fsPath, { withFileTypes: true }); } catch { continue; }
+                for (const e of entries) {
+                    if (result.length >= 20) { break; }
+                    if (e.isFile() && !e.name.startsWith('.')) {
+                        result.push({ path: nodePath.join(uri.fsPath, e.name), name: `${base}/${e.name}` });
+                    }
+                }
+            }
+        }
+        return result;
     }
 
     private _html(webview: vscode.Webview): string {
@@ -112,12 +179,8 @@ textarea {
     line-height: 1.5;
     outline: none;
 }
-textarea:focus {
-    border-color: var(--vscode-focusBorder);
-}
-textarea::placeholder {
-    color: var(--vscode-input-placeholderForeground);
-}
+textarea:focus { border-color: var(--vscode-focusBorder); }
+textarea::placeholder { color: var(--vscode-input-placeholderForeground); }
 
 select {
     width: 100%;
@@ -133,30 +196,13 @@ select {
 }
 select:focus { border-color: var(--vscode-focusBorder); }
 
-.flags {
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-}
-.flag-row {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    cursor: pointer;
-}
+.flags { display: flex; flex-direction: column; gap: 5px; }
+.flag-row { display: flex; align-items: center; gap: 6px; cursor: pointer; }
 .flag-row input[type=checkbox] { cursor: pointer; accent-color: var(--vscode-checkbox-background); }
 .flag-row span { font-size: var(--vscode-font-size); }
-.flag-desc {
-    font-size: 11px;
-    color: var(--vscode-descriptionForeground);
-    margin-left: 20px;
-}
+.flag-desc { font-size: 11px; color: var(--vscode-descriptionForeground); margin-left: 20px; }
 
-.actions {
-    display: flex;
-    gap: 6px;
-    flex-wrap: wrap;
-}
+.actions { display: flex; gap: 6px; flex-wrap: wrap; }
 
 button {
     border: none;
@@ -167,42 +213,76 @@ button {
     cursor: pointer;
     white-space: nowrap;
 }
-button.primary {
-    background: var(--vscode-button-background);
-    color: var(--vscode-button-foreground);
-    flex: 1;
-}
+button.primary { background: var(--vscode-button-background); color: var(--vscode-button-foreground); flex: 1; }
 button.primary:hover { background: var(--vscode-button-hoverBackground); }
-button.secondary {
-    background: var(--vscode-button-secondaryBackground);
-    color: var(--vscode-button-secondaryForeground);
-}
+button.secondary { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
 button.secondary:hover { background: var(--vscode-button-secondaryHoverBackground); }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .section { display: flex; flex-direction: column; gap: 4px; }
 
-.config-row {
-    display: flex;
-    gap: 4px;
-    align-items: center;
-}
+.config-row { display: flex; gap: 4px; align-items: center; }
 .config-row select { flex: 1; }
 .config-row button { padding: 4px 7px; font-size: 13px; }
+
+.attach-bar {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    flex-wrap: wrap;
+    min-height: 24px;
+}
+.attach-btn { padding: 2px 8px; font-size: 11px; flex-shrink: 0; }
+
+.chips { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+
+.chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    background: var(--vscode-badge-background);
+    color: var(--vscode-badge-foreground);
+    border-radius: 10px;
+    padding: 2px 4px 2px 8px;
+    font-size: 11px;
+    max-width: 160px;
+    min-width: 0;
+}
+.chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.chip-remove {
+    padding: 0 2px;
+    background: transparent;
+    color: inherit;
+    font-size: 14px;
+    line-height: 1;
+    opacity: 0.6;
+    flex-shrink: 0;
+}
+.chip-remove:hover { opacity: 1; background: transparent; }
+
+#taskSection.drag-over {
+    outline: 2px dashed var(--vscode-focusBorder);
+    outline-offset: 2px;
+    border-radius: 3px;
+}
 </style>
 </head>
 <body>
 
-<div class="section">
+<div class="section" id="taskSection">
     <label>Task</label>
     <textarea id="task" placeholder="Describe the task for your agent team…&#10;&#10;You can paste a full spec, bullet list, or prose."></textarea>
+    <div class="attach-bar">
+        <button class="secondary attach-btn" id="addFilesBtn" title="Attach files or folders as context&#10;(folders expand to immediate children, max 20 files)">+ Files</button>
+        <div class="chips" id="chips"></div>
+    </div>
 </div>
 
 <div class="section">
     <label>Config</label>
     <div class="config-row">
-        <select id="config"><option value="">⟳ Loading configs…</option></select>
-        <button class="secondary" id="refreshBtn" title="Refresh config list">↺</button>
+        <select id="config"><option value="">&#x27f3; Loading configs&#x2026;</option></select>
+        <button class="secondary" id="refreshBtn" title="Refresh config list">&#x21ba;</button>
     </div>
 </div>
 
@@ -229,18 +309,88 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 </div>
 
 <div class="actions">
-    <button class="primary" id="runBtn">▶  Run Task</button>
-    <button class="secondary" id="fileBtn">Run Task File…</button>
+    <button class="primary" id="runBtn">&#x25b6;&#xa0; Run Task</button>
+    <button class="secondary" id="fileBtn">Run Task File&#x2026;</button>
 </div>
 
 <script nonce="${nonce}">
-const vscode = acquireVsCodeApi();
+const vscode      = acquireVsCodeApi();
+const taskEl      = document.getElementById('task');
+const configEl    = document.getElementById('config');
+const runBtn      = document.getElementById('runBtn');
+const fileBtn     = document.getElementById('fileBtn');
+const refreshBtn  = document.getElementById('refreshBtn');
+const addFilesBtn = document.getElementById('addFilesBtn');
+const chipsEl     = document.getElementById('chips');
+const taskSection = document.getElementById('taskSection');
 
-const taskEl    = document.getElementById('task');
-const configEl  = document.getElementById('config');
-const runBtn    = document.getElementById('runBtn');
-const fileBtn   = document.getElementById('fileBtn');
-const refreshBtn = document.getElementById('refreshBtn');
+let selectedFiles = [];
+
+function renderChips() {
+    chipsEl.innerHTML = '';
+    selectedFiles.forEach(function(f, i) {
+        var chip = document.createElement('span');
+        chip.className = 'chip';
+        chip.title = f.path;
+
+        var name = document.createElement('span');
+        name.className = 'chip-name';
+        name.textContent = f.name;
+
+        var btn = document.createElement('button');
+        btn.className = 'chip-remove';
+        btn.textContent = '×';
+        btn.setAttribute('data-idx', String(i));
+        btn.title = 'Remove';
+
+        chip.appendChild(name);
+        chip.appendChild(btn);
+        chipsEl.appendChild(chip);
+    });
+}
+
+chipsEl.addEventListener('click', function(e) {
+    var btn = e.target.closest('.chip-remove');
+    if (!btn) { return; }
+    selectedFiles.splice(parseInt(btn.getAttribute('data-idx'), 10), 1);
+    renderChips();
+});
+
+addFilesBtn.addEventListener('click', function() {
+    vscode.postMessage({ type: 'pickFiles' });
+});
+
+taskSection.addEventListener('dragover', function(e) {
+    var types = Array.from(e.dataTransfer.types);
+    if (types.indexOf('Files') !== -1 || types.indexOf('text/uri-list') !== -1) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'link';
+        taskSection.classList.add('drag-over');
+    }
+});
+
+taskSection.addEventListener('dragleave', function(e) {
+    if (!taskSection.contains(e.relatedTarget)) {
+        taskSection.classList.remove('drag-over');
+    }
+});
+
+taskSection.addEventListener('drop', function(e) {
+    taskSection.classList.remove('drag-over');
+    var uriList = e.dataTransfer.getData('text/uri-list');
+    if (uriList) {
+        e.preventDefault();
+        var uris = uriList.split(/\r?\n/).map(function(u) { return u.trim(); }).filter(function(u) { return u && u[0] !== '#'; });
+        vscode.postMessage({ type: 'dropFiles', uris: uris });
+        return;
+    }
+    var dropped = Array.from(e.dataTransfer.files);
+    if (dropped.length) {
+        e.preventDefault();
+        var paths = dropped.map(function(f) { return f.path || ''; }).filter(Boolean);
+        if (paths.length) { vscode.postMessage({ type: 'dropFiles', paths: paths }); }
+    }
+});
 
 function getFlags() {
     return {
@@ -251,38 +401,45 @@ function getFlags() {
     };
 }
 
-runBtn.addEventListener('click', () => {
-    const task = taskEl.value.trim();
+runBtn.addEventListener('click', function() {
+    var task = taskEl.value.trim();
     if (!task) { taskEl.focus(); return; }
-    vscode.postMessage({ type: 'run', task, configPath: configEl.value, flags: getFlags() });
+    vscode.postMessage({ type: 'run', task: task, configPath: configEl.value, flags: getFlags(), files: selectedFiles });
     taskEl.value = '';
-    const prev = runBtn.textContent;
+    selectedFiles = [];
+    renderChips();
+    var prev = runBtn.textContent;
     runBtn.textContent = '✓ Started';
     runBtn.disabled = true;
-    setTimeout(() => { runBtn.textContent = prev; runBtn.disabled = false; }, 1500);
+    setTimeout(function() { runBtn.textContent = prev; runBtn.disabled = false; }, 1500);
 });
 
-fileBtn.addEventListener('click', () => {
+fileBtn.addEventListener('click', function() {
     vscode.postMessage({ type: 'browseTaskFile', configPath: configEl.value, flags: getFlags() });
 });
 
-refreshBtn.addEventListener('click', () => {
+refreshBtn.addEventListener('click', function() {
     configEl.innerHTML = '<option value="">⟳ Refreshing…</option>';
     vscode.postMessage({ type: 'refreshConfigs' });
 });
 
-taskEl.addEventListener('keydown', (e) => {
+taskEl.addEventListener('keydown', function(e) {
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { runBtn.click(); }
 });
 
-window.addEventListener('message', (e) => {
-    const msg = e.data;
+window.addEventListener('message', function(e) {
+    var msg = e.data;
     if (msg.type === 'configs') {
-        const configs = msg.configs;
-        configEl.innerHTML = configs.length
+        configEl.innerHTML = msg.configs.length
             ? '<option value="">— no config (use default) —</option>' +
-              configs.map(c => \`<option value="\${c.fsPath}">\${c.workspaceRelative}</option>\`).join('')
+              msg.configs.map(function(c) { return '<option value="' + c.fsPath + '">' + c.workspaceRelative + '</option>'; }).join('')
             : '<option value="">No configs found in workspace</option>';
+    } else if (msg.type === 'filesSelected') {
+        var added = msg.files.filter(function(f) {
+            return !selectedFiles.some(function(s) { return s.path === f.path; });
+        });
+        selectedFiles = selectedFiles.concat(added);
+        renderChips();
     }
 });
 
