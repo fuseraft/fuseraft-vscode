@@ -33,6 +33,11 @@ export class TaskPanelProvider implements vscode.WebviewViewProvider {
                 await this._pickFiles();
             } else if (msg.type === 'dropFiles') {
                 await this._handleDropFiles(msg);
+            } else if (msg.type === 'dropFilesMetadata') {
+                logToChannel(`dropFilesMetadata: drop occurred but no URI list — files=${JSON.stringify(msg.files)}`);
+                vscode.window.showWarningMessage(
+                    `Couldn't resolve file path from this drag source. Use the + Files button to attach files.`
+                );
             }
         });
     }
@@ -110,6 +115,7 @@ export class TaskPanelProvider implements vscode.WebviewViewProvider {
     }
 
     private async _handleDropFiles(msg: { uris?: string[]; paths?: string[] }): Promise<void> {
+        logToChannel(`dropFiles: received — uris=${JSON.stringify(msg.uris)}, paths=${JSON.stringify(msg.paths)}`);
         const rawUris: vscode.Uri[] = [];
         for (const u of (msg.uris ?? [])) {
             try { rawUris.push(vscode.Uri.parse(u, true)); } catch { /* skip */ }
@@ -118,9 +124,11 @@ export class TaskPanelProvider implements vscode.WebviewViewProvider {
             try { rawUris.push(vscode.Uri.file(p)); } catch { /* skip */ }
         }
         const files = this._expandUris(rawUris);
+        logToChannel(`dropFiles: expanded to ${files.length} file(s)`);
         if (files.length && this._view) {
             this._view.show(true);
-            await this._view.webview.postMessage({ type: 'filesSelected', files });
+            const delivered = await this._view.webview.postMessage({ type: 'filesSelected', files });
+            logToChannel(`dropFiles: postMessage delivered=${delivered}`);
         }
     }
 
@@ -394,19 +402,33 @@ taskSection.addEventListener('dragleave', function(e) {
 });
 
 taskSection.addEventListener('drop', function(e) {
+    e.preventDefault();
     taskSection.classList.remove('drag-over');
+
+    addFilesBtn.textContent = '📎 dropped…';
+    setTimeout(function() { addFilesBtn.textContent = '+ Files'; }, 3000);
+
+    console.log('drop types:', JSON.stringify(Array.from(e.dataTransfer.types)));
+
+    // 1. Prefer URI list — works for most OS file manager drops and VS Code explorer drags.
     var uriList = e.dataTransfer.getData('text/uri-list');
     if (uriList) {
-        e.preventDefault();
         var uris = uriList.split(/\\r?\\n/).map(function(u) { return u.trim(); }).filter(function(u) { return u && u[0] !== '#'; });
-        vscode.postMessage({ type: 'dropFiles', uris: uris });
-        return;
+        if (uris.length) {
+            vscode.postMessage({ type: 'dropFiles', uris: uris });
+            return;
+        }
     }
+
+    // 2. Fallback: Chromium File objects.
+    //    File.path is stripped in VS Code webviews, so we can only get metadata.
+    //    The extension host will show a warning explaining the limitation.
     var dropped = Array.from(e.dataTransfer.files);
     if (dropped.length) {
-        e.preventDefault();
-        var paths = dropped.map(function(f) { return f.path || ''; }).filter(Boolean);
-        if (paths.length) { vscode.postMessage({ type: 'dropFiles', paths: paths }); }
+        vscode.postMessage({
+            type: 'dropFilesMetadata',
+            files: dropped.map(function(f) { return { name: f.name, size: f.size, type: f.type }; }),
+        });
     }
 });
 
