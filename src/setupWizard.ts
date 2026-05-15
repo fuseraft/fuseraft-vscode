@@ -1,12 +1,18 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
-import * as https from 'https';
 import * as os from 'os';
 import * as path from 'path';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 import { validateBinaryPath } from './fuseraftUtils';
+
+const execFileAsync = promisify(execFile);
 
 const CONFIG_DIR  = path.join(os.homedir(), '.fuseraft');
 const CONFIG_PATH = path.join(CONFIG_DIR, 'config');
+
+// VS Code secret key — stored via context.secrets (OS-managed, cross-platform).
+const SECRET_KEY = 'fuseraft.apiKey';
 
 interface ProviderDef {
     label: string;
@@ -60,30 +66,144 @@ const PROVIDERS: ProviderDef[] = [
     },
 ];
 
+// ─── Config file (non-secret fields only) ─────────────────────────────────────
+
+function writeUserConfig(modelId: string, endpoint: string, provider: string): void {
+    fs.mkdirSync(CONFIG_DIR, { recursive: true });
+    let existing: Record<string, string> = {};
+    try { existing = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8')); } catch { /* fresh */ }
+    // Never persist the API key to disk — it lives in context.secrets.
+    const { apiKey: _drop, ...rest } = existing;
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify({ ...rest, modelId, endpoint, provider }, null, 2), 'utf8');
+}
+
+// ─── HTTP GET via curl (uses system network stack — respects proxy env vars) ───
+// Falls back to global fetch if curl is not on PATH.
+
+async function httpGet(url: string, headers: Record<string, string>): Promise<{ status: number; data: string }> {
+    try {
+        return await curlGet(url, headers);
+    } catch (e: unknown) {
+        if (e instanceof Error && (e.message.includes('Request timed out') || e.message.startsWith('curl'))) {
+            throw e;
+        }
+        return await fetchGet(url, headers);
+    }
+}
+
+async function curlGet(url: string, headers: Record<string, string>): Promise<{ status: number; data: string }> {
+    const headerArgs = Object.entries(headers).flatMap(([k, v]) => ['-H', `${k}: ${v}`]);
+    try {
+        const { stdout } = await execFileAsync(
+            'curl',
+            ['-s', '-w', '\n%{http_code}', '--max-time', '20', '--location', ...headerArgs, url],
+            { timeout: 25_000 }
+        );
+        const lines  = stdout.split('\n');
+        const status = parseInt(lines.pop() ?? '0', 10);
+        return { status: isNaN(status) ? 0 : status, data: lines.join('\n') };
+    } catch (e: unknown) {
+        if (e instanceof Error) {
+            if ((e as { killed?: boolean }).killed || e.message.toLowerCase().includes('timeout')) {
+                throw new Error('Request timed out');
+            }
+            const stderr  = ((e as { stderr?: string }).stderr ?? '').trim();
+            const curlMsg = stderr.match(/curl: \(\d+\) (.+)/)?.[1];
+            throw new Error(curlMsg ?? `curl error: ${stderr || e.message}`);
+        }
+        throw e;
+    }
+}
+
+async function fetchGet(url: string, headers: Record<string, string>): Promise<{ status: number; data: string }> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 20_000);
+    try {
+        const response = await fetch(url, { headers, signal: controller.signal });
+        return { status: response.status, data: await response.text() };
+    } catch (e: unknown) {
+        if (e instanceof Error && e.name === 'AbortError') { throw new Error('Request timed out'); }
+        throw e;
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+function parseErrorMessage(data: string, status: number): string {
+    try {
+        const parsed = JSON.parse(data);
+        return parsed?.error?.message ?? `HTTP ${status}`;
+    } catch {
+        return `HTTP ${status}`;
+    }
+}
+
+// ─── Provider connection tests ────────────────────────────────────────────────
+
+async function testConnection(
+    modelId: string,
+    endpoint: string,
+    provider: string,
+    apiKey: string,
+): Promise<{ ok: boolean; message: string }> {
+    try {
+        if (provider === 'google') {
+            return await testGoogleConnection(modelId, endpoint, apiKey);
+        }
+        if (provider === 'anthropic') {
+            return await testAnthropicConnection(modelId, endpoint, apiKey);
+        }
+        return await testOpenAICompatibleConnection(modelId, endpoint, apiKey);
+    } catch (e: unknown) {
+        return { ok: false, message: e instanceof Error ? e.message : String(e) };
+    }
+}
+
+async function testAnthropicConnection(_modelId: string, endpoint: string, apiKey: string): Promise<{ ok: boolean; message: string }> {
+    const resp = await httpGet(`${endpoint}/v1/models`, { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' });
+    return resp.status >= 200 && resp.status < 300
+        ? { ok: true,  message: 'Connected' }
+        : { ok: false, message: parseErrorMessage(resp.data, resp.status) };
+}
+
+async function testOpenAICompatibleConnection(_modelId: string, endpoint: string, apiKey: string): Promise<{ ok: boolean; message: string }> {
+    const resp = await httpGet(`${endpoint.replace(/\/$/, '')}/models`, { 'Authorization': `Bearer ${apiKey}` });
+    return resp.status >= 200 && resp.status < 300
+        ? { ok: true,  message: 'Connected' }
+        : { ok: false, message: parseErrorMessage(resp.data, resp.status) };
+}
+
+async function testGoogleConnection(_modelId: string, endpoint: string, apiKey: string): Promise<{ ok: boolean; message: string }> {
+    const resp = await httpGet(`${endpoint.replace(/\/$/, '')}/v1beta/models?key=${encodeURIComponent(apiKey)}`, {});
+    return resp.status >= 200 && resp.status < 300
+        ? { ok: true,  message: 'Connected' }
+        : { ok: false, message: parseErrorMessage(resp.data, resp.status) };
+}
+
+// ─── Public API ───────────────────────────────────────────────────────────────
+
 export async function isConfigured(): Promise<boolean> {
     if (!fs.existsSync(CONFIG_PATH)) { return false; }
     try {
         const cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
-        if (typeof cfg.modelId !== 'string' || cfg.modelId.trim().length === 0) {
-            return false;
-        }
-    } catch {
-        return false;
-    }
+        if (typeof cfg.modelId !== 'string' || cfg.modelId.trim().length === 0) { return false; }
+    } catch { return false; }
 
     const binaryPath = vscode.workspace.getConfiguration('fuseraft').get<string>('binaryPath', 'fuseraft');
-    const validation = await validateBinaryPath(binaryPath);
-    return validation.valid;
+    return (await validateBinaryPath(binaryPath)).valid;
 }
 
-export async function runSetupWizard(): Promise<void> {
-    // Read existing config to pre-populate the form
+export async function runSetupWizard(context: vscode.ExtensionContext): Promise<void> {
     let existingConfig: Record<string, string> = {};
     try {
         if (fs.existsSync(CONFIG_PATH)) {
             existingConfig = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
         }
     } catch { /* start fresh */ }
+
+    // Read API key from VS Code's secure storage (set by a previous Save, or by the CLI
+    // migrating a legacy plain-text key and us persisting it on the next Save).
+    const savedApiKey = await context.secrets.get(SECRET_KEY) ?? '';
 
     const currentBinaryPath = vscode.workspace.getConfiguration('fuseraft').get<string>('binaryPath', 'fuseraft');
     const binaryValidation = await validateBinaryPath(currentBinaryPath);
@@ -95,11 +215,7 @@ export async function runSetupWizard(): Promise<void> {
         { enableScripts: true, retainContextWhenHidden: true }
     );
 
-    panel.webview.html = buildFormHtml(
-        currentBinaryPath,
-        binaryValidation,
-        existingConfig,
-    );
+    panel.webview.html = buildFormHtml(currentBinaryPath, binaryValidation, existingConfig, savedApiKey);
 
     panel.webview.onDidReceiveMessage(async (msg: {
         command: string;
@@ -111,60 +227,58 @@ export async function runSetupWizard(): Promise<void> {
     }) => {
         if (msg.command === 'browseBinary') {
             const uris = await vscode.window.showOpenDialog({
-                canSelectMany: false,
-                canSelectFiles: true,
-                canSelectFolders: false,
-                title: 'Select fuseraft binary',
-                openLabel: 'Select Binary',
+                canSelectMany: false, canSelectFiles: true, canSelectFolders: false,
+                title: 'Select fuseraft binary', openLabel: 'Select Binary',
             });
-            if (uris && uris[0]) {
-                panel.webview.postMessage({ command: 'binaryPicked', path: uris[0].fsPath });
-            }
+            if (uris?.[0]) { panel.webview.postMessage({ command: 'binaryPicked', path: uris[0].fsPath }); }
             return;
         }
 
         if (msg.command === 'validateBinary') {
-            const result = await validateBinaryPath(msg.binaryPath ?? '');
-            panel.webview.postMessage({ command: 'binaryValidated', ...result });
+            panel.webview.postMessage({ command: 'binaryValidated', ...await validateBinaryPath(msg.binaryPath ?? '') });
             return;
         }
 
         if (msg.command === 'test') {
             const { provider = 'openai', endpoint = '', modelId = '', apiKey = '' } = msg;
-            const result = await testConnection(modelId, endpoint, provider, apiKey);
-            panel.webview.postMessage({ command: 'testResult', ...result });
+            panel.webview.postMessage({ command: 'testResult', ...await testConnection(modelId, endpoint, provider, apiKey) });
             return;
         }
 
         if (msg.command === 'save') {
             const { binaryPath = currentBinaryPath, provider = 'openai', endpoint = '', modelId = '', apiKey = '' } = msg;
 
-            // Save binary path to VS Code settings if changed
             if (binaryPath !== currentBinaryPath) {
                 await vscode.workspace.getConfiguration('fuseraft').update(
                     'binaryPath', binaryPath, vscode.ConfigurationTarget.Global
                 );
             }
 
-            writeUserConfig(modelId, endpoint, provider, apiKey);
+            // Store API key in VS Code's SecretStorage and expose it to terminals via env var.
+            if (apiKey) {
+                await context.secrets.store(SECRET_KEY, apiKey);
+                context.environmentVariableCollection.replace('FUSERAFT_API_KEY', apiKey);
+            }
+
+            writeUserConfig(modelId, endpoint, provider);
             panel.webview.postMessage({ command: 'saved' });
-            vscode.window.showInformationMessage(
-                `fuseraft configured: ${modelId}. Run fuseraft repl once to migrate your API key to the OS keychain.`
-            );
+            vscode.window.showInformationMessage(`fuseraft configured: ${modelId}`);
         }
     });
 }
+
+// ─── Webview HTML ─────────────────────────────────────────────────────────────
 
 function buildFormHtml(
     binaryPath: string,
     binaryValidation: { valid: boolean; version?: string; error?: string },
     existingConfig: Record<string, string>,
+    savedApiKey: string,
 ): string {
     const providersJson = JSON.stringify(PROVIDERS);
-    const savedProvider  = existingConfig.provider  ?? '';
-    const savedEndpoint  = existingConfig.endpoint  ?? '';
-    const savedModelId   = existingConfig.modelId   ?? '';
-    const savedApiKey    = existingConfig.apiKey    ?? '';
+    const savedProvider  = existingConfig.provider ?? '';
+    const savedEndpoint  = existingConfig.endpoint ?? '';
+    const savedModelId   = existingConfig.modelId  ?? '';
 
     const binaryStatus = binaryValidation.valid
         ? `<span class="status-ok">✓ v${binaryValidation.version ?? 'ok'}</span>`
@@ -177,108 +291,26 @@ function buildFormHtml(
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>fuseraft Setup</title>
 <style>
-  :root {
-    --gap: 14px;
-    --radius: 4px;
-  }
-  body {
-    font-family: var(--vscode-font-family);
-    font-size: var(--vscode-font-size);
-    color: var(--vscode-foreground);
-    background: var(--vscode-editor-background);
-    margin: 0;
-    padding: 28px 32px;
-    max-width: 560px;
-  }
-  h2 {
-    font-size: 1.15em;
-    font-weight: 600;
-    margin: 0 0 22px;
-    color: var(--vscode-foreground);
-  }
-  .section {
-    border: 1px solid var(--vscode-panel-border, #333);
-    border-radius: var(--radius);
-    padding: 16px 18px;
-    margin-bottom: 18px;
-  }
-  .section-title {
-    font-size: 0.78em;
-    font-weight: 600;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--vscode-descriptionForeground);
-    margin: 0 0 12px;
-  }
-  label {
-    display: block;
-    font-size: 0.88em;
-    margin-bottom: 4px;
-    color: var(--vscode-foreground);
-  }
-  input, select {
-    width: 100%;
-    box-sizing: border-box;
-    background: var(--vscode-input-background);
-    color: var(--vscode-input-foreground);
-    border: 1px solid var(--vscode-input-border, #555);
-    border-radius: var(--radius);
-    padding: 6px 8px;
-    font-size: var(--vscode-font-size);
-    font-family: var(--vscode-font-family);
-    outline: none;
-    margin-bottom: var(--gap);
-  }
-  input:focus, select:focus {
-    border-color: var(--vscode-focusBorder, #007fd4);
-  }
-  .row {
-    display: flex;
-    gap: 8px;
-    align-items: flex-end;
-  }
-  .row input {
-    flex: 1;
-    margin-bottom: 0;
-  }
-  .row button {
-    flex-shrink: 0;
-    margin-bottom: 0;
-    padding: 6px 12px;
-  }
-  .binary-meta {
-    font-size: 0.82em;
-    margin-bottom: var(--gap);
-    margin-top: -8px;
-  }
-  button {
-    background: var(--vscode-button-background);
-    color: var(--vscode-button-foreground);
-    border: none;
-    border-radius: var(--radius);
-    padding: 7px 16px;
-    font-size: var(--vscode-font-size);
-    font-family: var(--vscode-font-family);
-    cursor: pointer;
-    margin-right: 8px;
-  }
+  :root { --gap: 14px; --radius: 4px; }
+  body { font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); color: var(--vscode-foreground); background: var(--vscode-editor-background); margin: 0; padding: 28px 32px; max-width: 560px; }
+  h2 { font-size: 1.15em; font-weight: 600; margin: 0 0 22px; }
+  .section { border: 1px solid var(--vscode-panel-border, #333); border-radius: var(--radius); padding: 16px 18px; margin-bottom: 18px; }
+  .section-title { font-size: 0.78em; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--vscode-descriptionForeground); margin: 0 0 12px; }
+  label { display: block; font-size: 0.88em; margin-bottom: 4px; }
+  input, select { width: 100%; box-sizing: border-box; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border, #555); border-radius: var(--radius); padding: 6px 8px; font-size: var(--vscode-font-size); font-family: var(--vscode-font-family); outline: none; margin-bottom: var(--gap); }
+  input:focus, select:focus { border-color: var(--vscode-focusBorder, #007fd4); }
+  .row { display: flex; gap: 8px; align-items: flex-end; }
+  .row input { flex: 1; margin-bottom: 0; }
+  .row button { flex-shrink: 0; margin-bottom: 0; padding: 6px 12px; }
+  .binary-meta { font-size: 0.82em; margin-bottom: var(--gap); margin-top: -8px; }
+  button { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; border-radius: var(--radius); padding: 7px 16px; font-size: var(--vscode-font-size); font-family: var(--vscode-font-family); cursor: pointer; margin-right: 8px; }
   button:hover { background: var(--vscode-button-hoverBackground); }
-  button.secondary {
-    background: var(--vscode-button-secondaryBackground);
-    color: var(--vscode-button-secondaryForeground);
-  }
+  button.secondary { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
   button.secondary:hover { background: var(--vscode-button-secondaryHoverBackground); }
-  button:disabled { opacity: 0.5; cursor: default; }
   .actions { margin-top: 4px; display: flex; align-items: center; }
-  .msg {
-    font-size: 0.85em;
-    margin-left: 12px;
-    padding: 4px 10px;
-    border-radius: var(--radius);
-    display: none;
-  }
-  .msg.ok  { display: inline; background: var(--vscode-testing-iconPassed, #4caf50)22; color: var(--vscode-testing-iconPassed, #4caf50); }
-  .msg.err { display: inline; background: var(--vscode-inputValidation-errorBackground, #5a1d1d); color: var(--vscode-inputValidation-errorForeground, #f48771); }
+  .msg { font-size: 0.85em; margin-left: 12px; padding: 4px 10px; border-radius: var(--radius); display: none; }
+  .msg.ok   { display: inline; background: var(--vscode-testing-iconPassed, #4caf50)22; color: var(--vscode-testing-iconPassed, #4caf50); }
+  .msg.err  { display: inline; background: var(--vscode-inputValidation-errorBackground, #5a1d1d); color: var(--vscode-inputValidation-errorForeground, #f48771); }
   .msg.info { display: inline; background: var(--vscode-inputValidation-infoBackground); color: var(--vscode-inputValidation-infoForeground); }
   .status-ok  { color: var(--vscode-testing-iconPassed, #4caf50); }
   .status-err { color: var(--vscode-inputValidation-errorForeground, #f48771); }
@@ -331,7 +363,6 @@ function buildFormHtml(
   const savedModelId  = ${JSON.stringify(savedModelId)};
   const savedApiKey   = ${JSON.stringify(savedApiKey)};
 
-  // Populate provider dropdown
   const sel = document.getElementById('providerSelect');
   PROVIDERS.forEach(p => {
     const opt = document.createElement('option');
@@ -340,7 +371,6 @@ function buildFormHtml(
     sel.appendChild(opt);
   });
 
-  // Pre-fill from saved config
   if (savedProvider) { sel.value = savedProvider; }
   if (savedEndpoint) { document.getElementById('endpoint').value = savedEndpoint; }
   if (savedModelId)  { document.getElementById('modelId').value  = savedModelId; }
@@ -371,9 +401,7 @@ function buildFormHtml(
     });
   }
 
-  function browseBinary() {
-    vscode.postMessage({ command: 'browseBinary' });
-  }
+  function browseBinary() { vscode.postMessage({ command: 'browseBinary' }); }
 
   function validateBinary() {
     showMsg('Validating…', 'info');
@@ -382,10 +410,9 @@ function buildFormHtml(
 
   function testConnection() {
     showMsg('Testing…', 'info');
-    const provider = sel.value || 'openai';
     vscode.postMessage({
       command: 'test',
-      provider,
+      provider: sel.value || 'openai',
       endpoint: document.getElementById('endpoint').value.trim(),
       modelId:  document.getElementById('modelId').value.trim(),
       apiKey:   document.getElementById('apiKey').value.trim(),
@@ -393,12 +420,12 @@ function buildFormHtml(
   }
 
   function save() {
-    const modelId = document.getElementById('modelId').value.trim();
+    const modelId  = document.getElementById('modelId').value.trim();
     const endpoint = document.getElementById('endpoint').value.trim();
-    if (!modelId) { showMsg('Model ID is required.', 'err'); return; }
+    if (!modelId)  { showMsg('Model ID is required.',    'err'); return; }
     if (!endpoint) { showMsg('Endpoint URL is required.', 'err'); return; }
     vscode.postMessage({
-      command: 'save',
+      command:    'save',
       binaryPath: document.getElementById('binaryPath').value.trim(),
       provider:   sel.value || 'openai',
       endpoint,
@@ -420,17 +447,14 @@ function buildFormHtml(
       validateBinary();
     }
     if (msg.command === 'binaryValidated') {
-      const meta = document.getElementById('binaryMeta');
-      meta.innerHTML = msg.valid
+      document.getElementById('binaryMeta').innerHTML = msg.valid
         ? '<span class="status-ok">✓ v' + (msg.version ?? 'ok') + '</span>'
         : '<span class="status-err">✗ ' + (msg.error ?? 'invalid') + '</span>';
     }
     if (msg.command === 'testResult') {
       showMsg(msg.ok ? '✓ ' + msg.message : '✗ ' + msg.message, msg.ok ? 'ok' : 'err');
     }
-    if (msg.command === 'saved') {
-      showMsg('Saved!', 'ok');
-    }
+    if (msg.command === 'saved') { showMsg('Saved!', 'ok'); }
   });
 </script>
 </body>
@@ -439,103 +463,4 @@ function buildFormHtml(
 
 function escHtml(s: string): string {
     return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
-function writeUserConfig(modelId: string, endpoint: string, provider: string, apiKey: string): void {
-    fs.mkdirSync(CONFIG_DIR, { recursive: true });
-    const onDisk: Record<string, string> = { modelId, endpoint, provider };
-    if (apiKey) { onDisk['apiKey'] = apiKey; }
-    fs.writeFileSync(CONFIG_PATH, JSON.stringify(onDisk, null, 2), 'utf8');
-}
-
-async function testConnection(
-    modelId: string,
-    endpoint: string,
-    provider: string,
-    apiKey: string,
-): Promise<{ ok: boolean; message: string }> {
-    try {
-        if (provider === 'google') {
-            return await testGoogleConnection(modelId, endpoint, apiKey);
-        }
-        if (provider === 'anthropic') {
-            return await testAnthropicConnection(modelId, endpoint, apiKey);
-        }
-        return await testOpenAICompatibleConnection(modelId, endpoint, apiKey);
-    } catch (e: unknown) {
-        return { ok: false, message: e instanceof Error ? e.message : String(e) };
-    }
-}
-
-function httpPost(url: string, headers: Record<string, string>, body: object): Promise<{ status: number; data: string }> {
-    return new Promise((resolve, reject) => {
-        const bodyStr = JSON.stringify(body);
-        const parsed  = new URL(url);
-        const req = https.request(
-            {
-                hostname: parsed.hostname,
-                port:     parsed.port || 443,
-                path:     parsed.pathname + parsed.search,
-                method:   'POST',
-                headers:  {
-                    'Content-Type':   'application/json',
-                    'Content-Length': Buffer.byteLength(bodyStr),
-                    ...headers,
-                },
-            },
-            res => {
-                let data = '';
-                res.on('data', (chunk: string) => { data += chunk; });
-                res.on('end', () => resolve({ status: res.statusCode ?? 0, data }));
-            }
-        );
-        req.on('error', reject);
-        req.setTimeout(10_000, () => req.destroy(new Error('Request timed out')));
-        req.write(bodyStr);
-        req.end();
-    });
-}
-
-function parseErrorMessage(data: string, status: number): string {
-    try {
-        const parsed = JSON.parse(data);
-        return parsed?.error?.message ?? `HTTP ${status}`;
-    } catch {
-        return `HTTP ${status}`;
-    }
-}
-
-async function testAnthropicConnection(modelId: string, endpoint: string, apiKey: string): Promise<{ ok: boolean; message: string }> {
-    const resp = await httpPost(
-        `${endpoint}/v1/messages`,
-        { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-        { model: modelId, max_tokens: 1, messages: [{ role: 'user', content: 'hi' }] }
-    );
-    return resp.status >= 200 && resp.status < 300
-        ? { ok: true,  message: `HTTP ${resp.status}` }
-        : { ok: false, message: parseErrorMessage(resp.data, resp.status) };
-}
-
-async function testOpenAICompatibleConnection(modelId: string, endpoint: string, apiKey: string): Promise<{ ok: boolean; message: string }> {
-    const base = endpoint.replace(/\/$/, '');
-    const resp = await httpPost(
-        `${base}/chat/completions`,
-        { 'Authorization': `Bearer ${apiKey}` },
-        { model: modelId, max_tokens: 1, messages: [{ role: 'user', content: 'hi' }] }
-    );
-    return resp.status >= 200 && resp.status < 300
-        ? { ok: true,  message: `HTTP ${resp.status}` }
-        : { ok: false, message: parseErrorMessage(resp.data, resp.status) };
-}
-
-async function testGoogleConnection(modelId: string, endpoint: string, apiKey: string): Promise<{ ok: boolean; message: string }> {
-    const base = endpoint.replace(/\/$/, '');
-    const resp = await httpPost(
-        `${base}/v1beta/models/${modelId}:generateContent?key=${encodeURIComponent(apiKey)}`,
-        {},
-        { contents: [{ parts: [{ text: 'hi' }] }], generationConfig: { maxOutputTokens: 1 } }
-    );
-    return resp.status >= 200 && resp.status < 300
-        ? { ok: true,  message: `HTTP ${resp.status}` }
-        : { ok: false, message: parseErrorMessage(resp.data, resp.status) };
 }

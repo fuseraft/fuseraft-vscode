@@ -272,5 +272,5 @@ export function buildRunCommand(
     const escapedTask = task.replace(/'/g, `'\\''`);
     const configFlag = configPath ? ` -c '${configPath}'` : '';
     const flags = extraFlags ? ` ${extraFlags}` : '';
-    return `${binary} run${configFlag}${flags} '${escapedTask}'`;
+    return `${binary} run --vscode${configFlag}${flags} '${escapedTask}'`;
 }
