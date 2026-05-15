@@ -6,3 +6,5 @@ tsconfig.json
 node_modules/**
 out/test/**
 **/*.map
+.claude/**
+ISSUE.md

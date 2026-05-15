@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as nodePath from 'path';
-import { ConfigInfo, findFuseraftConfigs, getBinary, getRunFlags, runInTerminal, buildRunCommand } from './fuseraftUtils';
+import { ConfigInfo, findFuseraftConfigs, getBinary, getRunFlags, runInTerminal, buildRunCommand, logToChannel } from './fuseraftUtils';
 
 interface AttachedFile {
     path: string;
@@ -29,9 +29,10 @@ export class TaskPanelProvider implements vscode.WebviewViewProvider {
             } else if (msg.type === 'browseTaskFile') {
                 await this._browseTaskFile(msg.configPath, msg.flags);
             } else if (msg.type === 'pickFiles') {
-                await this._pickFiles(webviewView.webview);
+                logToChannel('pickFiles: message received from webview');
+                await this._pickFiles();
             } else if (msg.type === 'dropFiles') {
-                await this._handleDropFiles(webviewView.webview, msg);
+                await this._handleDropFiles(msg);
             }
         });
     }
@@ -81,21 +82,34 @@ export class TaskPanelProvider implements vscode.WebviewViewProvider {
 
         const configFlag = configPath ? ` -c '${configPath}'` : '';
         const flagStr = extra ? ` ${extra}` : '';
-        runInTerminal(`${getBinary()} run${configFlag}${flagStr} -f '${uris[0].fsPath}'`);
+        runInTerminal(`${getBinary()} run --vscode${configFlag}${flagStr} -f '${uris[0].fsPath}'`);
     }
 
-    private async _pickFiles(webview: vscode.Webview): Promise<void> {
+    private async _pickFiles(): Promise<void> {
+        logToChannel('pickFiles: calling showOpenDialog');
         const uris = await vscode.window.showOpenDialog({
             canSelectMany: true,
             canSelectFiles: true,
-            canSelectFolders: true,
+            canSelectFolders: false,
             title: 'Attach context files',
         });
-        if (!uris?.length) { return; }
-        webview.postMessage({ type: 'filesSelected', files: this._expandUris(uris) });
+        logToChannel(`pickFiles: dialog returned ${uris ? uris.length + ' uri(s)' : 'undefined (cancelled)'}`);
+        if (!uris?.length || !this._view) {
+            logToChannel(`pickFiles: aborting — uris empty=${!uris?.length}, view missing=${!this._view}`);
+            return;
+        }
+
+        // The sidebar collapses while the native dialog is open; re-show it so
+        // postMessage finds a visible webview and delivers the message.
+        logToChannel('pickFiles: calling show(true)');
+        this._view.show(true);
+        const files = this._expandUris(uris);
+        logToChannel(`pickFiles: sending filesSelected with ${files.length} file(s)`);
+        const delivered = await this._view.webview.postMessage({ type: 'filesSelected', files });
+        logToChannel(`pickFiles: postMessage delivered=${delivered}`);
     }
 
-    private async _handleDropFiles(webview: vscode.Webview, msg: { uris?: string[]; paths?: string[] }): Promise<void> {
+    private async _handleDropFiles(msg: { uris?: string[]; paths?: string[] }): Promise<void> {
         const rawUris: vscode.Uri[] = [];
         for (const u of (msg.uris ?? [])) {
             try { rawUris.push(vscode.Uri.parse(u, true)); } catch { /* skip */ }
@@ -104,8 +118,9 @@ export class TaskPanelProvider implements vscode.WebviewViewProvider {
             try { rawUris.push(vscode.Uri.file(p)); } catch { /* skip */ }
         }
         const files = this._expandUris(rawUris);
-        if (files.length) {
-            webview.postMessage({ type: 'filesSelected', files });
+        if (files.length && this._view) {
+            this._view.show(true);
+            await this._view.webview.postMessage({ type: 'filesSelected', files });
         }
     }
 
@@ -357,6 +372,9 @@ chipsEl.addEventListener('click', function(e) {
 });
 
 addFilesBtn.addEventListener('click', function() {
+    addFilesBtn.textContent = '⏳ picking…';
+    addFilesBtn.disabled = true;
+    setTimeout(function() { addFilesBtn.textContent = '+ Files'; addFilesBtn.disabled = false; }, 5000);
     vscode.postMessage({ type: 'pickFiles' });
 });
 
@@ -380,7 +398,7 @@ taskSection.addEventListener('drop', function(e) {
     var uriList = e.dataTransfer.getData('text/uri-list');
     if (uriList) {
         e.preventDefault();
-        var uris = uriList.split(/\r?\n/).map(function(u) { return u.trim(); }).filter(function(u) { return u && u[0] !== '#'; });
+        var uris = uriList.split(/\\r?\\n/).map(function(u) { return u.trim(); }).filter(function(u) { return u && u[0] !== '#'; });
         vscode.postMessage({ type: 'dropFiles', uris: uris });
         return;
     }
@@ -435,6 +453,8 @@ window.addEventListener('message', function(e) {
               msg.configs.map(function(c) { return '<option value="' + c.fsPath + '">' + c.workspaceRelative + '</option>'; }).join('')
             : '<option value="">No configs found in workspace</option>';
     } else if (msg.type === 'filesSelected') {
+        addFilesBtn.textContent = '+ Files';
+        addFilesBtn.disabled = false;
         var added = msg.files.filter(function(f) {
             return !selectedFiles.some(function(s) { return s.path === f.path; });
         });
