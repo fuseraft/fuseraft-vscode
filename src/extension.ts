@@ -37,7 +37,9 @@ export function activate(context: vscode.ExtensionContext): void {
 
     // Task panel webview (sidebar)
     context.subscriptions.push(
-        vscode.window.registerWebviewViewProvider(TaskPanelProvider.viewType, taskPanel)
+        vscode.window.registerWebviewViewProvider(TaskPanelProvider.viewType, taskPanel, {
+            webviewOptions: { retainContextWhenHidden: true },
+        })
     );
 
     // CodeLens for YAML/JSON config files

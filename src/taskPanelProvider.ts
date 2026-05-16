@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as nodePath from 'path';
+import * as os from 'os';
 import { ConfigInfo, findFuseraftConfigs, getBinary, getRunFlags, runInTerminal, buildRunCommand, logToChannel } from './fuseraftUtils';
 
 interface AttachedFile {
@@ -66,7 +67,11 @@ export class TaskPanelProvider implements vscode.WebviewViewProvider {
         ].filter(Boolean).join(' ');
 
         const label = task.split('\n')[0].trim().slice(0, 40) || 'Task';
-        runInTerminal(buildRunCommand(getBinary(), task, configPath || undefined, extra || undefined), `fuseraft — ${label}`);
+
+        const tmpFile = nodePath.join(os.tmpdir(), `fuseraft-task-${Date.now()}-${Math.random().toString(36).slice(2)}.txt`);
+        fs.writeFileSync(tmpFile, task, 'utf8');
+
+        runInTerminal(buildRunCommand(getBinary(), task, configPath || undefined, extra || undefined, tmpFile), `fuseraft — ${label}`);
     }
 
     private async _browseTaskFile(configPath: string, flags: Record<string, boolean>): Promise<void> {
@@ -110,7 +115,12 @@ export class TaskPanelProvider implements vscode.WebviewViewProvider {
         this._view.show(true);
         const files = this._expandUris(uris);
         logToChannel(`pickFiles: sending filesSelected with ${files.length} file(s)`);
-        const delivered = await this._view.webview.postMessage({ type: 'filesSelected', files });
+        let delivered = await this._view.webview.postMessage({ type: 'filesSelected', files });
+        if (!delivered) {
+            // Give VS Code a tick to finish re-showing the view, then retry once.
+            await new Promise(r => setTimeout(r, 150));
+            delivered = await this._view.webview.postMessage({ type: 'filesSelected', files });
+        }
         logToChannel(`pickFiles: postMessage delivered=${delivered}`);
     }
 
