@@ -346,7 +346,7 @@
         "fuseraft.defaultConfigPath": {
           "type": "string",
           "default": "",
-          "description": "Default config path relative to the workspace root (e.g. 'config/orchestration.yaml'). Leave blank to be prompted."
+          "description": "Default config path relative to the workspace root (e.g. '.fuseraft/config/orchestration.yaml'). Leave blank to be prompted."
         },
         "fuseraft.runFlags": {
           "type": "string",
