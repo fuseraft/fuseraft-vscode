@@ -262,7 +262,7 @@ export function activate(context: vscode.ExtensionContext): void {
             const outputPath = await vscode.window.showInputBox({
                 title: 'fuseraft init  (4 / 4)  — Output Path',
                 prompt: 'Config file path (relative to workspace root, or absolute)',
-                value: 'config/orchestration.yaml',
+                value: '.fuseraft/config/orchestration.yaml',
                 ignoreFocusOut: true,
             });
             if (!outputPath) { return; }

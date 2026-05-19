@@ -103,7 +103,7 @@ All commands are available via `Ctrl+Shift+P` / `Cmd+Shift+P` under the `fuseraf
 
 2. **Model** — pick from common models across all providers, use auto-detection, or type any model ID
 3. **Provider endpoint** — pick a known provider URL, use your saved default, or enter a custom URL
-4. **Output path** — defaults to `config/orchestration.yaml`, fully editable
+4. **Output path** — defaults to `.fuseraft/config/orchestration.yaml`, fully editable
 
 The generated config file opens automatically in the editor as soon as fuseraft writes it to disk.
 
