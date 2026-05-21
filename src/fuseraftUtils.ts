@@ -245,10 +245,16 @@ export async function promptForTask(): Promise<string | undefined> {
     });
 }
 
+/**
+ * Quote a shell argument in a way that is safe for both PowerShell (win32)
+ * and bash / zsh (all other platforms).
+ */
 function shellQuote(arg: string): string {
     if (process.platform === 'win32') {
+        // PowerShell: wrap in double-quotes, escape inner double-quotes as `"
         return '"' + arg.replace(/"/g, '`"') + '"';
     }
+    // bash/zsh: wrap in single-quotes, escape inner single-quotes as '\''
     return "'" + arg.replace(/'/g, `'\\''`) + "'";
 }
 
@@ -267,6 +273,7 @@ export function buildRunCommand(
     return `${binary} run --vscode${configFlag}${flags} ${shellQuote(task)}`;
 }
 
+/** Build a shell-safe init command. */
 export function buildInitCommand(
     binary: string,
     outputPath: string,
