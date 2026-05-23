@@ -9,8 +9,8 @@ import { TaskPanelProvider } from './taskPanelProvider';
 import { SessionViewPanel } from './sessionViewPanel';
 import {
     getBinary, getRunFlags, findFuseraftConfigs, pickConfig,
-    promptForTask, buildRunCommand, runInTerminal,
-    getSessionsDir, validateBinaryPath, resetBinaryValidation, disposeOutputChannel,
+    promptForTask, buildRunCommand, buildInitCommand, runInTerminal,
+    getSessionsDir, checkCli, invalidateCliCache, disposeOutputChannel,
 } from './fuseraftUtils';
 import { isConfigured, runSetupWizard } from './setupWizard';
 
@@ -61,38 +61,42 @@ export function activate(context: vscode.ExtensionContext): void {
     statusBar.show();
     context.subscriptions.push(statusBar);
 
-    // Restore FUSERAFT_API_KEY in every VS Code terminal (survives extension restart).
-    context.secrets.get('fuseraft.apiKey').then(key => {
-        if (key) { context.environmentVariableCollection.replace('FUSERAFT_API_KEY', key); }
-    });
-
-    // First-run: validate binary and configuration
-    isConfigured().then(configured => {
-        if (!configured) {
-            validateBinaryPath(getBinary()).then(validation => {
-                if (!validation.valid) {
-                    vscode.window.showWarningMessage(
-                        `fuseraft binary not found or invalid: ${validation.error}`,
-                        'Configure Binary',
-                        'Set Up Extension'
-                    ).then(choice => {
-                        if (choice === 'Configure Binary' || choice === 'Set Up Extension') {
-                            vscode.commands.executeCommand('fuseraft.setup');
-                        }
-                    });
-                } else {
-                    vscode.window.showInformationMessage(
-                        'fuseraft is not configured. Set up your provider and API key to get started.',
-                        'Set Up Now'
-                    ).then(choice => {
-                        if (choice === 'Set Up Now') {
-                            vscode.commands.executeCommand('fuseraft.setup');
-                        }
-                    });
-                }
-            });
+    // First-run: two-phase check — CLI presence first, then config.
+    (async () => {
+        let cli = await checkCli();
+        while (!cli.found) {
+            const choice = await vscode.window.showErrorMessage(
+                'fuseraft CLI not found. Install it and make sure it is on your PATH, then click Check again to continue.',
+                { modal: false },
+                'Install Instructions',
+                'Set Binary Path',
+                'Check again'
+            );
+            if (choice === 'Install Instructions') {
+                vscode.env.openExternal(vscode.Uri.parse('https://github.com/fuseraft/fuseraft-cli#install'));
+            } else if (choice === 'Set Binary Path') {
+                vscode.commands.executeCommand('workbench.action.openSettings', 'fuseraft.binaryPath');
+            } else if (choice === 'Check again') {
+                invalidateCliCache();
+                cli = await checkCli();
+            } else {
+                // dismissed — stop looping
+                break;
+            }
         }
-    });
+        if (cli.found && !isConfigured()) {
+            vscode.commands.executeCommand('fuseraft.setup');
+        }
+    })();
+
+    // Invalidate the CLI cache whenever the user changes the binary path setting.
+    context.subscriptions.push(
+        vscode.workspace.onDidChangeConfiguration(e => {
+            if (e.affectsConfiguration('fuseraft.binaryPath')) {
+                invalidateCliCache();
+            }
+        })
+    );
 
     // Track context key for editor/context menu — seed immediately and on every tab change
     const setConfigContext = (editor: vscode.TextEditor | undefined) => {
@@ -108,15 +112,6 @@ export function activate(context: vscode.ExtensionContext): void {
         vscode.workspace.onDidChangeTextDocument(e => {
             if (e.document === vscode.window.activeTextEditor?.document) {
                 setConfigContext(vscode.window.activeTextEditor);
-            }
-        })
-    );
-
-    // Listen for binary path configuration changes and reset validation state
-    context.subscriptions.push(
-        vscode.workspace.onDidChangeConfiguration(e => {
-            if (e.affectsConfiguration('fuseraft.binaryPath')) {
-                resetBinaryValidation();
             }
         })
     );
@@ -194,9 +189,21 @@ export function activate(context: vscode.ExtensionContext): void {
 
             const template = templatePick.label;
 
-            // Step 2: model
+            // Step 2: model — pre-populate from saved config if available
+            const savedModelId = (() => {
+                try {
+                    const p = path.join(require('os').homedir(), '.fuseraft', 'config');
+                    const cfg = JSON.parse(require('fs').readFileSync(p, 'utf8'));
+                    return typeof cfg.modelId === 'string' && cfg.modelId.trim() ? cfg.modelId.trim() : '';
+                } catch { return ''; }
+            })();
+
+            const savedModelItem = savedModelId
+                ? [{ label: `$(settings-gear) Use configured model (${savedModelId})`, description: 'from your provider setup', modelFlag: '' }]
+                : [{ label: '$(settings-gear) Auto-detect from API keys', description: 'uses ~/.fuseraft/config or env vars', modelFlag: '' }];
+
             const MODEL_ITEMS = [
-                { label: '$(settings-gear) Auto-detect from API keys', description: 'uses ~/.fuseraft/config or env vars', modelFlag: '' },
+                ...savedModelItem,
                 { label: 'claude-sonnet-4-6',       description: 'Anthropic',  modelFlag: 'claude-sonnet-4-6' },
                 { label: 'claude-opus-4-7',          description: 'Anthropic',  modelFlag: 'claude-opus-4-7' },
                 { label: 'claude-haiku-4-5',         description: 'Anthropic',  modelFlag: 'claude-haiku-4-5' },
@@ -271,11 +278,8 @@ export function activate(context: vscode.ExtensionContext): void {
                 ? outputPath
                 : path.join(workspaceRoot ?? '.', outputPath);
 
-            // Build command
-            let cmd = `${getBinary()} init '${fullPath}' --template ${template} --no-interactive`;
-            if (modelFlag) { cmd += ` --model ${modelFlag}`; }
-            if (endpointFlag) { cmd += ` --endpoint '${endpointFlag}'`; }
-
+            // Build command (uses platform-aware quoting)
+            const cmd = buildInitCommand(getBinary(), fullPath, template, modelFlag || undefined, endpointFlag || undefined);
             runInTerminal(cmd, 'fuseraft init');
 
             // Open the generated file once it appears on disk (poll up to 15 s)
@@ -544,7 +548,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
     // fuseraft.setup — first-run provider/model/API key wizard
     context.subscriptions.push(
-        vscode.commands.registerCommand('fuseraft.setup', () => runSetupWizard(context))
+        vscode.commands.registerCommand('fuseraft.setup', () => runSetupWizard())
     );
 
     context.subscriptions.push(sessionProvider, configProvider, contextProvider);
