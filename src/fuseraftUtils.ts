@@ -3,12 +3,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { execFile } from 'child_process';
-import { promisify } from 'util';
-
-const execFileAsync = promisify(execFile);
 
 let outputChannel: vscode.OutputChannel | undefined;
-let binaryValidationChecked = false;
 
 function getOutputChannel(): vscode.OutputChannel {
     if (!outputChannel) {
@@ -32,30 +28,38 @@ export interface ConfigInfo {
     workspaceRelative: string;
 }
 
-export function getBinary(): string {
-    const binaryPath = vscode.workspace.getConfiguration('fuseraft').get<string>('binaryPath', 'fuseraft');
-    
-    // Lazy validation on first call — log warning to output channel if invalid
-    if (!binaryValidationChecked) {
-        binaryValidationChecked = true;
-        validateBinaryPath(binaryPath).then(validation => {
-            if (!validation.valid) {
-                const channel = getOutputChannel();
-                channel.appendLine(`[WARNING] fuseraft binary path is invalid: ${validation.error}`);
-                channel.appendLine(`  Current setting: fuseraft.binaryPath = "${binaryPath}"`);
-                channel.appendLine(`  Configure via: VS Code Settings > Extensions > fuseraft > Binary Path`);
-                channel.appendLine(`  Or run: "fuseraft: Set Up Provider" from the command palette`);
-            }
-        }).catch(() => {
-            // Validation failure already logged via validateBinaryPath error handling
-        });
-    }
-    
-    return binaryPath;
+export interface CliCheckResult {
+    found: boolean;
+    version: string;
 }
 
-export function resetBinaryValidation(): void {
-    binaryValidationChecked = false;
+// Cache the result so we only probe once per session.
+let _cliCheckCache: CliCheckResult | undefined;
+
+export function invalidateCliCache(): void {
+    _cliCheckCache = undefined;
+}
+
+export async function checkCli(): Promise<CliCheckResult> {
+    if (_cliCheckCache !== undefined) {
+        return _cliCheckCache;
+    }
+
+    const binary = getBinary();
+    return new Promise(resolve => {
+        execFile(binary, ['--version'], { timeout: 5000 }, (err, stdout) => {
+            if (err) {
+                _cliCheckCache = { found: false, version: '' };
+            } else {
+                _cliCheckCache = { found: true, version: stdout.trim() };
+            }
+            resolve(_cliCheckCache!);
+        });
+    });
+}
+
+export function getBinary(): string {
+    return vscode.workspace.getConfiguration('fuseraft').get<string>('binaryPath', 'fuseraft');
 }
 
 export function logToChannel(msg: string): void {
@@ -66,32 +70,6 @@ export function disposeOutputChannel(): void {
     if (outputChannel) {
         outputChannel.dispose();
         outputChannel = undefined;
-    }
-}
-
-export async function validateBinaryPath(binaryPath: string): Promise<{ valid: boolean; version?: string; error?: string }> {
-    try {
-        const resolved = path.isAbsolute(binaryPath) ? binaryPath : binaryPath;
-        const { stdout, stderr } = await execFileAsync(resolved, ['--version'], { timeout: 5000 });
-        const output = (stdout + stderr).trim();
-        
-        // Check for version pattern (e.g., "fuseraft 1.2.3" or just "1.2.3")
-        const versionMatch = output.match(/(\d+\.\d+\.\d+)/);
-        if (versionMatch) {
-            return { valid: true, version: versionMatch[1] };
-        }
-        
-        // If --version succeeded but no version found, still consider valid
-        return { valid: true, version: output || 'unknown' };
-    } catch (err: unknown) {
-        const error = err as { code?: string; message?: string };
-        if (error.code === 'ENOENT') {
-            return { valid: false, error: `Binary not found: ${binaryPath}` };
-        }
-        if (error.code === 'ETIMEDOUT') {
-            return { valid: false, error: 'Binary validation timed out' };
-        }
-        return { valid: false, error: error.message || 'Binary validation failed' };
     }
 }
 
@@ -267,6 +245,13 @@ export async function promptForTask(): Promise<string | undefined> {
     });
 }
 
+function shellQuote(arg: string): string {
+    if (process.platform === 'win32') {
+        return '"' + arg.replace(/"/g, '`"') + '"';
+    }
+    return "'" + arg.replace(/'/g, `'\\''`) + "'";
+}
+
 export function buildRunCommand(
     binary: string,
     task: string,
@@ -274,12 +259,23 @@ export function buildRunCommand(
     extraFlags?: string,
     taskFilePath?: string
 ): string {
-    const configFlag = configPath ? ` -c '${configPath}'` : '';
+    const configFlag = configPath ? ` -c ${shellQuote(configPath)}` : '';
     const flags = extraFlags ? ` ${extraFlags}` : '';
     if (taskFilePath) {
-        const escapedPath = taskFilePath.replace(/'/g, `'\\''`);
-        return `${binary} run --vscode${configFlag}${flags} -f '${escapedPath}'`;
+        return `${binary} run --vscode${configFlag}${flags} -f ${shellQuote(taskFilePath)}`;
     }
-    const escapedTask = task.replace(/'/g, `'\\''`);
-    return `${binary} run --vscode${configFlag}${flags} '${escapedTask}'`;
+    return `${binary} run --vscode${configFlag}${flags} ${shellQuote(task)}`;
+}
+
+export function buildInitCommand(
+    binary: string,
+    outputPath: string,
+    template: string,
+    modelFlag?: string,
+    endpointFlag?: string
+): string {
+    let cmd = `${binary} init ${shellQuote(outputPath)} --template ${template} --no-interactive`;
+    if (modelFlag) { cmd += ` --model ${modelFlag}`; }
+    if (endpointFlag) { cmd += ` --endpoint ${shellQuote(endpointFlag)}`; }
+    return cmd;
 }

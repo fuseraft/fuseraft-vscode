@@ -39,6 +39,12 @@ export class TaskPanelProvider implements vscode.WebviewViewProvider {
                 vscode.window.showWarningMessage(
                     `Couldn't resolve file path from this drag source. Use the + Files button to attach files.`
                 );
+            } else if (msg.type === 'setup') {
+                vscode.commands.executeCommand('fuseraft.setup');
+            } else if (msg.type === 'installCli') {
+                vscode.env.openExternal(vscode.Uri.parse('https://github.com/fuseraft/fuseraft-cli#install'));
+            } else if (msg.type === 'initConfig') {
+                vscode.commands.executeCommand('fuseraft.init');
             }
         });
     }
@@ -212,8 +218,12 @@ textarea {
     line-height: 1.5;
     outline: none;
 }
-textarea:focus { border-color: var(--vscode-focusBorder); }
-textarea::placeholder { color: var(--vscode-input-placeholderForeground); }
+textarea:focus {
+    border-color: var(--vscode-focusBorder);
+}
+textarea::placeholder {
+    color: var(--vscode-input-placeholderForeground);
+}
 
 select {
     width: 100%;
@@ -229,13 +239,30 @@ select {
 }
 select:focus { border-color: var(--vscode-focusBorder); }
 
-.flags { display: flex; flex-direction: column; gap: 5px; }
-.flag-row { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.flags {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+.flag-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+}
 .flag-row input[type=checkbox] { cursor: pointer; accent-color: var(--vscode-checkbox-background); }
 .flag-row span { font-size: var(--vscode-font-size); }
-.flag-desc { font-size: 11px; color: var(--vscode-descriptionForeground); margin-left: 20px; }
+.flag-desc {
+    font-size: 11px;
+    color: var(--vscode-descriptionForeground);
+    margin-left: 20px;
+}
 
-.actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.actions {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
 
 button {
     border: none;
@@ -246,7 +273,11 @@ button {
     cursor: pointer;
     white-space: nowrap;
 }
-button.primary { background: var(--vscode-button-background); color: var(--vscode-button-foreground); flex: 1; }
+button.primary {
+    background: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+    flex: 1;
+}
 button.primary:hover { background: var(--vscode-button-hoverBackground); }
 button.secondary { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
 button.secondary:hover { background: var(--vscode-button-secondaryHoverBackground); }
@@ -254,7 +285,11 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .section { display: flex; flex-direction: column; gap: 4px; }
 
-.config-row { display: flex; gap: 4px; align-items: center; }
+.config-row {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+}
 .config-row select { flex: 1; }
 .config-row button { padding: 4px 7px; font-size: 13px; }
 
@@ -298,6 +333,32 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
     outline-offset: 2px;
     border-radius: 3px;
 }
+
+.footer {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--vscode-panel-border, var(--vscode-input-border, #444));
+    display: flex;
+    align-items: center;
+    gap: 0;
+}
+.footer-link {
+    font-size: 11px;
+    color: var(--vscode-descriptionForeground);
+    background: none;
+    border: none;
+    padding: 0 6px;
+    cursor: pointer;
+    font-family: var(--vscode-font-family);
+    text-decoration: none;
+}
+.footer-link:first-child { padding-left: 0; }
+.footer-link:hover { color: var(--vscode-foreground); text-decoration: underline; }
+.footer-sep {
+    font-size: 11px;
+    color: var(--vscode-panel-border, #555);
+    user-select: none;
+}
 </style>
 </head>
 <body>
@@ -314,8 +375,12 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 <div class="section">
     <label>Config</label>
     <div class="config-row">
-        <select id="config"><option value="">&#x27f3; Loading configs&#x2026;</option></select>
-        <button class="secondary" id="refreshBtn" title="Refresh config list">&#x21ba;</button>
+        <select id="config"><option value="">⟳ Loading configs…</option></select>
+        <button class="secondary" id="refreshBtn" title="Refresh config list">↺</button>
+    </div>
+    <div id="noConfigHint" style="display:none;margin-top:6px;">
+        <div style="font-size:11px;color:var(--vscode-descriptionForeground);margin-bottom:5px;">A config defines your agent team. Create one to get started.</div>
+        <button class="secondary" id="createConfigBtn" style="font-size:12px;padding:4px 10px;">Create a config</button>
     </div>
 </div>
 
@@ -342,8 +407,14 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 </div>
 
 <div class="actions">
-    <button class="primary" id="runBtn">&#x25b6;&#xa0; Run Task</button>
-    <button class="secondary" id="fileBtn">Run Task File&#x2026;</button>
+    <button class="primary" id="runBtn">▶  Run Task</button>
+    <button class="secondary" id="fileBtn">Run Task File…</button>
+</div>
+
+<div class="footer">
+    <button class="footer-link" id="setupBtn">Configure provider</button>
+    <span class="footer-sep">|</span>
+    <button class="footer-link" id="installCliBtn">Install CLI</button>
 </div>
 
 <script nonce="${nonce}">
@@ -423,7 +494,7 @@ taskSection.addEventListener('drop', function(e) {
     // 1. Prefer URI list — works for most OS file manager drops and VS Code explorer drags.
     var uriList = e.dataTransfer.getData('text/uri-list');
     if (uriList) {
-        var uris = uriList.split(/\\r?\\n/).map(function(u) { return u.trim(); }).filter(function(u) { return u && u[0] !== '#'; });
+        var uris = uriList.split(/\r?\n/).map(function(u) { return u.trim(); }).filter(function(u) { return u && u[0] !== '#'; });
         if (uris.length) {
             vscode.postMessage({ type: 'dropFiles', uris: uris });
             return;
@@ -473,6 +544,18 @@ refreshBtn.addEventListener('click', function() {
     vscode.postMessage({ type: 'refreshConfigs' });
 });
 
+document.getElementById('setupBtn').addEventListener('click', () => {
+    vscode.postMessage({ type: 'setup' });
+});
+
+document.getElementById('installCliBtn').addEventListener('click', () => {
+    vscode.postMessage({ type: 'installCli' });
+});
+
+document.getElementById('createConfigBtn')?.addEventListener('click', () => {
+    vscode.postMessage({ type: 'initConfig' });
+});
+
 taskEl.addEventListener('keydown', function(e) {
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { runBtn.click(); }
 });
@@ -480,10 +563,16 @@ taskEl.addEventListener('keydown', function(e) {
 window.addEventListener('message', function(e) {
     var msg = e.data;
     if (msg.type === 'configs') {
-        configEl.innerHTML = msg.configs.length
-            ? '<option value="">— no config (use default) —</option>' +
-              msg.configs.map(function(c) { return '<option value="' + c.fsPath + '">' + c.workspaceRelative + '</option>'; }).join('')
-            : '<option value="">No configs found in workspace</option>';
+        const configs = msg.configs;
+        const hint = document.getElementById('noConfigHint');
+        if (configs.length) {
+            configEl.innerHTML = '<option value="">— no config (use default) —</option>' +
+                configs.map(c => '<option value="' + c.fsPath + '">' + c.workspaceRelative + '</option>').join('');
+            if (hint) { hint.style.display = 'none'; }
+        } else {
+            configEl.innerHTML = '<option value="">No configs found in workspace</option>';
+            if (hint) { hint.style.display = 'block'; }
+        }
     } else if (msg.type === 'filesSelected') {
         addFilesBtn.textContent = '+ Files';
         addFilesBtn.disabled = false;
