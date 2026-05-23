@@ -1,21 +1,16 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
+import * as https from 'https';
 import * as os from 'os';
 import * as path from 'path';
-import { execFile } from 'child_process';
-import { promisify } from 'util';
-import { validateBinaryPath } from './fuseraftUtils';
-
-const execFileAsync = promisify(execFile);
+import { checkCli, invalidateCliCache } from './fuseraftUtils';
 
 const CONFIG_DIR  = path.join(os.homedir(), '.fuseraft');
 const CONFIG_PATH = path.join(CONFIG_DIR, 'config');
 
-// VS Code secret key — stored via context.secrets (OS-managed, cross-platform).
-const SECRET_KEY = 'fuseraft.apiKey';
-
 interface ProviderDef {
     label: string;
+    description: string;
     provider: string;
     endpoint: string;
     models: string[];
@@ -24,121 +19,551 @@ interface ProviderDef {
 const PROVIDERS: ProviderDef[] = [
     {
         label: 'Anthropic',
+        description: 'Claude models',
         provider: 'anthropic',
         endpoint: 'https://api.anthropic.com',
         models: ['claude-sonnet-4-6', 'claude-opus-4-7', 'claude-haiku-4-5-20251001'],
     },
     {
         label: 'OpenAI',
+        description: 'GPT models',
         provider: 'openai',
         endpoint: 'https://api.openai.com/v1',
         models: ['gpt-4o', 'gpt-4o-mini'],
     },
     {
         label: 'xAI',
+        description: 'Grok models',
         provider: 'xai',
         endpoint: 'https://api.x.ai/v1',
         models: ['grok-4', 'grok-4-1-fast-reasoning'],
     },
     {
         label: 'Google',
+        description: 'Gemini models',
         provider: 'google',
         endpoint: 'https://generativelanguage.googleapis.com',
         models: ['gemini-2.5-flash', 'gemini-2.0-flash'],
     },
     {
         label: 'Mistral',
+        description: 'Mistral models',
         provider: 'mistral',
         endpoint: 'https://api.mistral.ai/v1',
         models: ['mistral-medium-latest', 'mistral-large-latest'],
     },
     {
         label: 'DeepSeek',
+        description: 'DeepSeek models',
         provider: 'deepseek',
         endpoint: 'https://api.deepseek.com/v1',
         models: ['deepseek-chat'],
     },
     {
-        label: 'Custom / Self-hosted',
+        label: '$(edit) Custom / Self-hosted',
+        description: 'OpenAI-compatible endpoint',
         provider: 'custom',
         endpoint: '',
         models: [],
     },
 ];
 
-// ─── Config file (non-secret fields only) ─────────────────────────────────────
-
-function writeUserConfig(modelId: string, endpoint: string, provider: string): void {
-    fs.mkdirSync(CONFIG_DIR, { recursive: true });
-    let existing: Record<string, string> = {};
-    try { existing = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8')); } catch { /* fresh */ }
-    // Never persist the API key to disk — it lives in context.secrets.
-    const { apiKey: _drop, ...rest } = existing;
-    fs.writeFileSync(CONFIG_PATH, JSON.stringify({ ...rest, modelId, endpoint, provider }, null, 2), 'utf8');
-}
-
-// ─── HTTP GET via curl (uses system network stack — respects proxy env vars) ───
-// Falls back to global fetch if curl is not on PATH.
-
-async function httpGet(url: string, headers: Record<string, string>): Promise<{ status: number; data: string }> {
+export function isConfigured(): boolean {
+    if (!fs.existsSync(CONFIG_PATH)) { return false; }
     try {
-        return await curlGet(url, headers);
-    } catch (e: unknown) {
-        if (e instanceof Error && (e.message.includes('Request timed out') || e.message.startsWith('curl'))) {
-            throw e;
-        }
-        return await fetchGet(url, headers);
-    }
-}
-
-async function curlGet(url: string, headers: Record<string, string>): Promise<{ status: number; data: string }> {
-    const headerArgs = Object.entries(headers).flatMap(([k, v]) => ['-H', `${k}: ${v}`]);
-    try {
-        const { stdout } = await execFileAsync(
-            'curl',
-            ['-s', '-w', '\n%{http_code}', '--max-time', '20', '--location', ...headerArgs, url],
-            { timeout: 25_000 }
-        );
-        const lines  = stdout.split('\n');
-        const status = parseInt(lines.pop() ?? '0', 10);
-        return { status: isNaN(status) ? 0 : status, data: lines.join('\n') };
-    } catch (e: unknown) {
-        if (e instanceof Error) {
-            if ((e as { killed?: boolean }).killed || e.message.toLowerCase().includes('timeout')) {
-                throw new Error('Request timed out');
-            }
-            const stderr  = ((e as { stderr?: string }).stderr ?? '').trim();
-            const curlMsg = stderr.match(/curl: \(\d+\) (.+)/)?.[1];
-            throw new Error(curlMsg ?? `curl error: ${stderr || e.message}`);
-        }
-        throw e;
-    }
-}
-
-async function fetchGet(url: string, headers: Record<string, string>): Promise<{ status: number; data: string }> {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 20_000);
-    try {
-        const response = await fetch(url, { headers, signal: controller.signal });
-        return { status: response.status, data: await response.text() };
-    } catch (e: unknown) {
-        if (e instanceof Error && e.name === 'AbortError') { throw new Error('Request timed out'); }
-        throw e;
-    } finally {
-        clearTimeout(timer);
-    }
-}
-
-function parseErrorMessage(data: string, status: number): string {
-    try {
-        const parsed = JSON.parse(data);
-        return parsed?.error?.message ?? `HTTP ${status}`;
+        const cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+        return typeof cfg.modelId === 'string' && cfg.modelId.trim().length > 0;
     } catch {
-        return `HTTP ${status}`;
+        return false;
     }
 }
 
-// ─── Provider connection tests ────────────────────────────────────────────────
+function readSavedConfig(): { modelId: string; endpoint: string; provider: string; apiKey: string; hasPlaintextKey: boolean } {
+    const empty = { modelId: '', endpoint: '', provider: 'anthropic', apiKey: '', hasPlaintextKey: false };
+    if (!fs.existsSync(CONFIG_PATH)) { return empty; }
+    try {
+        const cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+        return {
+            modelId:        cfg.modelId   || '',
+            endpoint:       cfg.endpoint  || '',
+            provider:       cfg.provider  || 'anthropic',
+            apiKey:         cfg.apiKey    || '',
+            hasPlaintextKey: typeof cfg.apiKey === 'string' && cfg.apiKey.trim().length > 0,
+        };
+    } catch {
+        return empty;
+    }
+}
+
+export async function runSetupWizard(): Promise<void> {
+    const [cli, saved] = await Promise.all([checkCli(), Promise.resolve(readSavedConfig())]);
+
+    const panel = vscode.window.createWebviewPanel(
+        'fuseraftSetup',
+        'fuseraft setup',
+        vscode.ViewColumn.One,
+        { enableScripts: true }
+    );
+
+    panel.webview.html = getSetupWebviewHtml(
+        panel.webview,
+        cli.found,
+        cli.version,
+        saved.hasPlaintextKey,
+        saved.provider,
+        saved.endpoint,
+        saved.modelId,
+        saved.apiKey
+    );
+
+    panel.webview.onDidReceiveMessage(async (msg) => {
+        if (msg.action === 'openInstallDocs') {
+            vscode.env.openExternal(vscode.Uri.parse('https://github.com/fuseraft/fuseraft-cli#install'));
+            return;
+        }
+
+        if (msg.action === 'openBinaryPathSetting') {
+            vscode.commands.executeCommand('workbench.action.openSettings', 'fuseraft.binaryPath');
+            return;
+        }
+
+        if (msg.action === 'recheckCli') {
+            invalidateCliCache();
+            const newCli = await checkCli();
+            const newSaved = readSavedConfig();
+            panel.webview.html = getSetupWebviewHtml(
+                panel.webview,
+                newCli.found,
+                newCli.version,
+                newSaved.hasPlaintextKey,
+                newSaved.provider,
+                newSaved.endpoint,
+                newSaved.modelId,
+                newSaved.apiKey
+            );
+            return;
+        }
+
+        if (msg.action === 'migrateKey') {
+            const { runInTerminal } = await import('./fuseraftUtils');
+            const { getBinary } = await import('./fuseraftUtils');
+            vscode.window.showInformationMessage(
+                'Opening fuseraft repl to secure your API key. The key will be moved to your OS keychain automatically. Type exit and press Enter when done.',
+                { modal: false }
+            );
+            runInTerminal(`${getBinary()} repl`, 'fuseraft — secure key');
+            return;
+        }
+
+        const actualProvider = msg.provider === 'custom' ? 'openai' : msg.provider;
+
+        if (msg.action === 'test') {
+            const result = await testConnection(msg.modelId, msg.endpoint, actualProvider, msg.apiKey);
+            panel.webview.postMessage({ type: 'testResult', result });
+        } else if (msg.action === 'save') {
+            writeUserConfig(msg.modelId, msg.endpoint, actualProvider, msg.apiKey);
+            panel.dispose();
+            const next = await vscode.window.showInformationMessage(
+                `fuseraft configured with ${msg.modelId}. Next, create an orchestration config to define your agent team.`,
+                'Create Config Now',
+                'Do It Later'
+            );
+            if (next === 'Create Config Now') {
+                vscode.commands.executeCommand('fuseraft.init');
+            }
+        }
+    });
+}
+
+function getSetupWebviewHtml(
+    webview: vscode.Webview,
+    cliFound: boolean,
+    cliVersion: string,
+    hasPlaintextKey: boolean,
+    curProv: string,
+    curEnd: string,
+    curMod: string,
+    curKey: string
+): string {
+    const nonce = Math.random().toString(36).substring(2, 15);
+    const providersJson = JSON.stringify(PROVIDERS);
+
+    const cliRow = cliFound
+        ? `<div class="preflight-row ok"><span class="pi">✅</span><span>fuseraft CLI detected${cliVersion ? ' — ' + escHtml(cliVersion) : ''}</span></div>`
+        : `<div class="preflight-row error"><span class="pi">❌</span><span>fuseraft CLI not found on PATH.
+            <a href="#" id="installLink">Install instructions</a> &nbsp;|&nbsp;
+            <a href="#" id="binaryPathLink">Set binary path</a> &nbsp;|&nbsp;
+            <a href="#" id="recheckCliLink">Check again</a>
+           </span></div>`;
+
+    const keychainRow = hasPlaintextKey
+        ? `<div class="preflight-row warn"><span class="pi">⚠️</span><span>Your API key is stored in plaintext in <code>~/.fuseraft/config</code>.
+            Run <code>fuseraft repl</code> once to migrate it to the OS keychain.</span></div>`
+        : '';
+
+    const preflightSection = `
+    <div class="preflight">
+        <div class="preflight-title">Pre-flight checklist</div>
+        ${cliRow}
+        ${keychainRow}
+    </div>`;
+
+    const disabledAttr = cliFound ? '' : 'disabled';
+
+    return /* html */`<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';">
+<style>
+    body {
+        font-family: var(--vscode-font-family);
+        padding: 20px;
+        color: var(--vscode-foreground);
+        max-width: 620px;
+        margin: 0 auto;
+    }
+    h2 { margin-bottom: 16px; font-weight: 400; }
+
+    /* ── Pre-flight ── */
+    .preflight {
+        border: 1px solid var(--vscode-panel-border, var(--vscode-input-border, #444));
+        border-radius: 4px;
+        padding: 12px 14px;
+        margin-bottom: 24px;
+        background: var(--vscode-editor-inactiveSelectionBackground, transparent);
+    }
+    .preflight-title {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--vscode-descriptionForeground);
+        margin-bottom: 8px;
+    }
+    .preflight-row {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        font-size: 13px;
+        margin-bottom: 6px;
+        line-height: 1.5;
+    }
+    .preflight-row:last-child { margin-bottom: 0; }
+    .preflight-row.error { color: var(--vscode-errorForeground, #f48771); }
+    .preflight-row.warn  { color: var(--vscode-editorWarning-foreground, #cca700); }
+    .preflight-row.ok    { color: var(--vscode-terminal-ansiGreen, #89d185); }
+    .pi { flex-shrink: 0; }
+    .preflight-row a {
+        color: inherit;
+        text-decoration: underline;
+        cursor: pointer;
+    }
+    code {
+        font-family: var(--vscode-editor-font-family, monospace);
+        font-size: 12px;
+        background: var(--vscode-textCodeBlock-background, rgba(128,128,128,0.2));
+        padding: 1px 4px;
+        border-radius: 3px;
+    }
+
+    /* ── Form ── */
+    .form-group { margin-bottom: 16px; }
+    label {
+        display: block;
+        margin-bottom: 6px;
+        font-weight: 600;
+        font-size: 13px;
+    }
+    .description {
+        font-size: 12px;
+        color: var(--vscode-descriptionForeground);
+        margin-bottom: 6px;
+    }
+    select, input[type="text"], input[type="password"] {
+        width: 100%;
+        padding: 6px 8px;
+        background: var(--vscode-input-background);
+        color: var(--vscode-input-foreground);
+        border: 1px solid var(--vscode-input-border, transparent);
+        border-radius: 2px;
+        font-family: inherit;
+        font-size: 13px;
+        outline: none;
+        box-sizing: border-box;
+    }
+    select:focus, input:focus {
+        border-color: var(--vscode-focusBorder);
+    }
+    select:disabled, input:disabled { opacity: 0.5; cursor: not-allowed; }
+    .actions {
+        margin-top: 32px;
+        display: flex;
+        gap: 10px;
+    }
+    button {
+        padding: 8px 14px;
+        border: none;
+        border-radius: 2px;
+        cursor: pointer;
+        font-family: inherit;
+        font-size: 13px;
+        font-weight: 500;
+    }
+    button.primary {
+        background: var(--vscode-button-background);
+        color: var(--vscode-button-foreground);
+    }
+    button.primary:hover:not(:disabled) { background: var(--vscode-button-hoverBackground); }
+    button.secondary {
+        background: var(--vscode-button-secondaryBackground);
+        color: var(--vscode-button-secondaryForeground);
+    }
+    button.secondary:hover:not(:disabled) { background: var(--vscode-button-secondaryHoverBackground); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    #testResult {
+        margin-top: 16px;
+        padding: 10px;
+        border-radius: 4px;
+        display: none;
+        font-size: 13px;
+    }
+    .success { background: #1b5e20; color: white; border-left: 4px solid #4caf50; }
+    .error-result { background: #b71c1c; color: white; border-left: 4px solid #f44336; }
+</style>
+</head>
+<body>
+    <h2>fuseraft setup</h2>
+
+    ${preflightSection}
+
+    <div class="form-group">
+        <label for="provider">AI Provider</label>
+        <div class="description">Select the provider you want to use for agent orchestrations.</div>
+        <select id="provider" ${disabledAttr}></select>
+    </div>
+
+    <div class="form-group" id="endpointGroup">
+        <label for="endpoint">Endpoint URL</label>
+        <div class="description">The base URL for the provider's API.</div>
+        <input type="text" id="endpoint" placeholder="e.g. https://api.openai.com/v1" ${disabledAttr} />
+    </div>
+
+    <div class="form-group">
+        <label for="model">Model ID</label>
+        <div class="description">Select or type the model you wish to use.</div>
+        <select id="modelSelect" ${disabledAttr}></select>
+        <input type="text" id="modelInput" style="display: none; margin-top: 8px;" placeholder="Enter custom model ID" ${disabledAttr} />
+    </div>
+
+    <div class="form-group">
+        <label for="apiKey">API Key</label>
+        <div class="description">Paste your API key from your provider's dashboard.</div>
+        <input type="password" id="apiKey" placeholder="Paste your API key here" value="${escHtml(curKey)}" ${disabledAttr} />
+        ${hasPlaintextKey ? `<div style="margin-top:8px;">
+            <button id="migrateKeyBtn" class="secondary" style="font-size:12px;padding:5px 10px;">Secure my API key</button>
+            <span style="font-size:11px;color:var(--vscode-descriptionForeground);margin-left:8px;">Moves your key from this file into the OS keychain</span>
+        </div>` : ''}
+    </div>
+
+    <div id="testResult"></div>
+
+    <div class="actions">
+        <button id="testBtn" class="secondary" ${disabledAttr}>Test Connection</button>
+        <button id="saveBtn" class="primary" ${disabledAttr}>Save Configuration</button>
+    </div>
+
+<script nonce="${nonce}">
+    const vscode = acquireVsCodeApi();
+    const providers = ${providersJson};
+    const cliFound = ${cliFound};
+
+    const providerEl    = document.getElementById('provider');
+    const endpointEl    = document.getElementById('endpoint');
+    const modelSelectEl = document.getElementById('modelSelect');
+    const modelInputEl  = document.getElementById('modelInput');
+    const apiKeyEl      = document.getElementById('apiKey');
+    const testBtn       = document.getElementById('testBtn');
+    const saveBtn       = document.getElementById('saveBtn');
+    const testResultEl  = document.getElementById('testResult');
+
+    const curProv = ${JSON.stringify(curProv)};
+    const curEnd  = ${JSON.stringify(curEnd)};
+    const curMod  = ${JSON.stringify(curMod)};
+
+    // Pre-flight link handlers
+    const installLink = document.getElementById('installLink');
+    if (installLink) {
+        installLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            vscode.postMessage({ action: 'openInstallDocs' });
+        });
+    }
+    const binaryPathLink = document.getElementById('binaryPathLink');
+    if (binaryPathLink) {
+        binaryPathLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            vscode.postMessage({ action: 'openBinaryPathSetting' });
+        });
+    }
+    const recheckCliLink = document.getElementById('recheckCliLink');
+    if (recheckCliLink) {
+        recheckCliLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            vscode.postMessage({ action: 'recheckCli' });
+        });
+    }
+    const migrateKeyBtn = document.getElementById('migrateKeyBtn');
+    if (migrateKeyBtn) {
+        migrateKeyBtn.addEventListener('click', () => {
+            vscode.postMessage({ action: 'migrateKey' });
+        });
+    }
+
+    // Populate providers
+    providers.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p.provider;
+        const cleanLabel = p.label.replace(/\\\$\\\(.*?\\\)\\\s*/g, '');
+        opt.textContent = cleanLabel + ' (' + p.description + ')';
+        providerEl.appendChild(opt);
+    });
+
+    if (curProv) {
+        const matches = providers.some(x => x.provider === curProv);
+        if (matches) { providerEl.value = curProv; }
+    }
+
+    function updateForm() {
+        const p = providers.find(x => x.provider === providerEl.value) || providers[0];
+
+        // Endpoint
+        if (p.provider === 'custom') {
+            endpointEl.value = curEnd || '';
+            if (cliFound) { endpointEl.disabled = false; }
+        } else {
+            endpointEl.value = p.endpoint;
+            endpointEl.disabled = true;
+        }
+
+        // Models
+        modelSelectEl.innerHTML = '';
+        if (p.models && p.models.length > 0) {
+            p.models.forEach(m => {
+                const opt = document.createElement('option');
+                opt.value = m;
+                opt.textContent = m;
+                modelSelectEl.appendChild(opt);
+            });
+            const customOpt = document.createElement('option');
+            customOpt.value = '__custom__';
+            customOpt.textContent = 'Enter custom model...';
+            modelSelectEl.appendChild(customOpt);
+
+            modelSelectEl.style.display = 'block';
+
+            if (p.models.includes(curMod)) {
+                modelSelectEl.value = curMod;
+                modelInputEl.style.display = 'none';
+                modelInputEl.value = '';
+            } else if (curMod && curMod.trim() !== '') {
+                modelSelectEl.value = '__custom__';
+                modelInputEl.style.display = 'block';
+                modelInputEl.value = curMod;
+            } else {
+                modelSelectEl.value = p.models[0];
+                modelInputEl.style.display = 'none';
+            }
+        } else {
+            modelSelectEl.style.display = 'none';
+            modelInputEl.style.display = 'block';
+            modelInputEl.value = curMod || '';
+        }
+    }
+
+    providerEl.addEventListener('change', updateForm);
+
+    modelSelectEl.addEventListener('change', () => {
+        if (modelSelectEl.value === '__custom__') {
+            modelInputEl.style.display = 'block';
+            if (cliFound) { modelInputEl.focus(); }
+        } else {
+            modelInputEl.style.display = 'none';
+        }
+    });
+
+    updateForm();
+
+    function getFormData() {
+        const provider = providerEl.value;
+        const endpoint = endpointEl.value.trim();
+        let modelId = '';
+        if (modelSelectEl.style.display !== 'none' && modelSelectEl.value !== '__custom__') {
+            modelId = modelSelectEl.value;
+        } else {
+            modelId = modelInputEl.value.trim();
+        }
+        const apiKey = apiKeyEl.value.trim();
+        return { provider, endpoint, modelId, apiKey };
+    }
+
+    testBtn.addEventListener('click', () => {
+        const data = getFormData();
+        if (!data.modelId) {
+            showResult(false, 'Please specify a model ID');
+            return;
+        }
+        if (data.provider === 'custom' && !data.endpoint) {
+            showResult(false, 'Please specify a custom endpoint');
+            return;
+        }
+        testBtn.disabled = true;
+        testBtn.textContent = 'Testing…';
+        testResultEl.style.display = 'none';
+        vscode.postMessage({ action: 'test', ...data });
+    });
+
+    saveBtn.addEventListener('click', () => {
+        const data = getFormData();
+        if (!data.modelId) {
+            showResult(false, 'Please specify a model ID before saving');
+            return;
+        }
+        vscode.postMessage({ action: 'save', ...data });
+    });
+
+    window.addEventListener('message', event => {
+        const message = event.data;
+        if (message.type === 'testResult') {
+            testBtn.disabled = false;
+            testBtn.textContent = 'Test Connection';
+            showResult(
+                message.result.ok,
+                (message.result.ok ? 'Connection successful — ' : 'Connection failed — ') + message.result.message
+            );
+        }
+    });
+
+    function showResult(isOk, text) {
+        testResultEl.textContent = text;
+        testResultEl.style.display = 'block';
+        testResultEl.className = isOk ? 'success' : 'error-result';
+    }
+</script>
+</body>
+</html>`;
+}
+
+function escHtml(s: string): string {
+    return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function writeUserConfig(modelId: string, endpoint: string, provider: string, apiKey: string): void {
+    fs.mkdirSync(CONFIG_DIR, { recursive: true });
+    const onDisk: Record<string, string> = { modelId, endpoint, provider };
+    if (apiKey) { onDisk['apiKey'] = apiKey; }
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify(onDisk, null, 2), 'utf8');
+}
 
 async function testConnection(
     modelId: string,
@@ -159,308 +584,75 @@ async function testConnection(
     }
 }
 
-async function testAnthropicConnection(_modelId: string, endpoint: string, apiKey: string): Promise<{ ok: boolean; message: string }> {
-    const resp = await httpGet(`${endpoint}/v1/models`, { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' });
-    return resp.status >= 200 && resp.status < 300
-        ? { ok: true,  message: 'Connected' }
-        : { ok: false, message: parseErrorMessage(resp.data, resp.status) };
+function httpPost(url: string, headers: Record<string, string>, body: object): Promise<{ status: number; data: string }> {
+    return new Promise((resolve, reject) => {
+        const bodyStr = JSON.stringify(body);
+        const parsed  = new URL(url);
+        const req = https.request(
+            {
+                hostname: parsed.hostname,
+                port:     parsed.port || 443,
+                path:     parsed.pathname + parsed.search,
+                method:   'POST',
+                headers:  {
+                    'Content-Type':   'application/json',
+                    'Content-Length': Buffer.byteLength(bodyStr),
+                    ...headers,
+                },
+            },
+            res => {
+                let data = '';
+                res.on('data', (chunk: string) => { data += chunk; });
+                res.on('end', () => resolve({ status: res.statusCode ?? 0, data }));
+            }
+        );
+        req.on('error', reject);
+        req.setTimeout(10_000, () => req.destroy(new Error('Request timed out')));
+        req.write(bodyStr);
+        req.end();
+    });
 }
 
-async function testOpenAICompatibleConnection(_modelId: string, endpoint: string, apiKey: string): Promise<{ ok: boolean; message: string }> {
-    const resp = await httpGet(`${endpoint.replace(/\/$/, '')}/models`, { 'Authorization': `Bearer ${apiKey}` });
-    return resp.status >= 200 && resp.status < 300
-        ? { ok: true,  message: 'Connected' }
-        : { ok: false, message: parseErrorMessage(resp.data, resp.status) };
-}
-
-async function testGoogleConnection(_modelId: string, endpoint: string, apiKey: string): Promise<{ ok: boolean; message: string }> {
-    const resp = await httpGet(`${endpoint.replace(/\/$/, '')}/v1beta/models?key=${encodeURIComponent(apiKey)}`, {});
-    return resp.status >= 200 && resp.status < 300
-        ? { ok: true,  message: 'Connected' }
-        : { ok: false, message: parseErrorMessage(resp.data, resp.status) };
-}
-
-// ─── Public API ───────────────────────────────────────────────────────────────
-
-export async function isConfigured(): Promise<boolean> {
-    if (!fs.existsSync(CONFIG_PATH)) { return false; }
+function parseErrorMessage(data: string, status: number): string {
     try {
-        const cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
-        if (typeof cfg.modelId !== 'string' || cfg.modelId.trim().length === 0) { return false; }
-    } catch { return false; }
-
-    const binaryPath = vscode.workspace.getConfiguration('fuseraft').get<string>('binaryPath', 'fuseraft');
-    return (await validateBinaryPath(binaryPath)).valid;
+        const parsed = JSON.parse(data);
+        return parsed?.error?.message ?? `HTTP ${status}`;
+    } catch {
+        return `HTTP ${status}`;
+    }
 }
 
-export async function runSetupWizard(context: vscode.ExtensionContext): Promise<void> {
-    let existingConfig: Record<string, string> = {};
-    try {
-        if (fs.existsSync(CONFIG_PATH)) {
-            existingConfig = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
-        }
-    } catch { /* start fresh */ }
-
-    // Read API key from VS Code's secure storage (set by a previous Save, or by the CLI
-    // migrating a legacy plain-text key and us persisting it on the next Save).
-    const savedApiKey = await context.secrets.get(SECRET_KEY) ?? '';
-
-    const currentBinaryPath = vscode.workspace.getConfiguration('fuseraft').get<string>('binaryPath', 'fuseraft');
-    const binaryValidation = await validateBinaryPath(currentBinaryPath);
-
-    const panel = vscode.window.createWebviewPanel(
-        'fuseraftSetup',
-        'fuseraft — Set Up Provider',
-        vscode.ViewColumn.One,
-        { enableScripts: true, retainContextWhenHidden: true }
+async function testAnthropicConnection(modelId: string, endpoint: string, apiKey: string): Promise<{ ok: boolean; message: string }> {
+    const resp = await httpPost(
+        `${endpoint}/v1/messages`,
+        { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+        { model: modelId, max_tokens: 1, messages: [{ role: 'user', content: 'hi' }] }
     );
-
-    panel.webview.html = buildFormHtml(currentBinaryPath, binaryValidation, existingConfig, savedApiKey);
-
-    panel.webview.onDidReceiveMessage(async (msg: {
-        command: string;
-        binaryPath?: string;
-        provider?: string;
-        endpoint?: string;
-        modelId?: string;
-        apiKey?: string;
-    }) => {
-        if (msg.command === 'browseBinary') {
-            const uris = await vscode.window.showOpenDialog({
-                canSelectMany: false, canSelectFiles: true, canSelectFolders: false,
-                title: 'Select fuseraft binary', openLabel: 'Select Binary',
-            });
-            if (uris?.[0]) { panel.webview.postMessage({ command: 'binaryPicked', path: uris[0].fsPath }); }
-            return;
-        }
-
-        if (msg.command === 'validateBinary') {
-            panel.webview.postMessage({ command: 'binaryValidated', ...await validateBinaryPath(msg.binaryPath ?? '') });
-            return;
-        }
-
-        if (msg.command === 'test') {
-            const { provider = 'openai', endpoint = '', modelId = '', apiKey = '' } = msg;
-            panel.webview.postMessage({ command: 'testResult', ...await testConnection(modelId, endpoint, provider, apiKey) });
-            return;
-        }
-
-        if (msg.command === 'save') {
-            const { binaryPath = currentBinaryPath, provider = 'openai', endpoint = '', modelId = '', apiKey = '' } = msg;
-
-            if (binaryPath !== currentBinaryPath) {
-                await vscode.workspace.getConfiguration('fuseraft').update(
-                    'binaryPath', binaryPath, vscode.ConfigurationTarget.Global
-                );
-            }
-
-            // Store API key in VS Code's SecretStorage and expose it to terminals via env var.
-            if (apiKey) {
-                await context.secrets.store(SECRET_KEY, apiKey);
-                context.environmentVariableCollection.replace('FUSERAFT_API_KEY', apiKey);
-            }
-
-            writeUserConfig(modelId, endpoint, provider);
-            panel.webview.postMessage({ command: 'saved' });
-            vscode.window.showInformationMessage(`fuseraft configured: ${modelId}`);
-        }
-    });
+    return resp.status >= 200 && resp.status < 300
+        ? { ok: true,  message: `HTTP ${resp.status}` }
+        : { ok: false, message: parseErrorMessage(resp.data, resp.status) };
 }
 
-// ─── Webview HTML ─────────────────────────────────────────────────────────────
-
-function buildFormHtml(
-    binaryPath: string,
-    binaryValidation: { valid: boolean; version?: string; error?: string },
-    existingConfig: Record<string, string>,
-    savedApiKey: string,
-): string {
-    const providersJson = JSON.stringify(PROVIDERS);
-    const savedProvider  = existingConfig.provider ?? '';
-    const savedEndpoint  = existingConfig.endpoint ?? '';
-    const savedModelId   = existingConfig.modelId  ?? '';
-
-    const binaryStatus = binaryValidation.valid
-        ? `<span class="status-ok">✓ v${binaryValidation.version ?? 'ok'}</span>`
-        : `<span class="status-err">✗ ${binaryValidation.error ?? 'not found'}</span>`;
-
-    return /* html */`<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>fuseraft Setup</title>
-<style>
-  :root { --gap: 14px; --radius: 4px; }
-  body { font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); color: var(--vscode-foreground); background: var(--vscode-editor-background); margin: 0; padding: 28px 32px; max-width: 560px; }
-  h2 { font-size: 1.15em; font-weight: 600; margin: 0 0 22px; }
-  .section { border: 1px solid var(--vscode-panel-border, #333); border-radius: var(--radius); padding: 16px 18px; margin-bottom: 18px; }
-  .section-title { font-size: 0.78em; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--vscode-descriptionForeground); margin: 0 0 12px; }
-  label { display: block; font-size: 0.88em; margin-bottom: 4px; }
-  input, select { width: 100%; box-sizing: border-box; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border, #555); border-radius: var(--radius); padding: 6px 8px; font-size: var(--vscode-font-size); font-family: var(--vscode-font-family); outline: none; margin-bottom: var(--gap); }
-  input:focus, select:focus { border-color: var(--vscode-focusBorder, #007fd4); }
-  .row { display: flex; gap: 8px; align-items: flex-end; }
-  .row input { flex: 1; margin-bottom: 0; }
-  .row button { flex-shrink: 0; margin-bottom: 0; padding: 6px 12px; }
-  .binary-meta { font-size: 0.82em; margin-bottom: var(--gap); margin-top: -8px; }
-  button { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; border-radius: var(--radius); padding: 7px 16px; font-size: var(--vscode-font-size); font-family: var(--vscode-font-family); cursor: pointer; margin-right: 8px; }
-  button:hover { background: var(--vscode-button-hoverBackground); }
-  button.secondary { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
-  button.secondary:hover { background: var(--vscode-button-secondaryHoverBackground); }
-  .actions { margin-top: 4px; display: flex; align-items: center; }
-  .msg { font-size: 0.85em; margin-left: 12px; padding: 4px 10px; border-radius: var(--radius); display: none; }
-  .msg.ok   { display: inline; background: var(--vscode-testing-iconPassed, #4caf50)22; color: var(--vscode-testing-iconPassed, #4caf50); }
-  .msg.err  { display: inline; background: var(--vscode-inputValidation-errorBackground, #5a1d1d); color: var(--vscode-inputValidation-errorForeground, #f48771); }
-  .msg.info { display: inline; background: var(--vscode-inputValidation-infoBackground); color: var(--vscode-inputValidation-infoForeground); }
-  .status-ok  { color: var(--vscode-testing-iconPassed, #4caf50); }
-  .status-err { color: var(--vscode-inputValidation-errorForeground, #f48771); }
-  select option { background: var(--vscode-dropdown-background); color: var(--vscode-dropdown-foreground); }
-</style>
-</head>
-<body>
-<h2>ƒ Set Up Provider</h2>
-
-<div class="section">
-  <div class="section-title">Binary</div>
-  <label for="binaryPath">fuseraft binary path</label>
-  <div class="row">
-    <input id="binaryPath" type="text" value="${escHtml(binaryPath)}" placeholder="fuseraft" spellcheck="false">
-    <button class="secondary" onclick="browseBinary()">Browse…</button>
-    <button class="secondary" onclick="validateBinary()">Validate</button>
-  </div>
-  <div class="binary-meta" id="binaryMeta">${binaryStatus}</div>
-</div>
-
-<div class="section">
-  <div class="section-title">Provider</div>
-  <label for="providerSelect">Preset</label>
-  <select id="providerSelect" onchange="onProviderChange()">
-    <option value="">— select a provider —</option>
-  </select>
-
-  <label for="endpoint">Endpoint URL</label>
-  <input id="endpoint" type="text" placeholder="https://api.anthropic.com" spellcheck="false">
-
-  <label for="modelId">Model</label>
-  <input id="modelId" type="text" list="modelSuggestions" placeholder="e.g. claude-sonnet-4-6" spellcheck="false">
-  <datalist id="modelSuggestions"></datalist>
-
-  <label for="apiKey">API Key</label>
-  <input id="apiKey" type="password" placeholder="Paste your API key" autocomplete="off">
-</div>
-
-<div class="actions">
-  <button onclick="testConnection()">Test Connection</button>
-  <button onclick="save()">Save</button>
-  <span id="msg" class="msg"></span>
-</div>
-
-<script>
-  const vscode = acquireVsCodeApi();
-  const PROVIDERS = ${providersJson};
-  const savedProvider = ${JSON.stringify(savedProvider)};
-  const savedEndpoint = ${JSON.stringify(savedEndpoint)};
-  const savedModelId  = ${JSON.stringify(savedModelId)};
-  const savedApiKey   = ${JSON.stringify(savedApiKey)};
-
-  const sel = document.getElementById('providerSelect');
-  PROVIDERS.forEach(p => {
-    const opt = document.createElement('option');
-    opt.value = p.provider;
-    opt.textContent = p.label;
-    sel.appendChild(opt);
-  });
-
-  if (savedProvider) { sel.value = savedProvider; }
-  if (savedEndpoint) { document.getElementById('endpoint').value = savedEndpoint; }
-  if (savedModelId)  { document.getElementById('modelId').value  = savedModelId; }
-  if (savedApiKey)   { document.getElementById('apiKey').value   = savedApiKey; }
-  if (!savedEndpoint && savedProvider) { onProviderChange(true); }
-  updateModelSuggestions();
-
-  function onProviderChange(keepExisting) {
-    const p = PROVIDERS.find(x => x.provider === sel.value);
-    if (!p) { return; }
-    if (!keepExisting || !document.getElementById('endpoint').value) {
-      document.getElementById('endpoint').value = p.endpoint;
-    }
-    if (!keepExisting || !document.getElementById('modelId').value) {
-      document.getElementById('modelId').value = p.models[0] ?? '';
-    }
-    updateModelSuggestions();
-  }
-
-  function updateModelSuggestions() {
-    const p = PROVIDERS.find(x => x.provider === sel.value);
-    const dl = document.getElementById('modelSuggestions');
-    dl.innerHTML = '';
-    (p?.models ?? []).forEach(m => {
-      const opt = document.createElement('option');
-      opt.value = m;
-      dl.appendChild(opt);
-    });
-  }
-
-  function browseBinary() { vscode.postMessage({ command: 'browseBinary' }); }
-
-  function validateBinary() {
-    showMsg('Validating…', 'info');
-    vscode.postMessage({ command: 'validateBinary', binaryPath: document.getElementById('binaryPath').value.trim() });
-  }
-
-  function testConnection() {
-    showMsg('Testing…', 'info');
-    vscode.postMessage({
-      command: 'test',
-      provider: sel.value || 'openai',
-      endpoint: document.getElementById('endpoint').value.trim(),
-      modelId:  document.getElementById('modelId').value.trim(),
-      apiKey:   document.getElementById('apiKey').value.trim(),
-    });
-  }
-
-  function save() {
-    const modelId  = document.getElementById('modelId').value.trim();
-    const endpoint = document.getElementById('endpoint').value.trim();
-    if (!modelId)  { showMsg('Model ID is required.',    'err'); return; }
-    if (!endpoint) { showMsg('Endpoint URL is required.', 'err'); return; }
-    vscode.postMessage({
-      command:    'save',
-      binaryPath: document.getElementById('binaryPath').value.trim(),
-      provider:   sel.value || 'openai',
-      endpoint,
-      modelId,
-      apiKey:     document.getElementById('apiKey').value.trim(),
-    });
-  }
-
-  function showMsg(text, type) {
-    const el = document.getElementById('msg');
-    el.textContent = text;
-    el.className = 'msg ' + type;
-  }
-
-  window.addEventListener('message', e => {
-    const msg = e.data;
-    if (msg.command === 'binaryPicked') {
-      document.getElementById('binaryPath').value = msg.path;
-      validateBinary();
-    }
-    if (msg.command === 'binaryValidated') {
-      document.getElementById('binaryMeta').innerHTML = msg.valid
-        ? '<span class="status-ok">✓ v' + (msg.version ?? 'ok') + '</span>'
-        : '<span class="status-err">✗ ' + (msg.error ?? 'invalid') + '</span>';
-    }
-    if (msg.command === 'testResult') {
-      showMsg(msg.ok ? '✓ ' + msg.message : '✗ ' + msg.message, msg.ok ? 'ok' : 'err');
-    }
-    if (msg.command === 'saved') { showMsg('Saved!', 'ok'); }
-  });
-</script>
-</body>
-</html>`;
+async function testOpenAICompatibleConnection(modelId: string, endpoint: string, apiKey: string): Promise<{ ok: boolean; message: string }> {
+    const base = endpoint.replace(/\/$/, '');
+    const resp = await httpPost(
+        `${base}/chat/completions`,
+        { 'Authorization': `Bearer ${apiKey}` },
+        { model: modelId, max_tokens: 1, messages: [{ role: 'user', content: 'hi' }] }
+    );
+    return resp.status >= 200 && resp.status < 300
+        ? { ok: true,  message: `HTTP ${resp.status}` }
+        : { ok: false, message: parseErrorMessage(resp.data, resp.status) };
 }
 
-function escHtml(s: string): string {
-    return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+async function testGoogleConnection(modelId: string, endpoint: string, apiKey: string): Promise<{ ok: boolean; message: string }> {
+    const base = endpoint.replace(/\/$/, '');
+    const resp = await httpPost(
+        `${base}/v1beta/models/${modelId}:generateContent?key=${encodeURIComponent(apiKey)}`,
+        {},
+        { contents: [{ parts: [{ text: 'hi' }] }], generationConfig: { maxOutputTokens: 1 } }
+    );
+    return resp.status >= 200 && resp.status < 300
+        ? { ok: true,  message: `HTTP ${resp.status}` }
+        : { ok: false, message: parseErrorMessage(resp.data, resp.status) };
 }
