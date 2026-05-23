@@ -251,18 +251,18 @@ function mdToHtml(raw){
   if(!raw) return '';
   const blocks=[];
   // extract fenced code blocks
-  let s = raw.replace(/\`\`\`(\w*)\n?([\s\S]*?)\`\`\`/g,(_,lang,code)=>{
+  let s = raw.replace(/\`\`\`(\\w*)\\n?([\\s\\S]*?)\`\`\`/g,(_,lang,code)=>{
     const i=blocks.length;
-    blocks.push('<pre><code>'+esc(code.replace(/\n$/,''))+'</code></pre>');
-    return '\x00'+i+'\x00';
+    blocks.push('<pre><code>'+esc(code.replace(/\\n$/,''))+'</code></pre>');
+    return '\\x00'+i+'\\x00';
   });
   s = esc(s);
   // inline code
-  s = s.replace(/\`([^\`\n]+)\`/g,'<code>$1</code>');
+  s = s.replace(/\`([^\`\\n]+)\`/g,'<code>$1</code>');
   // bold+italic, bold, italic
-  s = s.replace(/\*\*\*([^*]+?)\*\*\*/g,'<strong><em>$1</em></strong>');
-  s = s.replace(/\*\*([^*]+?)\*\*/g,'<strong>$1</strong>');
-  s = s.replace(/(?<!\*)\*([^*\n]+?)\*(?!\*)/g,'<em>$1</em>');
+  s = s.replace(/\\*\\*\\*([^*]+?)\\*\\*\\*/g,'<strong><em>$1</em></strong>');
+  s = s.replace(/\\*\\*([^*]+?)\\*\\*/g,'<strong>$1</strong>');
+  s = s.replace(/(?<!\\*)\\*([^*\\n]+?)\\*(?!\\*)/g,'<em>$1</em>');
   // headers
   s = s.replace(/^### (.+)$/gm,'<h3>$1</h3>');
   s = s.replace(/^## (.+)$/gm,'<h2>$1</h2>');
@@ -270,22 +270,22 @@ function mdToHtml(raw){
   // blockquote
   s = s.replace(/^&gt; (.+)$/gm,'<blockquote>$1</blockquote>');
   // unordered list
-  s = s.replace(/((?:^[ \t]*[-*+] .+$\n?)+)/gm,m=>{
-    const items=m.replace(/^[ \t]*[-*+] (.+)$/gm,'<li>$1</li>');
+  s = s.replace(/((?:^[ \\t]*[-*+] .+$\\n?)+)/gm,m=>{
+    const items=m.replace(/^[ \\t]*[-*+] (.+)$/gm,'<li>$1</li>');
     return '<ul>'+items+'</ul>';
   });
   // ordered list
-  s = s.replace(/((?:^[ \t]*\d+\. .+$\n?)+)/gm,m=>{
-    const items=m.replace(/^[ \t]*\d+\. (.+)$/gm,'<li>$1</li>');
+  s = s.replace(/((?:^[ \\t]*\\d+\\. .+$\\n?)+)/gm,m=>{
+    const items=m.replace(/^[ \\t]*\\d+\\. (.+)$/gm,'<li>$1</li>');
     return '<ol>'+items+'</ol>';
   });
   // paragraphs
-  s = s.split('\n\n').map(para=>{
-    if(/^<(h[1-3]|ul|ol|blockquote|pre|\x00)/.test(para.trimStart())) return para;
-    return '<p>'+para.replace(/\n/g,'<br>')+'</p>';
-  }).join('\n');
+  s = s.split('\\n\\n').map(para=>{
+    if(/^<(h[1-3]|ul|ol|blockquote|pre|\\x00)/.test(para.trimStart())) return para;
+    return '<p>'+para.replace(/\\n/g,'<br>')+'</p>';
+  }).join('\\n');
   // restore code blocks
-  s = s.replace(/\x00(\d+)\x00/g,(_,i)=>blocks[parseInt(i)]);
+  s = s.replace(/\\x00(\\d+)\\x00/g,(_,i)=>blocks[parseInt(i)]);
   return s;
 }
 
@@ -303,7 +303,7 @@ function setEnabled(on){
 function addUser(text){
   const d = document.createElement('div');
   d.className='msg user';
-  d.innerHTML='<div class="bubble">'+esc(text).replace(/\n/g,'<br>')+'</div>';
+  d.innerHTML='<div class="bubble">'+esc(text).replace(/\\n/g,'<br>')+'</div>';
   $msgs.appendChild(d);
   scrollBottom();
 }
@@ -337,7 +337,7 @@ function startThinking(){
 function appendToken(text){
   if(!curBubble) startAssistant();
   curText += text;
-  curBubble.innerHTML = esc(curText).replace(/\n/g,'<br>') + '<span class="cursor"></span>';
+  curBubble.innerHTML = esc(curText).replace(/\\n/g,'<br>') + '<span class="cursor"></span>';
   scrollBottom();
 }
 
