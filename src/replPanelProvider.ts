@@ -160,15 +160,23 @@ body{
 }
 .bubble pre{
   background:var(--vscode-textCodeBlock-background,rgba(128,128,128,.15));
-  padding:10px;border-radius:6px;overflow-x:auto;margin:6px 0
+  padding:10px;border-radius:6px;overflow-x:auto;margin:6px 0;
+  position:relative
 }
-.bubble pre code{background:none;padding:0;font-size:.88em}
+.bubble pre code{background:none;padding:0;font-size:.88em;display:block}
+.bubble pre[data-lang]::before{
+  content:attr(data-lang);
+  position:absolute;top:4px;right:8px;
+  font-size:10px;opacity:.45;
+  font-family:var(--vscode-font-family)
+}
 .bubble blockquote{
   border-left:3px solid var(--vscode-panel-border);
   padding-left:10px;margin:4px 0;
   color:var(--vscode-descriptionForeground)
 }
 .bubble strong{font-weight:600}
+.bubble em{font-style:italic}
 .cursor{
   display:inline-block;width:2px;height:1em;
   background:var(--vscode-editor-foreground);
@@ -253,7 +261,8 @@ function mdToHtml(raw){
   // extract fenced code blocks
   let s = raw.replace(/\`\`\`(\\w*)\\n?([\\s\\S]*?)\`\`\`/g,(_,lang,code)=>{
     const i=blocks.length;
-    blocks.push('<pre><code>'+esc(code.replace(/\\n$/,''))+'</code></pre>');
+    const attr=lang?' data-lang="'+esc(lang)+'"':'';
+    blocks.push('<pre'+attr+'><code>'+esc(code.replace(/\\n$/,''))+'</code></pre>');
     return '\\x00'+i+'\\x00';
   });
   s = esc(s);
@@ -337,7 +346,7 @@ function startThinking(){
 function appendToken(text){
   if(!curBubble) startAssistant();
   curText += text;
-  curBubble.innerHTML = esc(curText).replace(/\\n/g,'<br>') + '<span class="cursor"></span>';
+  curBubble.innerHTML = mdToHtml(curText) + '<span class="cursor"></span>';
   scrollBottom();
 }
 
