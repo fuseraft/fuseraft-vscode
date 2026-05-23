@@ -78,6 +78,7 @@ export function isConfigured(): boolean {
     }
 }
 
+/** Read fields from an existing config file without throwing. */
 function readSavedConfig(): { modelId: string; endpoint: string; provider: string; apiKey: string; hasPlaintextKey: boolean } {
     const empty = { modelId: '', endpoint: '', provider: 'anthropic', apiKey: '', hasPlaintextKey: false };
     if (!fs.existsSync(CONFIG_PATH)) { return empty; }
@@ -96,6 +97,7 @@ function readSavedConfig(): { modelId: string; endpoint: string; provider: strin
 }
 
 export async function runSetupWizard(): Promise<void> {
+    // Run the CLI check and config read in parallel before building the UI.
     const [cli, saved] = await Promise.all([checkCli(), Promise.resolve(readSavedConfig())]);
 
     const panel = vscode.window.createWebviewPanel(
@@ -145,6 +147,7 @@ export async function runSetupWizard(): Promise<void> {
         }
 
         if (msg.action === 'migrateKey') {
+            // Run fuseraft repl in a named terminal to migrate the API key to the OS keychain.
             const { runInTerminal } = await import('./fuseraftUtils');
             const { getBinary } = await import('./fuseraftUtils');
             vscode.window.showInformationMessage(
@@ -163,6 +166,7 @@ export async function runSetupWizard(): Promise<void> {
         } else if (msg.action === 'save') {
             writeUserConfig(msg.modelId, msg.endpoint, actualProvider, msg.apiKey);
             panel.dispose();
+            // Offer to create an orchestration config immediately.
             const next = await vscode.window.showInformationMessage(
                 `fuseraft configured with ${msg.modelId}. Next, create an orchestration config to define your agent team.`,
                 'Create Config Now',
@@ -188,6 +192,7 @@ function getSetupWebviewHtml(
     const nonce = Math.random().toString(36).substring(2, 15);
     const providersJson = JSON.stringify(PROVIDERS);
 
+    // Build pre-flight rows
     const cliRow = cliFound
         ? `<div class="preflight-row ok"><span class="pi">✅</span><span>fuseraft CLI detected${cliVersion ? ' — ' + escHtml(cliVersion) : ''}</span></div>`
         : `<div class="preflight-row error"><span class="pi">❌</span><span>fuseraft CLI not found on PATH.
@@ -208,6 +213,7 @@ function getSetupWebviewHtml(
         ${keychainRow}
     </div>`;
 
+    // If CLI is missing, disable the action buttons
     const disabledAttr = cliFound ? '' : 'disabled';
 
     return /* html */`<!DOCTYPE html>
@@ -554,6 +560,7 @@ function getSetupWebviewHtml(
 </html>`;
 }
 
+/** Simple HTML entity escaping for injecting strings into HTML attributes. */
 function escHtml(s: string): string {
     return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }

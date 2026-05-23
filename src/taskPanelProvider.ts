@@ -333,7 +333,6 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
     outline-offset: 2px;
     border-radius: 3px;
 }
-
 .footer {
     margin-top: 8px;
     padding-top: 8px;
@@ -416,6 +415,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
     <span class="footer-sep">|</span>
     <button class="footer-link" id="installCliBtn">Install CLI</button>
 </div>
+
 
 <script nonce="${nonce}">
 const vscode      = acquireVsCodeApi();
@@ -552,10 +552,6 @@ document.getElementById('installCliBtn').addEventListener('click', () => {
     vscode.postMessage({ type: 'installCli' });
 });
 
-document.getElementById('createConfigBtn')?.addEventListener('click', () => {
-    vscode.postMessage({ type: 'initConfig' });
-});
-
 taskEl.addEventListener('keydown', function(e) {
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { runBtn.click(); }
 });
@@ -582,6 +578,10 @@ window.addEventListener('message', function(e) {
         selectedFiles = selectedFiles.concat(added);
         renderChips();
     }
+});
+
+document.getElementById('createConfigBtn')?.addEventListener('click', () => {
+    vscode.postMessage({ type: 'initConfig' });
 });
 
 vscode.postMessage({ type: 'ready' });
