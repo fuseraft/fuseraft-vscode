@@ -184,15 +184,19 @@ export class TaskPanelProvider implements vscode.WebviewViewProvider {
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+html, body { height: 100%; }
+
 body {
     font-family: var(--vscode-font-family);
     font-size: var(--vscode-font-size);
     color: var(--vscode-foreground);
     background: transparent;
     padding: 12px;
+    padding-bottom: 0;
     display: flex;
     flex-direction: column;
     gap: 10px;
+    overflow-y: auto;
 }
 
 label {
@@ -258,10 +262,23 @@ select:focus { border-color: var(--vscode-focusBorder); }
     margin-left: 20px;
 }
 
+.bottom-bar {
+    position: sticky;
+    bottom: 0;
+    z-index: 10;
+    background: var(--vscode-sideBar-background, var(--vscode-panel-background, transparent));
+    padding-top: 8px;
+    margin-top: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
 .actions {
     display: flex;
     gap: 6px;
     flex-wrap: wrap;
+    padding-bottom: 8px;
 }
 
 button {
@@ -334,8 +351,8 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
     border-radius: 3px;
 }
 .footer {
-    margin-top: 8px;
     padding-top: 8px;
+    padding-bottom: 10px;
     border-top: 1px solid var(--vscode-panel-border, var(--vscode-input-border, #444));
     display: flex;
     align-items: center;
@@ -405,15 +422,16 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
     </div>
 </div>
 
-<div class="actions">
-    <button class="primary" id="runBtn">▶  Run Task</button>
-    <button class="secondary" id="fileBtn">Run Task File…</button>
-</div>
-
-<div class="footer">
-    <button class="footer-link" id="setupBtn">Configure provider</button>
-    <span class="footer-sep">|</span>
-    <button class="footer-link" id="installCliBtn">Install CLI</button>
+<div class="bottom-bar">
+    <div class="actions">
+        <button class="primary" id="runBtn">▶  Run Task</button>
+        <button class="secondary" id="fileBtn">Run Task File…</button>
+    </div>
+    <div class="footer">
+        <button class="footer-link" id="setupBtn">Configure provider</button>
+        <span class="footer-sep">|</span>
+        <button class="footer-link" id="installCliBtn">Install CLI</button>
+    </div>
 </div>
 
 

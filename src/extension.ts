@@ -7,6 +7,7 @@ import { ContextTreeProvider, ContextItemNode, getContextDir, readContextIndex }
 import { FuseraftCodeLensProvider, isFuseraftConfig } from './codeLensProvider';
 import { TaskPanelProvider } from './taskPanelProvider';
 import { SessionViewPanel } from './sessionViewPanel';
+import { ReplPanelProvider } from './replPanelProvider';
 import {
     getBinary, getRunFlags, findFuseraftConfigs, pickConfig,
     promptForTask, buildRunCommand, buildInitCommand, runInTerminal,
@@ -320,7 +321,7 @@ export function activate(context: vscode.ExtensionContext): void {
         })
     );
 
-    // fuseraft.repl — open interactive REPL
+    // fuseraft.repl — open interactive REPL in a webview chat panel
     context.subscriptions.push(
         vscode.commands.registerCommand('fuseraft.repl', async () => {
             const models = [
@@ -340,11 +341,11 @@ export function activate(context: vscode.ExtensionContext): void {
                     ...models.map(m => ({ label: m, description: '' })),
                     { label: '$(edit) Enter model ID…', description: '' },
                 ],
-                { title: 'fuseraft repl — Select model', placeHolder: 'Pick a model or use default' }
+                { title: 'fuseraft REPL — Select model', placeHolder: 'Pick a model or use default' }
             );
             if (!picked) { return; }
 
-            let cmd = `${getBinary()} repl --vscode`;
+            let model = '';
             if (picked.label === '$(edit) Enter model ID…') {
                 const modelId = await vscode.window.showInputBox({
                     title: 'Model ID',
@@ -352,12 +353,12 @@ export function activate(context: vscode.ExtensionContext): void {
                     ignoreFocusOut: true,
                 });
                 if (!modelId) { return; }
-                cmd += ` --model ${modelId}`;
+                model = modelId;
             } else if (!picked.label.startsWith('$(')) {
-                cmd += ` --model ${picked.label}`;
+                model = picked.label;
             }
 
-            runInTerminal(cmd, 'fuseraft repl');
+            ReplPanelProvider.show(model);
         })
     );
 

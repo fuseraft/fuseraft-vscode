@@ -46,6 +46,21 @@ Click the preview icon next to any session to open a rich transcript panel showi
 - Per-turn token usage (input / output) and cost
 - Session-level totals: turn count, total tokens, total cost
 
+### REPL Chat Panel
+
+Run `fuseraft: Open REPL` (`Ctrl+Shift+P`) to open an interactive chat panel beside your editor. Select a model from the quick-pick (or use the configured default) and start chatting immediately.
+
+The panel communicates with the fuseraft CLI over a JSON bridge — no terminal window required:
+
+- **Streaming responses** — tokens appear word-by-word as the model generates them
+- **Tool call badges** — each tool invoked during a turn appears as a small badge above the response
+- **Markdown rendering** — the final response is rendered with headers, bold/italic, code blocks, and lists
+- **Slash commands** — type `/tools`, `/plan`, `/execute`, `/sessions`, `/help`, etc. directly in the input box
+- **Resumable sessions** — pass `--resume <id>` via the extension or reopen a session from the sessions tree; session snapshots are stored at `~/.fuseraft/repl-sessions/`
+- **Shift+Enter** for multi-line input; **Enter** to send
+
+The panel stays open across tab switches (`retainContextWhenHidden`). Closing the panel kills the underlying CLI process and ends the session.
+
 ### CodeLens on Config Files
 
 When you open a fuseraft config, three inline actions appear above the first line:
@@ -75,7 +90,7 @@ All commands are available via `Ctrl+Shift+P` / `Cmd+Shift+P` under the `fuseraf
 | `fuseraft: Initialize Config` | 4-step wizard: template, model, provider endpoint, output path |
 | `fuseraft: Validate Config` | Validate a config file and print results |
 | `fuseraft: Validate Config and Show Diagram` | Validate and print a Mermaid flowchart of the pipeline |
-| `fuseraft: Open REPL` | Start an interactive single-agent chat session |
+| `fuseraft: Open REPL` | Open a chat panel with a single-agent REPL session (streaming responses, tool call badges, markdown rendering) |
 | `fuseraft: Resume Session` | Pick an incomplete session to resume |
 | `fuseraft: View Session Transcript` | Open a formatted transcript for a session |
 | `fuseraft: Add Context` | Import a file or folder into the session context store |
