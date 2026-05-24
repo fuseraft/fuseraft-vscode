@@ -177,6 +177,81 @@ export function formatRelativeTime(isoDate: string): string {
     return `${days}d ago`;
 }
 
+/** Known install locations produced by the bundled install scripts. */
+function getKnownInstallPaths(): string[] {
+    if (process.platform === 'win32') {
+        const localAppData = process.env['LOCALAPPDATA'] || path.join(os.homedir(), 'AppData', 'Local');
+        return [path.join(localAppData, 'fuseraft', 'bin', 'fuseraft.exe')];
+    }
+    return [
+        path.join(os.homedir(), '.local', 'bin', 'fuseraft'),
+        '/usr/local/bin/fuseraft',
+    ];
+}
+
+/**
+ * Poll well-known install locations and PATH until the fuseraft binary appears.
+ * Calls `onFound(resolvedPath, wasOnPath)` once it is detected.
+ *  - `resolvedPath` is the absolute path when found off-PATH, or the current
+ *    getBinary() value when already reachable via PATH.
+ *  - `wasOnPath` is true when it was found via PATH (no settings change needed).
+ * Returns a cancel function that stops polling early (e.g. when the UI closes).
+ */
+export function pollForInstalledBinary(
+    onFound: (resolvedPath: string, wasOnPath: boolean) => void,
+    intervalMs = 2000,
+    timeoutMs  = 120_000
+): () => void {
+    const knownPaths = getKnownInstallPaths();
+    const start = Date.now();
+    let done = false;
+
+    const timer = setInterval(async () => {
+        if (done || Date.now() - start > timeoutMs) {
+            clearInterval(timer);
+            return;
+        }
+
+        // 1. Check known FS paths first — cheap and catches the off-PATH case.
+        for (const p of knownPaths) {
+            if (fs.existsSync(p)) {
+                done = true;
+                clearInterval(timer);
+                onFound(p, false);
+                return;
+            }
+        }
+
+        // 2. Invalidate cache and try the configured binary — catches the on-PATH case.
+        invalidateCliCache();
+        const cli = await checkCli();
+        if (cli.found) {
+            done = true;
+            clearInterval(timer);
+            onFound(getBinary(), true);
+        }
+    }, intervalMs);
+
+    return () => {
+        done = true;
+        clearInterval(timer);
+    };
+}
+
+/**
+ * Run `fuseraft update` in a dedicated terminal to fetch and replace the
+ * running binary with the latest GitHub release.
+ *
+ * After the terminal finishes the caller should invalidate the CLI cache
+ * and re-check the version.
+ */
+export function runUpdate(): void {
+    const binary = getBinary();
+    const terminal = vscode.window.createTerminal({ name: 'fuseraft update' });
+    terminal.show(false);
+    terminal.sendText(`${binary} update`);
+}
+
 /**
  * Run the appropriate fuseraft CLI installer in a dedicated terminal:
  *   Linux / macOS  → curl -fsSL …/install.sh | bash

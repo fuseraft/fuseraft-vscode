@@ -139,8 +139,14 @@
         "icon": "$(cloud-download)"
       },
       {
+        "command": "fuseraft.update",
+        "title": "Update CLI",
+        "category": "fuseraft",
+        "icon": "$(sync)"
+      },
+      {
         "command": "fuseraft.setup",
-        "title": "Set Up Provider",
+        "title": "Configure fuseraft",
         "category": "fuseraft",
         "icon": "$(account)"
       }
@@ -186,6 +192,11 @@
     ],
     "menus": {
       "view/title": [
+        {
+          "command": "fuseraft.update",
+          "when": "view == fuseraft.taskPanel",
+          "group": "navigation"
+        },
         {
           "command": "fuseraft.setup",
           "when": "view == fuseraft.taskPanel",

@@ -39,10 +39,6 @@ export class TaskPanelProvider implements vscode.WebviewViewProvider {
                 vscode.window.showWarningMessage(
                     `Couldn't resolve file path from this drag source. Use the + Files button to attach files.`
                 );
-            } else if (msg.type === 'setup') {
-                vscode.commands.executeCommand('fuseraft.setup');
-            } else if (msg.type === 'installCli') {
-                vscode.commands.executeCommand('fuseraft.install');
             } else if (msg.type === 'initConfig') {
                 vscode.commands.executeCommand('fuseraft.init');
             }
@@ -350,31 +346,6 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
     outline-offset: 2px;
     border-radius: 3px;
 }
-.footer {
-    padding-top: 8px;
-    padding-bottom: 10px;
-    border-top: 1px solid var(--vscode-panel-border, var(--vscode-input-border, #444));
-    display: flex;
-    align-items: center;
-    gap: 0;
-}
-.footer-link {
-    font-size: 11px;
-    color: var(--vscode-descriptionForeground);
-    background: none;
-    border: none;
-    padding: 0 6px;
-    cursor: pointer;
-    font-family: var(--vscode-font-family);
-    text-decoration: none;
-}
-.footer-link:first-child { padding-left: 0; }
-.footer-link:hover { color: var(--vscode-foreground); text-decoration: underline; }
-.footer-sep {
-    font-size: 11px;
-    color: var(--vscode-panel-border, #555);
-    user-select: none;
-}
 </style>
 </head>
 <body>
@@ -426,11 +397,6 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
     <div class="actions">
         <button class="primary" id="runBtn">▶  Run Task</button>
         <button class="secondary" id="fileBtn">Run Task File…</button>
-    </div>
-    <div class="footer">
-        <button class="footer-link" id="setupBtn">Configure provider</button>
-        <span class="footer-sep">|</span>
-        <button class="footer-link" id="installCliBtn">Install CLI</button>
     </div>
 </div>
 
@@ -560,14 +526,6 @@ fileBtn.addEventListener('click', function() {
 refreshBtn.addEventListener('click', function() {
     configEl.innerHTML = '<option value="">⟳ Refreshing…</option>';
     vscode.postMessage({ type: 'refreshConfigs' });
-});
-
-document.getElementById('setupBtn').addEventListener('click', () => {
-    vscode.postMessage({ type: 'setup' });
-});
-
-document.getElementById('installCliBtn').addEventListener('click', () => {
-    vscode.postMessage({ type: 'installCli' });
 });
 
 taskEl.addEventListener('keydown', function(e) {
