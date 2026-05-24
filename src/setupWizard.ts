@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as https from 'https';
 import * as os from 'os';
 import * as path from 'path';
-import { checkCli, invalidateCliCache } from './fuseraftUtils';
+import { checkCli, invalidateCliCache, runInstaller } from './fuseraftUtils';
 
 const CONFIG_DIR  = path.join(os.homedir(), '.fuseraft');
 const CONFIG_PATH = path.join(CONFIG_DIR, 'config');
@@ -146,6 +146,13 @@ export async function runSetupWizard(): Promise<void> {
             return;
         }
 
+        if (msg.action === 'runInstaller') {
+            runInstaller();
+            // Tell the webview the installer is running so it can update its UI
+            panel.webview.postMessage({ type: 'installerLaunched' });
+            return;
+        }
+
         if (msg.action === 'migrateKey') {
             // Run fuseraft repl in a named terminal to migrate the API key to the OS keychain.
             const { runInTerminal } = await import('./fuseraftUtils');
@@ -196,6 +203,7 @@ function getSetupWebviewHtml(
     const cliRow = cliFound
         ? `<div class="preflight-row ok"><span class="pi">✅</span><span>fuseraft CLI detected${cliVersion ? ' — ' + escHtml(cliVersion) : ''}</span></div>`
         : `<div class="preflight-row error"><span class="pi">❌</span><span>fuseraft CLI not found on PATH.
+            <a href="#" id="installBtn" class="action-link">Install</a> &nbsp;|&nbsp;
             <a href="#" id="installLink">Install instructions</a> &nbsp;|&nbsp;
             <a href="#" id="binaryPathLink">Set binary path</a> &nbsp;|&nbsp;
             <a href="#" id="recheckCliLink">Check again</a>
@@ -263,6 +271,14 @@ function getSetupWebviewHtml(
         color: inherit;
         text-decoration: underline;
         cursor: pointer;
+    }
+    .preflight-row a.action-link {
+        font-weight: 700;
+    }
+    .preflight-row a.dimmed {
+        opacity: 0.5;
+        pointer-events: none;
+        text-decoration: none;
     }
     code {
         font-family: var(--vscode-editor-font-family, monospace);
@@ -398,6 +414,15 @@ function getSetupWebviewHtml(
     const curMod  = ${JSON.stringify(curMod)};
 
     // Pre-flight link handlers
+    const installBtn = document.getElementById('installBtn');
+    if (installBtn) {
+        installBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            installBtn.textContent = 'Installing…';
+            installBtn.classList.add('dimmed');
+            vscode.postMessage({ action: 'runInstaller' });
+        });
+    }
     const installLink = document.getElementById('installLink');
     if (installLink) {
         installLink.addEventListener('click', (e) => {
@@ -547,6 +572,23 @@ function getSetupWebviewHtml(
                 message.result.ok,
                 (message.result.ok ? 'Connection successful — ' : 'Connection failed — ') + message.result.message
             );
+        }
+        if (message.type === 'installerLaunched') {
+            // Highlight the "Check again" link so the user knows what to do next
+            const recheckLink = document.getElementById('recheckCliLink');
+            if (recheckLink) {
+                recheckLink.style.fontWeight = 'bold';
+                recheckLink.style.textDecoration = 'underline';
+            }
+            // Show a subtle inline hint below the preflight block
+            const preflight = document.querySelector('.preflight');
+            if (preflight && !document.getElementById('installerHint')) {
+                const hint = document.createElement('div');
+                hint.id = 'installerHint';
+                hint.style.cssText = 'margin-top:10px;font-size:12px;color:var(--vscode-descriptionForeground);';
+                hint.textContent = '⬆ Installer running in terminal. Click "Check again" once it finishes.';
+                preflight.appendChild(hint);
+            }
         }
     });
 
