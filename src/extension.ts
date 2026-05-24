@@ -11,7 +11,7 @@ import { ReplPanelProvider } from './replPanelProvider';
 import {
     getBinary, getRunFlags, findFuseraftConfigs, pickConfig,
     promptForTask, buildRunCommand, buildInitCommand, runInTerminal,
-    runInstaller, getSessionsDir, checkCli, invalidateCliCache, disposeOutputChannel,
+    runInstaller, runUpdate, getSessionsDir, checkCli, invalidateCliCache, disposeOutputChannel,
 } from './fuseraftUtils';
 import { isConfigured, runSetupWizard } from './setupWizard';
 
@@ -559,6 +559,22 @@ export function activate(context: vscode.ExtensionContext): void {
                 'Open Setup'
             ).then(choice => {
                 if (choice === 'Open Setup') {
+                    vscode.commands.executeCommand('fuseraft.setup');
+                }
+            });
+        })
+    );
+
+    // fuseraft.update — update the CLI to the latest release via `fuseraft update`
+    context.subscriptions.push(
+        vscode.commands.registerCommand('fuseraft.update', () => {
+            runUpdate();
+            vscode.window.showInformationMessage(
+                'fuseraft update running in terminal. When it finishes, open the setup wizard to verify the new version.',
+                'Open Setup'
+            ).then(choice => {
+                if (choice === 'Open Setup') {
+                    invalidateCliCache();
                     vscode.commands.executeCommand('fuseraft.setup');
                 }
             });

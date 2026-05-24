@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as https from 'https';
 import * as os from 'os';
 import * as path from 'path';
-import { checkCli, invalidateCliCache, runInstaller } from './fuseraftUtils';
+import { checkCli, invalidateCliCache, runInstaller, runUpdate, pollForInstalledBinary } from './fuseraftUtils';
 
 const CONFIG_DIR  = path.join(os.homedir(), '.fuseraft');
 const CONFIG_PATH = path.join(CONFIG_DIR, 'config');
@@ -96,7 +96,16 @@ function readSavedConfig(): { modelId: string; endpoint: string; provider: strin
     }
 }
 
+/** Singleton panel — reuse if already open. */
+let _setupPanel: vscode.WebviewPanel | undefined;
+
 export async function runSetupWizard(): Promise<void> {
+    // If the panel is already open, just bring it to the front.
+    if (_setupPanel) {
+        _setupPanel.reveal();
+        return;
+    }
+
     // Run the CLI check and config read in parallel before building the UI.
     const [cli, saved] = await Promise.all([checkCli(), Promise.resolve(readSavedConfig())]);
 
@@ -106,6 +115,14 @@ export async function runSetupWizard(): Promise<void> {
         vscode.ViewColumn.One,
         { enableScripts: true }
     );
+
+    _setupPanel = panel;
+    let cancelPoll: (() => void) | undefined;
+    panel.onDidDispose(() => {
+        _setupPanel = undefined;
+        cancelPoll?.();
+        cancelPoll = undefined;
+    });
 
     panel.webview.html = getSetupWebviewHtml(
         panel.webview,
@@ -147,9 +164,46 @@ export async function runSetupWizard(): Promise<void> {
         }
 
         if (msg.action === 'runInstaller') {
+            cancelPoll?.();  // cancel any previous poll
             runInstaller();
             // Tell the webview the installer is running so it can update its UI
             panel.webview.postMessage({ type: 'installerLaunched' });
+
+            // Auto-detect the binary once it lands on disk, then update
+            // settings and rebuild the panel — no manual steps needed.
+            cancelPoll = pollForInstalledBinary(async (resolvedPath, wasOnPath) => {
+                cancelPoll = undefined;
+                if (!_setupPanel) { return; }  // panel was closed — nothing to do
+
+                // If found at a known FS location that isn't already on PATH,
+                // write it into the binaryPath setting so the extension can use it.
+                if (!wasOnPath) {
+                    await vscode.workspace.getConfiguration('fuseraft').update(
+                        'binaryPath', resolvedPath, vscode.ConfigurationTarget.Global
+                    );
+                }
+
+                invalidateCliCache();
+                const newCli = await checkCli();
+                const newSaved = readSavedConfig();
+                panel.webview.html = getSetupWebviewHtml(
+                    panel.webview,
+                    newCli.found,
+                    newCli.version,
+                    newSaved.hasPlaintextKey,
+                    newSaved.provider,
+                    newSaved.endpoint,
+                    newSaved.modelId,
+                    newSaved.apiKey
+                );
+            });
+            return;
+        }
+
+        if (msg.action === 'runUpdate') {
+            runUpdate();
+            // Tell the webview the updater is running so it can update its UI
+            panel.webview.postMessage({ type: 'updaterLaunched' });
             return;
         }
 
@@ -201,7 +255,11 @@ function getSetupWebviewHtml(
 
     // Build pre-flight rows
     const cliRow = cliFound
-        ? `<div class="preflight-row ok"><span class="pi">✅</span><span>fuseraft CLI detected${cliVersion ? ' — ' + escHtml(cliVersion) : ''}</span></div>`
+        ? `<div class="preflight-row ok"><span class="pi">✅</span><span>fuseraft CLI detected${cliVersion ? ' — ' + escHtml(cliVersion) : ''}
+            &nbsp;|&nbsp;
+            <a href="#" id="updateBtn" class="action-link">Update</a> &nbsp;|&nbsp;
+            <a href="#" id="recheckCliLink">Check again</a>
+           </span></div>`
         : `<div class="preflight-row error"><span class="pi">❌</span><span>fuseraft CLI not found on PATH.
             <a href="#" id="installBtn" class="action-link">Install</a> &nbsp;|&nbsp;
             <a href="#" id="installLink">Install instructions</a> &nbsp;|&nbsp;
@@ -391,6 +449,7 @@ function getSetupWebviewHtml(
     <div id="testResult"></div>
 
     <div class="actions">
+        ${!cliFound ? `<button id="installCliBtn" class="secondary">Install CLI</button>` : ''}
         <button id="testBtn" class="secondary" ${disabledAttr}>Test Connection</button>
         <button id="saveBtn" class="primary" ${disabledAttr}>Save Configuration</button>
     </div>
@@ -414,6 +473,15 @@ function getSetupWebviewHtml(
     const curMod  = ${JSON.stringify(curMod)};
 
     // Pre-flight link handlers
+    const updateBtn = document.getElementById('updateBtn');
+    if (updateBtn) {
+        updateBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            updateBtn.textContent = 'Updating…';
+            updateBtn.classList.add('dimmed');
+            vscode.postMessage({ action: 'runUpdate' });
+        });
+    }
     const installBtn = document.getElementById('installBtn');
     if (installBtn) {
         installBtn.addEventListener('click', (e) => {
@@ -444,6 +512,15 @@ function getSetupWebviewHtml(
             vscode.postMessage({ action: 'recheckCli' });
         });
     }
+    const installCliBtn = document.getElementById('installCliBtn');
+    if (installCliBtn) {
+        installCliBtn.addEventListener('click', () => {
+            installCliBtn.textContent = 'Installing…';
+            installCliBtn.disabled = true;
+            vscode.postMessage({ action: 'runInstaller' });
+        });
+    }
+
     const migrateKeyBtn = document.getElementById('migrateKeyBtn');
     if (migrateKeyBtn) {
         migrateKeyBtn.addEventListener('click', () => {
@@ -586,7 +663,24 @@ function getSetupWebviewHtml(
                 const hint = document.createElement('div');
                 hint.id = 'installerHint';
                 hint.style.cssText = 'margin-top:10px;font-size:12px;color:var(--vscode-descriptionForeground);';
-                hint.textContent = '⬆ Installer running in terminal. Click "Check again" once it finishes.';
+                hint.textContent = '⬆ Installer running in terminal. Detecting binary automatically…';
+                preflight.appendChild(hint);
+            }
+        }
+        if (message.type === 'updaterLaunched') {
+            // Highlight the "Check again" link so the user knows what to do next
+            const recheckLink = document.getElementById('recheckCliLink');
+            if (recheckLink) {
+                recheckLink.style.fontWeight = 'bold';
+                recheckLink.style.textDecoration = 'underline';
+            }
+            // Show a subtle inline hint below the preflight block
+            const preflight = document.querySelector('.preflight');
+            if (preflight && !document.getElementById('updaterHint')) {
+                const hint = document.createElement('div');
+                hint.id = 'updaterHint';
+                hint.style.cssText = 'margin-top:10px;font-size:12px;color:var(--vscode-descriptionForeground);';
+                hint.textContent = '⬆ Updater running in terminal. Click "Check again" once it finishes to see the new version.';
                 preflight.appendChild(hint);
             }
         }
