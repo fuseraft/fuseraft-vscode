@@ -42,7 +42,7 @@ export class TaskPanelProvider implements vscode.WebviewViewProvider {
             } else if (msg.type === 'setup') {
                 vscode.commands.executeCommand('fuseraft.setup');
             } else if (msg.type === 'installCli') {
-                vscode.env.openExternal(vscode.Uri.parse('https://github.com/fuseraft/fuseraft-cli#install'));
+                vscode.commands.executeCommand('fuseraft.install');
             } else if (msg.type === 'initConfig') {
                 vscode.commands.executeCommand('fuseraft.init');
             }
