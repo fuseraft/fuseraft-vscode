@@ -193,6 +193,11 @@
     "menus": {
       "view/title": [
         {
+          "command": "fuseraft.repl",
+          "when": "view == fuseraft.taskPanel",
+          "group": "navigation"
+        },
+        {
           "command": "fuseraft.update",
           "when": "view == fuseraft.taskPanel",
           "group": "navigation"
