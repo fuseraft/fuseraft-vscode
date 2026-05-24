@@ -133,6 +133,12 @@
         "icon": "$(refresh)"
       },
       {
+        "command": "fuseraft.install",
+        "title": "Install CLI",
+        "category": "fuseraft",
+        "icon": "$(cloud-download)"
+      },
+      {
         "command": "fuseraft.setup",
         "title": "Set Up Provider",
         "category": "fuseraft",

@@ -177,6 +177,38 @@ export function formatRelativeTime(isoDate: string): string {
     return `${days}d ago`;
 }
 
+/**
+ * Run the appropriate fuseraft CLI installer in a dedicated terminal:
+ *   Linux / macOS  → curl -fsSL …/install.sh | bash
+ *   Windows        → irm …/install.ps1 | iex  (opened in PowerShell)
+ *
+ * The terminal is shown immediately so the user can watch progress.
+ * After it finishes they should click "Check again" in the setup wizard
+ * or dismiss/re-open it to recheck the CLI.
+ */
+export function runInstaller(): void {
+    const BASE = 'https://raw.githubusercontent.com/fuseraft/fuseraft-cli/main';
+
+    let terminal: vscode.Terminal;
+    let cmd: string;
+
+    if (process.platform === 'win32') {
+        // Explicitly open PowerShell so irm / iex are available
+        terminal = vscode.window.createTerminal({
+            name: 'fuseraft install',
+            shellPath: 'powershell.exe',
+            shellArgs: ['-NoLogo'],
+        });
+        cmd = `irm ${BASE}/install.ps1 | iex`;
+    } else {
+        terminal = vscode.window.createTerminal({ name: 'fuseraft install' });
+        cmd = `curl -fsSL ${BASE}/install.sh | bash`;
+    }
+
+    terminal.show(false);   // show but don't steal focus from the setup panel
+    terminal.sendText(cmd);
+}
+
 export function runInTerminal(command: string, name = 'fuseraft', reuse = false): void {
     const openOnRun = vscode.workspace.getConfiguration('fuseraft').get<boolean>('openTerminalOnRun', true);
 

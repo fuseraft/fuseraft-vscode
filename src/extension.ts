@@ -11,7 +11,7 @@ import { ReplPanelProvider } from './replPanelProvider';
 import {
     getBinary, getRunFlags, findFuseraftConfigs, pickConfig,
     promptForTask, buildRunCommand, buildInitCommand, runInTerminal,
-    getSessionsDir, checkCli, invalidateCliCache, disposeOutputChannel,
+    runInstaller, getSessionsDir, checkCli, invalidateCliCache, disposeOutputChannel,
 } from './fuseraftUtils';
 import { isConfigured, runSetupWizard } from './setupWizard';
 
@@ -69,11 +69,14 @@ export function activate(context: vscode.ExtensionContext): void {
             const choice = await vscode.window.showErrorMessage(
                 'fuseraft CLI not found. Install it and make sure it is on your PATH, then click Check again to continue.',
                 { modal: false },
+                'Install',
                 'Install Instructions',
                 'Set Binary Path',
                 'Check again'
             );
-            if (choice === 'Install Instructions') {
+            if (choice === 'Install') {
+                vscode.commands.executeCommand('fuseraft.install');
+            } else if (choice === 'Install Instructions') {
                 vscode.env.openExternal(vscode.Uri.parse('https://github.com/fuseraft/fuseraft-cli#install'));
             } else if (choice === 'Set Binary Path') {
                 vscode.commands.executeCommand('workbench.action.openSettings', 'fuseraft.binaryPath');
@@ -544,6 +547,21 @@ export function activate(context: vscode.ExtensionContext): void {
                 'fuseraft context'
             );
             setTimeout(() => contextProvider.refresh(), 1500);
+        })
+    );
+
+    // fuseraft.install — run the platform-appropriate CLI installer in a terminal
+    context.subscriptions.push(
+        vscode.commands.registerCommand('fuseraft.install', () => {
+            runInstaller();
+            vscode.window.showInformationMessage(
+                'fuseraft installer running in terminal. When it finishes, click "Check again" in the setup wizard or run fuseraft.setup.',
+                'Open Setup'
+            ).then(choice => {
+                if (choice === 'Open Setup') {
+                    vscode.commands.executeCommand('fuseraft.setup');
+                }
+            });
         })
     );
 
