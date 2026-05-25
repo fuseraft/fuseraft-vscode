@@ -419,7 +419,7 @@ function getSetupWebviewHtml(
 
     <div class="form-group">
         <label for="provider">AI Provider</label>
-        <div class="description">Select the provider you want to use for agent orchestrations.</div>
+        <div class="description">Select the default provider you want to use for agent orchestrations.</div>
         <select id="provider" ${disabledAttr}></select>
     </div>
 
