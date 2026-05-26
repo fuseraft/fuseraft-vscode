@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as cp from 'child_process';
-import { getBinary } from './fuseraftUtils';
+import { getBinary, readApiKeyFromConfig } from './fuseraftUtils';
 
 interface ReplEvent {
     type: string;
@@ -63,8 +63,17 @@ export class ReplPanelProvider {
         if (model) { args.push('--model', model); }
         if (resumeId) { args.push('--resume', resumeId); }
 
+        // Inherit the full environment and overlay FUSERAFT_API_KEY from the
+        // saved config.  On Windows the CLI subprocess may not resolve
+        // ~/.fuseraft/config through the same home-directory path that the
+        // extension used when writing it, so the explicit env var is the
+        // reliable fallback.
+        const apiKey = readApiKeyFromConfig();
+        const env: NodeJS.ProcessEnv = { ...process.env };
+        if (apiKey) { env['FUSERAFT_API_KEY'] = apiKey; }
+
         this._proc = cp.spawn(getBinary(), args, {
-            env: { ...process.env },
+            env,
             stdio: ['pipe', 'pipe', 'pipe'],
         });
 

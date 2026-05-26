@@ -62,6 +62,24 @@ export function getBinary(): string {
     return vscode.workspace.getConfiguration('fuseraft').get<string>('binaryPath', 'fuseraft');
 }
 
+/**
+ * Read the plaintext API key from ~/.fuseraft/config, if one is stored there.
+ * Returns an empty string when the file is absent, unreadable, or has no key.
+ * Used to inject FUSERAFT_API_KEY into child processes and terminals so the
+ * CLI can always find the key even when it can't locate the config file
+ * (common on Windows where home-directory resolution differs between shells).
+ */
+export function readApiKeyFromConfig(): string {
+    const configPath = path.join(os.homedir(), '.fuseraft', 'config');
+    try {
+        if (!fs.existsSync(configPath)) { return ''; }
+        const cfg = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        return typeof cfg.apiKey === 'string' ? cfg.apiKey.trim() : '';
+    } catch {
+        return '';
+    }
+}
+
 export function logToChannel(msg: string): void {
     getOutputChannel().appendLine(`[${new Date().toISOString()}] ${msg}`);
 }
@@ -354,7 +372,15 @@ export function runInTerminal(command: string, name = 'fuseraft', reuse = false)
         terminal = vscode.window.terminals.find(t => t.name === name);
     }
     if (!terminal) {
-        terminal = vscode.window.createTerminal({ name });
+        // Inject the saved API key as FUSERAFT_API_KEY so the CLI can always
+        // find it, even on Windows where shell-based home-directory expansion
+        // may resolve differently from the Node.js os.homedir() path used when
+        // writing the config file.
+        const apiKey = readApiKeyFromConfig();
+        terminal = vscode.window.createTerminal({
+            name,
+            env: apiKey ? { FUSERAFT_API_KEY: apiKey } : undefined,
+        });
     }
 
     if (openOnRun) {
