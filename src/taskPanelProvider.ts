@@ -23,8 +23,11 @@ export class TaskPanelProvider implements vscode.WebviewViewProvider {
 
         webviewView.webview.onDidReceiveMessage(async (msg) => {
             if (msg.type === 'ready' || msg.type === 'refreshConfigs') {
+                logToChannel(`Config request: ${msg.type}`);
                 const configs = await findFuseraftConfigs();
-                webviewView.webview.postMessage({ type: 'configs', configs });
+                logToChannel(`Found ${configs.length} config(s)`);
+                const sent = await webviewView.webview.postMessage({ type: 'configs', configs });
+                logToChannel(`Config message sent: ${sent}`);
             } else if (msg.type === 'run') {
                 this._run(msg);
             } else if (msg.type === 'browseTaskFile') {
@@ -46,9 +49,15 @@ export class TaskPanelProvider implements vscode.WebviewViewProvider {
     }
 
     async refresh(): Promise<void> {
-        if (!this._view) { return; }
+        if (!this._view) { 
+            logToChannel('refresh: no view available');
+            return; 
+        }
+        logToChannel('refresh: finding configs');
         const configs = await findFuseraftConfigs();
-        this._view.webview.postMessage({ type: 'configs', configs });
+        logToChannel(`refresh: found ${configs.length} config(s)`);
+        const sent = await this._view.webview.postMessage({ type: 'configs', configs });
+        logToChannel(`refresh: message sent=${sent}`);
     }
 
     private _run(msg: { task: string; configPath: string; flags: Record<string, boolean>; files?: AttachedFile[] }): void {
@@ -478,7 +487,7 @@ taskSection.addEventListener('drop', function(e) {
     // 1. Prefer URI list — works for most OS file manager drops and VS Code explorer drags.
     var uriList = e.dataTransfer.getData('text/uri-list');
     if (uriList) {
-        var uris = uriList.split(/\r?\n/).map(function(u) { return u.trim(); }).filter(function(u) { return u && u[0] !== '#'; });
+        var uris = uriList.split(/\\r?\\n/).map(function(u) { return u.trim(); }).filter(function(u) { return u && u[0] !== '#'; });
         if (uris.length) {
             vscode.postMessage({ type: 'dropFiles', uris: uris });
             return;
@@ -532,6 +541,14 @@ taskEl.addEventListener('keydown', function(e) {
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { runBtn.click(); }
 });
 
+function escapeHtml(str) {
+    return str.replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;')
+              .replace(/"/g, '&quot;')
+              .replace(/'/g, '&#39;');
+}
+
 window.addEventListener('message', function(e) {
     var msg = e.data;
     if (msg.type === 'configs') {
@@ -539,7 +556,7 @@ window.addEventListener('message', function(e) {
         const hint = document.getElementById('noConfigHint');
         if (configs.length) {
             configEl.innerHTML = '<option value="">— no config (use default) —</option>' +
-                configs.map(c => '<option value="' + c.fsPath + '">' + c.workspaceRelative + '</option>').join('');
+                configs.map(c => '<option value="' + escapeHtml(c.fsPath) + '">' + escapeHtml(c.workspaceRelative) + '</option>').join('');
             if (hint) { hint.style.display = 'none'; }
         } else {
             configEl.innerHTML = '<option value="">No configs found in workspace</option>';
