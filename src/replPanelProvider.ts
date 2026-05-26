@@ -141,7 +141,33 @@ body{
 .tool-badge{
   padding:1px 6px;border-radius:3px;font-size:10px;
   background:var(--vscode-badge-background);
-  color:var(--vscode-badge-foreground)
+  color:var(--vscode-badge-foreground);
+  cursor:default;user-select:none;transition:filter .12s
+}
+.tool-badge.has-args{cursor:pointer}
+.tool-badge.has-args:hover{filter:brightness(1.25)}
+.tool-badge.active{
+  outline:1px solid var(--vscode-focusBorder);outline-offset:1px
+}
+.tool-detail{
+  font-family:var(--vscode-editor-font-family,monospace);font-size:10px;
+  background:var(--vscode-textCodeBlock-background,rgba(128,128,128,.12));
+  border:1px solid var(--vscode-panel-border);
+  border-radius:4px;padding:6px 8px;margin-top:3px;
+  white-space:pre-wrap;word-break:break-all;
+  max-height:180px;overflow-y:auto;
+  color:var(--vscode-editor-foreground);
+  animation:fadein .12s ease
+}
+#tip{
+  position:fixed;z-index:999;pointer-events:none;display:none;
+  background:var(--vscode-editorWidget-background,#252526);
+  border:1px solid var(--vscode-panel-border);
+  border-radius:4px;padding:5px 8px;
+  font-family:var(--vscode-editor-font-family,monospace);font-size:10px;
+  color:var(--vscode-editor-foreground);
+  max-width:340px;white-space:pre-wrap;word-break:break-all;
+  box-shadow:0 2px 8px rgba(0,0,0,.35);line-height:1.5
 }
 /* markdown */
 .bubble p{margin:4px 0}
@@ -231,6 +257,7 @@ body{
   <span class="model" id="model-label"></span>
   <span class="session" id="session-label"></span>
 </div>
+<div id="tip"></div>
 <div id="messages"></div>
 <div id="footer">
   <textarea id="input" rows="1" placeholder="Ask something or type a /command…" disabled></textarea>
@@ -241,12 +268,17 @@ const vscode = acquireVsCodeApi();
 const $msgs  = document.getElementById('messages');
 const $input = document.getElementById('input');
 const $send  = document.getElementById('send');
+const $tip   = document.getElementById('tip');
 
-let curBubble  = null;
-let curTools   = null;
-let curText    = '';
-let curMsgDiv  = null;
-let isStreaming = false;
+let curBubble   = null;
+let curTools    = null;
+let curText     = '';
+let curMsgDiv   = null;
+let isStreaming  = false;
+
+// Tool-detail expand state — at most one expanded at a time.
+let activeDetailBadge = null;
+let activeDetail      = null;
 
 /* ── helpers ─────────────────────────────────────────── */
 function esc(s){
@@ -350,7 +382,7 @@ function appendToken(text){
   scrollBottom();
 }
 
-function addToolBadge(name){
+function addToolBadge(name, args){
   if(!curTools){
     // thinking indicator → replace with proper assistant message
     if(curMsgDiv && curMsgDiv.querySelector('.thinking')){
@@ -370,7 +402,84 @@ function addToolBadge(name){
   const badge = document.createElement('span');
   badge.className='tool-badge';
   badge.textContent=name;
+
+  if(args && Object.keys(args).length > 0){
+    badge.classList.add('has-args');
+    const summary = fmtArgsSummary(args);
+    const full    = fmtArgsFull(args);
+
+    badge.addEventListener('mouseenter', e => tipShow(e, summary));
+    badge.addEventListener('mousemove',  e => tipMove(e));
+    badge.addEventListener('mouseleave',     tipHide);
+    badge.addEventListener('click', () => {
+      tipHide();
+      toggleDetail(badge, full);
+    });
+  }
+
   curTools.appendChild(badge);
+}
+
+/* ── tooltip ─────────────────────────────────────────── */
+function tipShow(e, text){
+  $tip.textContent = text;
+  $tip.style.display = 'block';
+  tipMove(e);
+}
+function tipMove(e){
+  const pad = 10;
+  const tw  = $tip.offsetWidth;
+  const th  = $tip.offsetHeight;
+  let x = e.clientX + 14;
+  let y = e.clientY + 14;
+  if(x + tw + pad > window.innerWidth)  x = e.clientX - tw - 6;
+  if(y + th + pad > window.innerHeight) y = e.clientY - th - 6;
+  $tip.style.left = x + 'px';
+  $tip.style.top  = y + 'px';
+}
+function tipHide(){ $tip.style.display='none'; }
+
+/* ── detail expand/collapse ──────────────────────────── */
+function toggleDetail(badge, full){
+  if(activeDetailBadge === badge){ collapseDetail(); return; }
+  collapseDetail();
+  const row = badge.closest('.tool-row');
+  if(!row) return;
+  const det = document.createElement('div');
+  det.className = 'tool-detail';
+  det.textContent = full;
+  row.after(det);
+  badge.classList.add('active');
+  activeDetailBadge = badge;
+  activeDetail      = det;
+  scrollBottom();
+}
+function collapseDetail(){
+  activeDetail?.remove();
+  activeDetailBadge?.classList.remove('active');
+  activeDetailBadge = null;
+  activeDetail      = null;
+}
+
+/* ── arg formatters ──────────────────────────────────── */
+function fmtVal(v){
+  return typeof v === 'string' ? v : JSON.stringify(v);
+}
+// Tooltip: one line per arg, values truncated at 120 chars.
+function fmtArgsSummary(args){
+  return Object.entries(args).map(([k,v])=>{
+    const s = fmtVal(v).replace(/\n/g,' ');
+    return k + ': ' + (s.length > 120 ? s.slice(0,117)+'…' : s);
+  }).join('\n');
+}
+// Expanded: full values with newlines preserved.
+function fmtArgsFull(args){
+  return Object.entries(args).map(([k,v])=>{
+    const s = fmtVal(v);
+    // indent continuation lines
+    const indented = s.replace(/\n/g,'\n  ');
+    return k + ':\n  ' + indented;
+  }).join('\n\n');
 }
 
 function finalise(){
@@ -456,7 +565,7 @@ window.addEventListener('message',evt=>{
       break;
 
     case 'tool_call':
-      addToolBadge(msg.name||'tool');
+      addToolBadge(msg.name||'tool', msg.args||null);
       break;
 
     case 'message_end':
