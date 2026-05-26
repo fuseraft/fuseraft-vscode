@@ -78,16 +78,49 @@ export function isConfigured(): boolean {
     }
 }
 
+/**
+ * Canonical base endpoints for each named provider.
+ * When we save "Custom / Self-hosted" we write provider='openai' for CLI
+ * compatibility, but we also store the custom URL.  On the way back out we
+ * detect that the saved endpoint doesn't match the canonical OpenAI URL and
+ * restore the UI selection to 'custom' so the field is editable again.
+ */
+const CANONICAL_ENDPOINTS: Record<string, string> = {
+    openai:   'https://api.openai.com/v1',
+    anthropic: 'https://api.anthropic.com',
+    xai:       'https://api.x.ai/v1',
+    google:    'https://generativelanguage.googleapis.com',
+    mistral:   'https://api.mistral.ai/v1',
+    deepseek:  'https://api.deepseek.com/v1',
+};
+
 /** Read fields from an existing config file without throwing. */
 function readSavedConfig(): { modelId: string; endpoint: string; provider: string; apiKey: string; hasPlaintextKey: boolean } {
     const empty = { modelId: '', endpoint: '', provider: 'anthropic', apiKey: '', hasPlaintextKey: false };
     if (!fs.existsSync(CONFIG_PATH)) { return empty; }
     try {
         const cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+        let provider = cfg.provider || 'anthropic';
+        const savedEndpoint: string = cfg.endpoint || '';
+
+        // When the user chose "Custom / Self-hosted" we convert the UI value
+        // 'custom' → 'openai' before writing (so the CLI recognises the protocol),
+        // but the custom base URL is preserved.  Detect that round-trip here by
+        // checking whether the saved endpoint differs from the canonical URL for
+        // the recorded provider.  If it does, restore 'custom' for the UI.
+        if (
+            savedEndpoint &&
+            provider in CANONICAL_ENDPOINTS &&
+            savedEndpoint.toLowerCase().replace(/\/$/, '') !==
+                CANONICAL_ENDPOINTS[provider].toLowerCase().replace(/\/$/, '')
+        ) {
+            provider = 'custom';
+        }
+
         return {
             modelId:        cfg.modelId   || '',
-            endpoint:       cfg.endpoint  || '',
-            provider:       cfg.provider  || 'anthropic',
+            endpoint:       savedEndpoint,
+            provider,
             apiKey:         cfg.apiKey    || '',
             hasPlaintextKey: typeof cfg.apiKey === 'string' && cfg.apiKey.trim().length > 0,
         };
