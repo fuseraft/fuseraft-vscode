@@ -12,6 +12,7 @@ import {
     getBinary, getRunFlags, findFuseraftConfigs, pickConfig,
     promptForTask, buildRunCommand, buildInitCommand, runInTerminal,
     runInstaller, runUpdate, getSessionsDir, checkCli, invalidateCliCache, disposeOutputChannel,
+    readReplSessions, formatRelativeTime, ReplSessionInfo,
 } from './fuseraftUtils';
 import { isConfigured, runSetupWizard } from './setupWizard';
 
@@ -338,15 +339,26 @@ export function activate(context: vscode.ExtensionContext): void {
                 'gemini-2.0-flash',
             ];
 
+            const replSessions = readReplSessions();
+            const resumeEntry = replSessions.length > 0
+                ? [{ label: '$(history) Resume a previous session…', description: `${replSessions.length} saved session${replSessions.length === 1 ? '' : 's'}`, isResume: true }]
+                : [];
+
             const picked = await vscode.window.showQuickPick(
                 [
-                    { label: '$(settings-gear) Use configured default', description: 'from ~/.fuseraft/config' },
-                    ...models.map(m => ({ label: m, description: '' })),
-                    { label: '$(edit) Enter model ID…', description: '' },
+                    ...resumeEntry,
+                    { label: '$(settings-gear) Use configured default', description: 'from ~/.fuseraft/config', isResume: false },
+                    ...models.map(m => ({ label: m, description: '', isResume: false })),
+                    { label: '$(edit) Enter model ID…', description: '', isResume: false },
                 ],
-                { title: 'fuseraft REPL — Select model', placeHolder: 'Pick a model or use default' }
+                { title: 'fuseraft REPL', placeHolder: 'Start a new session or resume a previous one' }
             );
             if (!picked) { return; }
+
+            if ((picked as { isResume?: boolean }).isResume) {
+                await pickAndResumeReplSession(replSessions);
+                return;
+            }
 
             let model = '';
             if (picked.label === '$(edit) Enter model ID…') {
@@ -362,6 +374,18 @@ export function activate(context: vscode.ExtensionContext): void {
             }
 
             ReplPanelProvider.show(model);
+        })
+    );
+
+    // fuseraft.replResume — jump straight to the session picker
+    context.subscriptions.push(
+        vscode.commands.registerCommand('fuseraft.replResume', async () => {
+            const sessions = readReplSessions();
+            if (sessions.length === 0) {
+                vscode.window.showInformationMessage('No saved REPL sessions found.');
+                return;
+            }
+            await pickAndResumeReplSession(sessions);
         })
     );
 
@@ -587,6 +611,31 @@ export function activate(context: vscode.ExtensionContext): void {
     );
 
     context.subscriptions.push(sessionProvider, configProvider, contextProvider);
+}
+
+async function pickAndResumeReplSession(sessions: ReplSessionInfo[]): Promise<void> {
+    const items = sessions.map(s => {
+        const preview = s.firstUserMessage.replace(/\n/g, ' ').slice(0, 72);
+        const turns   = `${s.turnIndex} turn${s.turnIndex === 1 ? '' : 's'}`;
+        const ago     = formatRelativeTime(s.lastUpdatedAt);
+        return {
+            label:       `$(history) ${s.sessionId}`,
+            description: `${s.modelId}  ·  ${turns}  ·  ${ago}`,
+            detail:      preview || '(no messages)',
+            sessionId:   s.sessionId,
+            modelId:     s.modelId,
+        };
+    });
+
+    const picked = await vscode.window.showQuickPick(items, {
+        title:            'fuseraft REPL — Resume session',
+        placeHolder:      'Select a session to resume',
+        matchOnDetail:    true,
+        matchOnDescription: true,
+    });
+    if (!picked) { return; }
+
+    ReplPanelProvider.show(picked.modelId, picked.sessionId);
 }
 
 async function resolveConfigPath(arg?: ConfigItem | string | vscode.Uri): Promise<string | undefined> {
