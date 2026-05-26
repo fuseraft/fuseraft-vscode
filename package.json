@@ -79,6 +79,12 @@
         "icon": "$(debug-continue)"
       },
       {
+        "command": "fuseraft.replResume",
+        "title": "Resume REPL Session",
+        "category": "fuseraft",
+        "icon": "$(history)"
+      },
+      {
         "command": "fuseraft.deleteSession",
         "title": "Delete Session",
         "category": "fuseraft",

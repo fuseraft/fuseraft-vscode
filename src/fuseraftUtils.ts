@@ -81,6 +81,68 @@ export function getSessionsDir(): string {
     return path.join(os.homedir(), '.fuseraft', 'sessions');
 }
 
+export function getReplSessionsDir(): string {
+    return path.join(os.homedir(), '.fuseraft', 'repl-sessions');
+}
+
+export interface ReplSessionInfo {
+    sessionId: string;
+    modelId: string;
+    turnIndex: number;
+    startedAt: string;
+    lastUpdatedAt: string;
+    /** Plain-text preview of the first user message in the session. */
+    firstUserMessage: string;
+    cwd: string;
+}
+
+/**
+ * Read all REPL session snapshots from ~/.fuseraft/repl-sessions/, sorted
+ * newest-first by lastUpdatedAt.
+ */
+export function readReplSessions(): ReplSessionInfo[] {
+    const dir = getReplSessionsDir();
+    if (!fs.existsSync(dir)) { return []; }
+
+    const sessions: ReplSessionInfo[] = [];
+    try {
+        const files = fs.readdirSync(dir).filter(f => f.startsWith('repl-') && f.endsWith('.json'));
+        for (const file of files) {
+            try {
+                const raw = fs.readFileSync(path.join(dir, file), 'utf8');
+                const d = JSON.parse(raw);
+                // Find the first user-role message's text content.
+                let firstMsg = '';
+                if (Array.isArray(d.History)) {
+                    const userMsg = d.History.find((m: { Role?: string }) => m.Role === 'user');
+                    if (userMsg && Array.isArray(userMsg.Contents)) {
+                        const textContent = (userMsg.Contents as Array<{ Type?: string; Text?: string }>)
+                            .find(c => c.Type === 'text');
+                        firstMsg = textContent?.Text ?? '';
+                    }
+                }
+                sessions.push({
+                    sessionId:        d.SessionId ?? '',
+                    modelId:          d.ModelId   ?? '',
+                    turnIndex:        d.TurnIndex  ?? 0,
+                    startedAt:        d.StartedAt     ?? '',
+                    lastUpdatedAt:    d.LastUpdatedAt ?? '',
+                    firstUserMessage: firstMsg,
+                    cwd:              d.Cwd ?? '',
+                });
+            } catch {
+                // skip malformed snapshot files
+            }
+        }
+    } catch {
+        return [];
+    }
+
+    return sessions.sort((a, b) =>
+        new Date(b.lastUpdatedAt).getTime() - new Date(a.lastUpdatedAt).getTime()
+    );
+}
+
 export function readSessions(): SessionInfo[] {
     const dir = getSessionsDir();
     if (!fs.existsSync(dir)) {

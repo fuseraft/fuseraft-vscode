@@ -12,12 +12,21 @@ export class ReplPanelProvider {
 
     static show(model: string, resumeId?: string): void {
         if (ReplPanelProvider._current) {
-            ReplPanelProvider._current._panel.reveal(vscode.ViewColumn.Beside);
-            return;
+            const cur = ReplPanelProvider._current;
+            // Same session or a brand-new session (no resumeId) → just reveal.
+            if (!resumeId || cur._sessionId === resumeId) {
+                cur._panel.reveal(vscode.ViewColumn.Beside);
+                return;
+            }
+            // Different session requested — close the current panel and open the new one.
+            const old = ReplPanelProvider._current;
+            ReplPanelProvider._current = undefined;
+            old._proc?.kill();
+            old._panel.dispose();
         }
         const panel = vscode.window.createWebviewPanel(
             'fuseraftRepl',
-            'fuseraft REPL',
+            resumeId ? `fuseraft REPL · ${resumeId}` : 'fuseraft REPL',
             vscode.ViewColumn.Beside,
             { enableScripts: true, retainContextWhenHidden: true }
         );
@@ -27,9 +36,12 @@ export class ReplPanelProvider {
     private readonly _panel: vscode.WebviewPanel;
     private _proc: cp.ChildProcess | undefined;
     private _buf = '';
+    /** Session ID of the currently running session (set to resumeId when resuming). */
+    private _sessionId: string | undefined;
 
     private constructor(panel: vscode.WebviewPanel, model: string, resumeId?: string) {
-        this._panel = panel;
+        this._panel    = panel;
+        this._sessionId = resumeId;   // refined to actual sessionId once CLI emits 'ready'
         panel.webview.html = this._html();
 
         panel.webview.onDidReceiveMessage((msg: { type: string; text?: string }) => {
@@ -66,6 +78,11 @@ export class ReplPanelProvider {
                 try {
                     const evt = JSON.parse(trimmed) as ReplEvent;
                     if (evt.type) {
+                        // Capture the authoritative session ID from the CLI's ready event
+                        // so that same-session reveal works correctly for new sessions too.
+                        if (evt.type === 'ready' && typeof evt.sessionId === 'string') {
+                            this._sessionId = evt.sessionId as string;
+                        }
                         this._panel.webview.postMessage(evt);
                     }
                 } catch {
