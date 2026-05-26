@@ -485,18 +485,18 @@ function fmtVal(v){
 // Tooltip: one line per arg, values truncated at 120 chars.
 function fmtArgsSummary(args){
   return Object.entries(args).map(([k,v])=>{
-    const s = fmtVal(v).replace(/\n/g,' ');
+    const s = fmtVal(v).replace(/\\n/g,' ');
     return k + ': ' + (s.length > 120 ? s.slice(0,117)+'…' : s);
-  }).join('\n');
+  }).join('\\n');
 }
 // Expanded: full values with newlines preserved.
 function fmtArgsFull(args){
   return Object.entries(args).map(([k,v])=>{
     const s = fmtVal(v);
     // indent continuation lines
-    const indented = s.replace(/\n/g,'\n  ');
-    return k + ':\n  ' + indented;
-  }).join('\n\n');
+    const indented = s.replace(/\\n/g,'\\n  ');
+    return k + ':\\n  ' + indented;
+  }).join('\\n\\n');
 }
 
 function finalise(){
