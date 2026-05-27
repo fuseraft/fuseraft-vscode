@@ -10,7 +10,7 @@ interface ReplEvent {
 export class ReplPanelProvider {
     private static _current: ReplPanelProvider | undefined;
 
-    static show(model: string, resumeId?: string): void {
+    static show(model: string, resumeId?: string, cwd?: string): void {
         if (ReplPanelProvider._current) {
             const cur = ReplPanelProvider._current;
             // Same session or a brand-new session (no resumeId) → just reveal.
@@ -30,7 +30,7 @@ export class ReplPanelProvider {
             vscode.ViewColumn.Beside,
             { enableScripts: true, retainContextWhenHidden: true }
         );
-        ReplPanelProvider._current = new ReplPanelProvider(panel, model, resumeId);
+        ReplPanelProvider._current = new ReplPanelProvider(panel, model, resumeId, cwd);
     }
 
     private readonly _panel: vscode.WebviewPanel;
@@ -39,7 +39,7 @@ export class ReplPanelProvider {
     /** Session ID of the currently running session (set to resumeId when resuming). */
     private _sessionId: string | undefined;
 
-    private constructor(panel: vscode.WebviewPanel, model: string, resumeId?: string) {
+    private constructor(panel: vscode.WebviewPanel, model: string, resumeId?: string, cwd?: string) {
         this._panel    = panel;
         this._sessionId = resumeId;   // refined to actual sessionId once CLI emits 'ready'
         panel.webview.html = this._html();
@@ -55,10 +55,10 @@ export class ReplPanelProvider {
             ReplPanelProvider._current = undefined;
         });
 
-        this._spawn(model, resumeId);
+        this._spawn(model, resumeId, cwd);
     }
 
-    private _spawn(model: string, resumeId?: string): void {
+    private _spawn(model: string, resumeId?: string, cwd?: string): void {
         const args = ['repl', '--vscode', '--no-banner'];
         if (model) { args.push('--model', model); }
         if (resumeId) { args.push('--resume', resumeId); }
@@ -75,6 +75,7 @@ export class ReplPanelProvider {
         this._proc = cp.spawn(getBinary(), args, {
             env,
             stdio: ['pipe', 'pipe', 'pipe'],
+            ...(cwd ? { cwd } : {}),
         });
 
         this._proc.stdout?.on('data', (chunk: Buffer) => {
