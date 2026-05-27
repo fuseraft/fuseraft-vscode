@@ -356,7 +356,8 @@ export function activate(context: vscode.ExtensionContext): void {
             if (!picked) { return; }
 
             if ((picked as { isResume?: boolean }).isResume) {
-                await pickAndResumeReplSession(replSessions);
+                const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+                await pickAndResumeReplSession(replSessions, workspaceRoot);
                 return;
             }
 
@@ -373,7 +374,8 @@ export function activate(context: vscode.ExtensionContext): void {
                 model = picked.label;
             }
 
-            ReplPanelProvider.show(model);
+            const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            ReplPanelProvider.show(model, undefined, workspaceRoot);
         })
     );
 
@@ -385,7 +387,8 @@ export function activate(context: vscode.ExtensionContext): void {
                 vscode.window.showInformationMessage('No saved REPL sessions found.');
                 return;
             }
-            await pickAndResumeReplSession(sessions);
+            const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            await pickAndResumeReplSession(sessions, workspaceRoot);
         })
     );
 
@@ -613,7 +616,7 @@ export function activate(context: vscode.ExtensionContext): void {
     context.subscriptions.push(sessionProvider, configProvider, contextProvider);
 }
 
-async function pickAndResumeReplSession(sessions: ReplSessionInfo[]): Promise<void> {
+async function pickAndResumeReplSession(sessions: ReplSessionInfo[], cwd?: string): Promise<void> {
     const items = sessions.map(s => {
         const preview = s.firstUserMessage.replace(/\n/g, ' ').slice(0, 72);
         const turns   = `${s.turnIndex} turn${s.turnIndex === 1 ? '' : 's'}`;
@@ -635,7 +638,7 @@ async function pickAndResumeReplSession(sessions: ReplSessionInfo[]): Promise<vo
     });
     if (!picked) { return; }
 
-    ReplPanelProvider.show(picked.modelId, picked.sessionId);
+    ReplPanelProvider.show(picked.modelId, picked.sessionId, cwd);
 }
 
 async function resolveConfigPath(arg?: ConfigItem | string | vscode.Uri): Promise<string | undefined> {
