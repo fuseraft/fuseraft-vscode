@@ -372,14 +372,17 @@ export function runInTerminal(command: string, name = 'fuseraft', reuse = false)
         terminal = vscode.window.terminals.find(t => t.name === name);
     }
     if (!terminal) {
-        // Inject the saved API key as FUSERAFT_API_KEY so the CLI can always
-        // find it, even on Windows where shell-based home-directory expansion
-        // may resolve differently from the Node.js os.homedir() path used when
-        // writing the config file.
+        // Inject FUSERAFT_API_KEY from the saved config only when the variable
+        // is not already present — an explicitly set env var always takes
+        // priority.  On Windows the CLI subprocess may not resolve
+        // ~/.fuseraft/config through the same home-directory path that the
+        // extension used when writing it, so the env var is the reliable
+        // channel for the key.
         const apiKey = readApiKeyFromConfig();
+        const injectKey = apiKey && !process.env['FUSERAFT_API_KEY'];
         terminal = vscode.window.createTerminal({
             name,
-            env: apiKey ? { FUSERAFT_API_KEY: apiKey } : undefined,
+            env: injectKey ? { FUSERAFT_API_KEY: apiKey } : undefined,
         });
     }
 

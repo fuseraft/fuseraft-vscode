@@ -63,14 +63,15 @@ export class ReplPanelProvider {
         if (model) { args.push('--model', model); }
         if (resumeId) { args.push('--resume', resumeId); }
 
-        // Inherit the full environment and overlay FUSERAFT_API_KEY from the
-        // saved config.  On Windows the CLI subprocess may not resolve
-        // ~/.fuseraft/config through the same home-directory path that the
-        // extension used when writing it, so the explicit env var is the
-        // reliable fallback.
-        const apiKey = readApiKeyFromConfig();
+        // Inherit the full environment. Inject FUSERAFT_API_KEY from the saved
+        // config only when the variable is not already present — an explicitly
+        // set env var always takes priority.  On Windows the CLI subprocess may
+        // not resolve ~/.fuseraft/config through the same home-directory path
+        // that the extension used when writing it, so the env var is the
+        // reliable channel for the key.
+        const configKey = readApiKeyFromConfig();
         const env: NodeJS.ProcessEnv = { ...process.env };
-        if (apiKey) { env['FUSERAFT_API_KEY'] = apiKey; }
+        if (configKey && !env['FUSERAFT_API_KEY']) { env['FUSERAFT_API_KEY'] = configKey; }
 
         this._proc = cp.spawn(getBinary(), args, {
             env,
