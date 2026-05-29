@@ -170,10 +170,9 @@ body{
   padding:1px 6px;border-radius:3px;font-size:10px;
   background:var(--vscode-badge-background);
   color:var(--vscode-badge-foreground);
-  cursor:default;user-select:none;transition:filter .12s
+  cursor:pointer;user-select:none;transition:filter .12s
 }
-.tool-badge.has-args{cursor:pointer}
-.tool-badge.has-args:hover{filter:brightness(1.25)}
+.tool-badge:hover{filter:brightness(1.25)}
 .tool-badge.active{
   outline:1px solid var(--vscode-focusBorder);outline-offset:1px
 }
@@ -427,23 +426,21 @@ function addToolBadge(name, args){
       startAssistant();
     }
   }
+  const hasArgs = args && Object.keys(args).length > 0;
   const badge = document.createElement('span');
-  badge.className='tool-badge';
-  badge.textContent=name;
+  badge.textContent = name;
 
-  if(args && Object.keys(args).length > 0){
-    badge.classList.add('has-args');
-    const summary = fmtArgsSummary(args);
-    const full    = fmtArgsFull(args);
+  const full = hasArgs ? fmtArgsFull(args) : '(no arguments)';
 
-    badge.addEventListener('mouseenter', e => tipShow(e, summary));
+  if(hasArgs){
+    badge.addEventListener('mouseenter', e => tipShow(e, fmtArgsSummary(args)));
     badge.addEventListener('mousemove',  e => tipMove(e));
     badge.addEventListener('mouseleave',     tipHide);
-    badge.addEventListener('click', () => {
-      tipHide();
-      toggleDetail(badge, full);
-    });
   }
+  badge.addEventListener('click', () => {
+    tipHide();
+    toggleDetail(badge, full);
+  });
 
   curTools.appendChild(badge);
 }
@@ -480,7 +477,6 @@ function toggleDetail(badge, full){
   badge.classList.add('active');
   activeDetailBadge = badge;
   activeDetail      = det;
-  scrollBottom();
 }
 function collapseDetail(){
   activeDetail?.remove();
