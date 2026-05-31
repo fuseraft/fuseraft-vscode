@@ -7,4 +7,5 @@ node_modules/**
 out/test/**
 **/*.map
 .claude/**
+.fuseraft/**
 ISSUE.md
