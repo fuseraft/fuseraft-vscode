@@ -461,14 +461,16 @@ export function buildRunCommand(
     task: string,
     configPath?: string,
     extraFlags?: string,
-    taskFilePath?: string
+    taskFilePath?: string,
+    specPath?: string
 ): string {
     const configFlag = configPath ? ` -c ${shellQuote(configPath)}` : '';
     const flags = extraFlags ? ` ${extraFlags}` : '';
+    const specFlag = specPath ? ` --spec ${shellQuote(specPath)}` : '';
     if (taskFilePath) {
-        return `${binary} run --vscode${configFlag}${flags} -f ${shellQuote(taskFilePath)}`;
+        return `${binary} run --vscode${configFlag}${flags}${specFlag} -f ${shellQuote(taskFilePath)}`;
     }
-    return `${binary} run --vscode${configFlag}${flags} ${shellQuote(task)}`;
+    return `${binary} run --vscode${configFlag}${flags}${specFlag} ${shellQuote(task)}`;
 }
 
 /** Build a shell-safe init command. */
