@@ -13,16 +13,19 @@ export class ReplPanelProvider {
     static show(model: string, resumeId?: string, cwd?: string): void {
         if (ReplPanelProvider._current) {
             const cur = ReplPanelProvider._current;
-            // Same session or a brand-new session (no resumeId) → just reveal.
             if (!resumeId || cur._sessionId === resumeId) {
-                cur._panel.reveal(vscode.ViewColumn.Beside);
-                return;
+                if (cur._alive) {
+                    // Same live session — just bring it into view.
+                    cur._panel.reveal(vscode.ViewColumn.Beside);
+                    return;
+                }
+                // Session is dead — dispose the stale panel and fall through to open a fresh one.
+            } else {
+                // Different session requested — close the current panel.
+                cur._proc?.kill();
             }
-            // Different session requested — close the current panel and open the new one.
-            const old = ReplPanelProvider._current;
             ReplPanelProvider._current = undefined;
-            old._proc?.kill();
-            old._panel.dispose();
+            cur._panel.dispose();
         }
         const panel = vscode.window.createWebviewPanel(
             'fuseraftRepl',
@@ -36,6 +39,7 @@ export class ReplPanelProvider {
     private readonly _panel: vscode.WebviewPanel;
     private _proc: cp.ChildProcess | undefined;
     private _buf = '';
+    private _alive = false;
     /** Session ID of the currently running session (set to resumeId when resuming). */
     private _sessionId: string | undefined;
 
@@ -93,6 +97,7 @@ export class ReplPanelProvider {
                         // so that same-session reveal works correctly for new sessions too.
                         if (evt.type === 'ready' && typeof evt.sessionId === 'string') {
                             this._sessionId = evt.sessionId as string;
+                            this._alive = true;
                         }
                         this._panel.webview.postMessage(evt);
                     }
@@ -103,6 +108,7 @@ export class ReplPanelProvider {
         });
 
         this._proc.on('exit', () => {
+            this._alive = false;
             this._panel.webview.postMessage({ type: 'session_end' });
         });
 
@@ -428,6 +434,7 @@ function addToolBadge(name, args){
   }
   const hasArgs = args && Object.keys(args).length > 0;
   const badge = document.createElement('span');
+  badge.className = 'tool-badge';
   badge.textContent = name;
 
   const full = hasArgs ? fmtArgsFull(args) : '(no arguments)';
