@@ -32,6 +32,8 @@ export class TaskPanelProvider implements vscode.WebviewViewProvider {
                 this._run(msg);
             } else if (msg.type === 'browseTaskFile') {
                 await this._browseTaskFile(msg.configPath, msg.flags);
+            } else if (msg.type === 'pickSpec') {
+                await this._pickSpec();
             } else if (msg.type === 'pickFiles') {
                 logToChannel('pickFiles: message received from webview');
                 await this._pickFiles();
@@ -60,7 +62,7 @@ export class TaskPanelProvider implements vscode.WebviewViewProvider {
         logToChannel(`refresh: message sent=${sent}`);
     }
 
-    private _run(msg: { task: string; configPath: string; flags: Record<string, boolean>; files?: AttachedFile[] }): void {
+    private _run(msg: { task: string; configPath: string; flags: Record<string, boolean>; files?: AttachedFile[]; specFile?: AttachedFile }): void {
         const { task, configPath, flags } = msg;
         if (!task.trim()) { return; }
 
@@ -82,7 +84,8 @@ export class TaskPanelProvider implements vscode.WebviewViewProvider {
         const tmpFile = nodePath.join(os.tmpdir(), `fuseraft-task-${Date.now()}-${Math.random().toString(36).slice(2)}.txt`);
         fs.writeFileSync(tmpFile, task, 'utf8');
 
-        runInTerminal(buildRunCommand(getBinary(), task, configPath || undefined, extra || undefined, tmpFile), `fuseraft — ${label}`);
+        const specPath = msg.specFile?.path;
+        runInTerminal(buildRunCommand(getBinary(), task, configPath || undefined, extra || undefined, tmpFile, specPath), `fuseraft — ${label}`);
     }
 
     private async _browseTaskFile(configPath: string, flags: Record<string, boolean>): Promise<void> {
@@ -104,6 +107,25 @@ export class TaskPanelProvider implements vscode.WebviewViewProvider {
         const configFlag = configPath ? ` -c '${configPath}'` : '';
         const flagStr = extra ? ` ${extra}` : '';
         runInTerminal(`${getBinary()} run --vscode${configFlag}${flagStr} -f '${uris[0].fsPath}'`);
+    }
+
+    private async _pickSpec(): Promise<void> {
+        const uris = await vscode.window.showOpenDialog({
+            canSelectMany: false,
+            canSelectFiles: true,
+            canSelectFolders: false,
+            filters: { 'Spec files': ['md', 'txt', 'json'] },
+            title: 'Attach spec file',
+        });
+        if (!uris?.length || !this._view) { return; }
+        this._view.show(true);
+        const uri = uris[0];
+        const file = { path: uri.fsPath, name: nodePath.basename(uri.fsPath) };
+        let delivered = await this._view.webview.postMessage({ type: 'specSelected', file });
+        if (!delivered) {
+            await new Promise(r => setTimeout(r, 150));
+            delivered = await this._view.webview.postMessage({ type: 'specSelected', file });
+        }
     }
 
     private async _pickFiles(): Promise<void> {
@@ -364,7 +386,11 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
     <textarea id="task" placeholder="Describe the task for your agent team…&#10;&#10;You can paste a full spec, bullet list, or prose."></textarea>
     <div class="attach-bar">
         <button class="secondary attach-btn" id="addFilesBtn" title="Attach files or folders as context&#10;(folders expand to immediate children, max 20 files)">+ Files</button>
+        <button class="secondary attach-btn" id="addSpecBtn" title="Attach a spec file — agents treat it as the authoritative source of truth">+ Spec</button>
         <div class="chips" id="chips"></div>
+    </div>
+    <div class="attach-bar" id="specBar" style="display:none;margin-top:2px;">
+        <div class="chips" id="specChip"></div>
     </div>
 </div>
 
@@ -418,10 +444,14 @@ const runBtn      = document.getElementById('runBtn');
 const fileBtn     = document.getElementById('fileBtn');
 const refreshBtn  = document.getElementById('refreshBtn');
 const addFilesBtn = document.getElementById('addFilesBtn');
+const addSpecBtn  = document.getElementById('addSpecBtn');
 const chipsEl     = document.getElementById('chips');
+const specChipEl  = document.getElementById('specChip');
+const specBar     = document.getElementById('specBar');
 const taskSection = document.getElementById('taskSection');
 
 let selectedFiles = [];
+let specFile = null;
 
 function renderChips() {
     chipsEl.innerHTML = '';
@@ -453,11 +483,46 @@ chipsEl.addEventListener('click', function(e) {
     renderChips();
 });
 
+function renderSpecChip() {
+    specChipEl.innerHTML = '';
+    specBar.style.display = specFile ? '' : 'none';
+    if (!specFile) { return; }
+    var chip = document.createElement('span');
+    chip.className = 'chip';
+    chip.title = specFile.path;
+    var icon = document.createElement('span');
+    icon.textContent = '📋 ';
+    icon.style.flexShrink = '0';
+    var name = document.createElement('span');
+    name.className = 'chip-name';
+    name.textContent = specFile.name;
+    var btn = document.createElement('button');
+    btn.className = 'chip-remove';
+    btn.textContent = '×';
+    btn.title = 'Remove spec';
+    btn.addEventListener('click', function() { specFile = null; renderSpecChip(); });
+    chip.appendChild(icon);
+    chip.appendChild(name);
+    chip.appendChild(btn);
+    specChipEl.appendChild(chip);
+}
+
+specChipEl.addEventListener('click', function(e) {
+    if (e.target.closest('.chip-remove')) { specFile = null; renderSpecChip(); }
+});
+
 addFilesBtn.addEventListener('click', function() {
     addFilesBtn.textContent = '⏳ picking…';
     addFilesBtn.disabled = true;
     setTimeout(function() { addFilesBtn.textContent = '+ Files'; addFilesBtn.disabled = false; }, 5000);
     vscode.postMessage({ type: 'pickFiles' });
+});
+
+addSpecBtn.addEventListener('click', function() {
+    addSpecBtn.textContent = '⏳ picking…';
+    addSpecBtn.disabled = true;
+    setTimeout(function() { addSpecBtn.textContent = '+ Spec'; addSpecBtn.disabled = false; }, 5000);
+    vscode.postMessage({ type: 'pickSpec' });
 });
 
 taskSection.addEventListener('dragover', function(e) {
@@ -518,10 +583,12 @@ function getFlags() {
 runBtn.addEventListener('click', function() {
     var task = taskEl.value.trim();
     if (!task) { taskEl.focus(); return; }
-    vscode.postMessage({ type: 'run', task: task, configPath: configEl.value, flags: getFlags(), files: selectedFiles });
+    vscode.postMessage({ type: 'run', task: task, configPath: configEl.value, flags: getFlags(), files: selectedFiles, specFile: specFile });
     taskEl.value = '';
     selectedFiles = [];
+    specFile = null;
     renderChips();
+    renderSpecChip();
     var prev = runBtn.textContent;
     runBtn.textContent = '✓ Started';
     runBtn.disabled = true;
@@ -570,6 +637,11 @@ window.addEventListener('message', function(e) {
         });
         selectedFiles = selectedFiles.concat(added);
         renderChips();
+    } else if (msg.type === 'specSelected') {
+        addSpecBtn.textContent = '+ Spec';
+        addSpecBtn.disabled = false;
+        specFile = msg.file;
+        renderSpecChip();
     }
 });
 
