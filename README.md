@@ -15,6 +15,7 @@ A dedicated fuseraft panel in the activity bar gives you four persistent views:
 - **+ Files** button — attach one or more files as context. Each attached file is passed to the CLI via `--context-file` and its content is appended to the task. Attached files appear as removable chips below the textarea.
   - PDF, DOCX, PPTX, and XLSX files are automatically extracted to plain text by the CLI — attach documents directly without any manual conversion.
   - **Note:** Use the **+ Files** button to attach files. Dragging files from the VS Code Explorer panel or from an OS file manager (Windows Explorer, Finder, Nautilus, etc.) into the task area is not supported — VS Code intercepts file drags at the window level before they reach the sidebar panel.
+- **+ Spec** button — attach a single spec file (Markdown, plain text, or JSON) passed to the CLI via `--spec`. The spec is injected into every agent's system prompt as the authoritative source of truth and appended to the task at turn 0. Unlike `--context-file`, the spec survives context compaction. The attached spec appears as a removable chip below the attach bar and is cleared on run.
 - Config dropdown auto-populated from configs found in your workspace
 - Checkboxes for common flags:
   - **Human-in-the-loop** (`--hitl`) — pause after every agent turn to review or redirect
