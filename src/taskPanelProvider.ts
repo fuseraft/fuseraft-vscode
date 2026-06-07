@@ -13,13 +13,50 @@ export class TaskPanelProvider implements vscode.WebviewViewProvider {
     static readonly viewType = 'fuseraft.taskPanel';
 
     private _view?: vscode.WebviewView;
+    private _cwdWarningShown = false;
 
     constructor(private readonly extensionUri: vscode.Uri) {}
+
+    private async _checkWorkspaceCwd(): Promise<void> {
+        if (this._cwdWarningShown) { return; }
+
+        const folders = vscode.workspace.workspaceFolders;
+        const home = os.homedir();
+        const noFolder = !folders || folders.length === 0;
+        const isHome = !noFolder && folders!.length === 1 && folders![0].uri.fsPath === home;
+
+        if (!noFolder && !isHome) { return; }
+
+        this._cwdWarningShown = true;
+
+        const msg = isHome
+            ? 'fuseraft works best when VS Code is opened in a project directory, not your home folder.'
+            : 'No folder is open. Open a project folder to use fuseraft.';
+
+        const choice = await vscode.window.showWarningMessage(msg, 'Open Folder');
+        if (choice !== 'Open Folder') { return; }
+
+        const uris = await vscode.window.showOpenDialog({
+            canSelectMany: false,
+            canSelectFiles: false,
+            canSelectFolders: true,
+            title: 'Select a project folder to open',
+            openLabel: 'Open Folder',
+        });
+        if (uris?.[0]) {
+            vscode.commands.executeCommand('vscode.openFolder', uris[0]);
+        }
+    }
 
     resolveWebviewView(webviewView: vscode.WebviewView): void {
         this._view = webviewView;
         webviewView.webview.options = { enableScripts: true };
         webviewView.webview.html = this._html(webviewView.webview);
+
+        this._checkWorkspaceCwd();
+        webviewView.onDidChangeVisibility(() => {
+            if (webviewView.visible) { this._checkWorkspaceCwd(); }
+        });
 
         webviewView.webview.onDidReceiveMessage(async (msg) => {
             if (msg.type === 'ready' || msg.type === 'refreshConfigs') {
@@ -633,7 +670,7 @@ window.addEventListener('message', function(e) {
             } else {
                 const auto = configs.find(c =>
                     c.workspaceRelative.startsWith('.fuseraft/') ||
-                    c.workspaceRelative.startsWith('.fuseraft\\')
+                    c.workspaceRelative.startsWith('.fuseraft\\\\')
                 );
                 if (auto) { configEl.value = auto.fsPath; }
             }

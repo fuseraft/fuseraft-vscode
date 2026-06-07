@@ -80,7 +80,9 @@ export function activate(context: vscode.ExtensionContext): void {
             } else if (choice === 'Install Instructions') {
                 vscode.env.openExternal(vscode.Uri.parse('https://github.com/fuseraft/fuseraft-cli#install'));
             } else if (choice === 'Set Binary Path') {
-                vscode.commands.executeCommand('workbench.action.openSettings', 'fuseraft.binaryPath');
+                await vscode.commands.executeCommand('fuseraft.setBinaryPath');
+                invalidateCliCache();
+                cli = await checkCli();
             } else if (choice === 'Check again') {
                 invalidateCliCache();
                 cli = await checkCli();
@@ -607,6 +609,51 @@ export function activate(context: vscode.ExtensionContext): void {
                     vscode.commands.executeCommand('fuseraft.setup');
                 }
             });
+        })
+    );
+
+    // fuseraft.setBinaryPath — pick the fuseraft binary with a file dialog or manual input
+    context.subscriptions.push(
+        vscode.commands.registerCommand('fuseraft.setBinaryPath', async () => {
+            const current = getBinary();
+            const choice = await vscode.window.showQuickPick(
+                [
+                    { label: '$(folder-opened) Browse for binary…', action: 'browse' as const },
+                    { label: '$(edit) Enter path manually',          action: 'manual' as const },
+                    { label: '$(discard) Reset to default',          action: 'reset'  as const, description: "Sets path back to 'fuseraft'" },
+                ],
+                { title: 'Set fuseraft binary path', placeHolder: `Current: ${current}` }
+            );
+            if (!choice) { return; }
+
+            let newPath: string | undefined;
+            if (choice.action === 'browse') {
+                const uris = await vscode.window.showOpenDialog({
+                    canSelectMany: false,
+                    canSelectFiles: true,
+                    canSelectFolders: false,
+                    title: 'Select fuseraft binary',
+                    filters: process.platform === 'win32' ? { Executables: ['exe'] } : undefined,
+                });
+                if (!uris?.[0]) { return; }
+                newPath = uris[0].fsPath;
+            } else if (choice.action === 'manual') {
+                newPath = await vscode.window.showInputBox({
+                    title: 'fuseraft binary path',
+                    prompt: "Full path to the binary, or just 'fuseraft' if it is on your PATH",
+                    value: current,
+                    ignoreFocusOut: true,
+                });
+                if (newPath === undefined) { return; }
+                newPath = newPath.trim() || 'fuseraft';
+            } else {
+                newPath = 'fuseraft';
+            }
+
+            await vscode.workspace.getConfiguration('fuseraft').update(
+                'binaryPath', newPath, vscode.ConfigurationTarget.Global
+            );
+            vscode.window.showInformationMessage(`fuseraft binary path set to: ${newPath}`);
         })
     );
 
