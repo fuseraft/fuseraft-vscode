@@ -175,7 +175,20 @@ export async function runSetupWizard(): Promise<void> {
         }
 
         if (msg.action === 'openBinaryPathSetting') {
-            vscode.commands.executeCommand('workbench.action.openSettings', 'fuseraft.binaryPath');
+            await vscode.commands.executeCommand('fuseraft.setBinaryPath');
+            invalidateCliCache();
+            const newCli2  = await checkCli();
+            const newSaved2 = readSavedConfig();
+            panel.webview.html = getSetupWebviewHtml(
+                panel.webview,
+                newCli2.found,
+                newCli2.version,
+                newSaved2.hasPlaintextKey,
+                newSaved2.provider,
+                newSaved2.endpoint,
+                newSaved2.modelId,
+                newSaved2.apiKey
+            );
             return;
         }
 
@@ -291,6 +304,7 @@ function getSetupWebviewHtml(
         ? `<div class="preflight-row ok"><span class="pi">✅</span><span>fuseraft CLI detected${cliVersion ? ' — ' + escHtml(cliVersion) : ''}
             &nbsp;|&nbsp;
             <a href="#" id="updateBtn" class="action-link">Update</a> &nbsp;|&nbsp;
+            <a href="#" id="binaryPathLink">Change path</a> &nbsp;|&nbsp;
             <a href="#" id="recheckCliLink">Check again</a>
            </span></div>`
         : `<div class="preflight-row error"><span class="pi">❌</span><span>fuseraft CLI not found on PATH.

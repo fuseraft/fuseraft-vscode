@@ -155,6 +155,12 @@
         "title": "Configure fuseraft",
         "category": "fuseraft",
         "icon": "$(account)"
+      },
+      {
+        "command": "fuseraft.setBinaryPath",
+        "title": "Set Binary Path",
+        "category": "fuseraft",
+        "icon": "$(file-binary)"
       }
     ],
     "viewsContainers": {

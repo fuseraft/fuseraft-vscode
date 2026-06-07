@@ -6,12 +6,27 @@ export class ConfigTreeProvider implements vscode.TreeDataProvider<ConfigItem> {
     readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
     private watcher: vscode.FileSystemWatcher | undefined;
+    private _debounceTimer: ReturnType<typeof setTimeout> | undefined;
 
     constructor() {
-        this.watcher = vscode.workspace.createFileSystemWatcher('**/*.{yaml,yml,json}');
-        this.watcher.onDidCreate(() => this.refresh());
-        this.watcher.onDidDelete(() => this.refresh());
-        this.watcher.onDidChange(() => this.refresh());
+        // Exclude node_modules from the watcher pattern to avoid cascading refreshes
+        // during npm installs or other heavy file activity.
+        this.watcher = vscode.workspace.createFileSystemWatcher(
+            '**/{*.fuseraft,orchestration}.{yaml,yml,json}'
+        );
+        this.watcher.onDidCreate(() => this._scheduleRefresh());
+        this.watcher.onDidDelete(() => this._scheduleRefresh());
+        this.watcher.onDidChange(() => this._scheduleRefresh());
+    }
+
+    private _scheduleRefresh(): void {
+        if (this._debounceTimer !== undefined) {
+            clearTimeout(this._debounceTimer);
+        }
+        this._debounceTimer = setTimeout(() => {
+            this._debounceTimer = undefined;
+            this._onDidChangeTreeData.fire();
+        }, 300);
     }
 
     refresh(): void {
@@ -19,6 +34,9 @@ export class ConfigTreeProvider implements vscode.TreeDataProvider<ConfigItem> {
     }
 
     dispose(): void {
+        if (this._debounceTimer !== undefined) {
+            clearTimeout(this._debounceTimer);
+        }
         this.watcher?.dispose();
     }
 
@@ -36,16 +54,23 @@ export class ConfigTreeProvider implements vscode.TreeDataProvider<ConfigItem> {
             }, true)];
         }
 
-        const configs = await findFuseraftConfigs();
-        if (configs.length === 0) {
+        try {
+            const configs = await findFuseraftConfigs();
+            if (configs.length === 0) {
+                return [new ConfigItem({
+                    label: 'No fuseraft configs found',
+                    fsPath: '',
+                    workspaceRelative: '',
+                }, true)];
+            }
+            return configs.map(c => new ConfigItem(c, false));
+        } catch {
             return [new ConfigItem({
-                label: 'No fuseraft configs found',
+                label: 'Error loading configs — click Refresh to retry',
                 fsPath: '',
                 workspaceRelative: '',
             }, true)];
         }
-
-        return configs.map(c => new ConfigItem(c, false));
     }
 }
 
