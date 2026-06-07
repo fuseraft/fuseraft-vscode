@@ -21,7 +21,6 @@ A dedicated fuseraft panel in the activity bar gives you four persistent views:
   - **Human-in-the-loop** (`--hitl`) — pause after every agent turn to review or redirect
   - **Show tool calls** (`--tools`) — print tool invocations inline in the output
   - **Verbose** (`--verbose`) — enable debug logging and token counts
-  - **DevUI** (`--devui`) — open real-time session visualization in the browser
 - **Run Task** button (`Ctrl+Enter`) — opens a dedicated terminal named after the first 40 characters of your task. Multiple tasks can run simultaneously, each in their own terminal.
 - **Run Task File…** button — opens a file picker to select a `.md` or `.txt` task file
 
