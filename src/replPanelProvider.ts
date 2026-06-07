@@ -171,6 +171,17 @@ body{
   color:var(--vscode-descriptionForeground);
   font-size:11px;font-style:italic
 }
+.msg.warning .bubble{
+  color:var(--vscode-editorWarning-foreground,#e2c08d);
+  font-size:11px;font-style:italic
+}
+.msg.file-changes .bubble{
+  font-family:var(--vscode-editor-font-family,monospace);
+  font-size:10px;
+  background:var(--vscode-textCodeBlock-background,rgba(128,128,128,.12));
+  border:1px solid var(--vscode-panel-border);
+  border-radius:4px;padding:4px 8px;max-width:100%
+}
 .tool-row{display:flex;flex-wrap:wrap;gap:3px;padding-bottom:2px}
 .tool-badge{
   padding:1px 6px;border-radius:3px;font-size:10px;
@@ -538,6 +549,28 @@ function addSystem(text){
   scrollBottom();
 }
 
+function addWarning(text){
+  const d=document.createElement('div');
+  d.className='msg warning';
+  d.innerHTML='<div class="bubble">⚠ '+esc(text)+'</div>';
+  $msgs.appendChild(d);
+  scrollBottom();
+}
+
+function addFileChanges(changes){
+  if(!changes||!changes.length) return;
+  const sigilLabel={'A':'added','M':'modified','D':'deleted','R':'renamed'};
+  const lines=changes.map(c=>{
+    const label=sigilLabel[c.sigil]||c.sigil;
+    return esc(label)+': '+esc(c.path);
+  });
+  const d=document.createElement('div');
+  d.className='msg file-changes';
+  d.innerHTML='<div class="bubble">'+lines.join('<br>')+'</div>';
+  $msgs.appendChild(d);
+  scrollBottom();
+}
+
 /* ── send ────────────────────────────────────────────── */
 function send(){
   const text = $input.value.trim();
@@ -638,6 +671,19 @@ window.addEventListener('message',evt=>{
       addSystem(icon+' Step '+msg.step+' '+msg.status+left);
       break;
     }
+
+    case 'warning':
+      addWarning(msg.text||'');
+      break;
+
+    case 'retrying':
+      addSystem('Retrying… (attempt '+(msg.attempt||'?')+' of '+(msg.max||'?')+')');
+      break;
+
+    case 'file_changes':
+      if(Array.isArray(msg.changes)&&msg.changes.length)
+        addFileChanges(msg.changes);
+      break;
 
     case 'session_end':
       addSystem('Session ended.');
