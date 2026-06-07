@@ -622,9 +622,21 @@ window.addEventListener('message', function(e) {
         const configs = msg.configs;
         const hint = document.getElementById('noConfigHint');
         if (configs.length) {
+            const prevValue = configEl.value;
             configEl.innerHTML = '<option value="">— no config (use default) —</option>' +
                 configs.map(c => '<option value="' + escapeHtml(c.fsPath) + '">' + escapeHtml(c.workspaceRelative) + '</option>').join('');
             if (hint) { hint.style.display = 'none'; }
+            // Restore previous selection if still present; otherwise auto-select
+            // the first config that lives under the .fuseraft/ directory.
+            if (prevValue && Array.from(configEl.options).some(o => o.value === prevValue)) {
+                configEl.value = prevValue;
+            } else {
+                const auto = configs.find(c =>
+                    c.workspaceRelative.startsWith('.fuseraft/') ||
+                    c.workspaceRelative.startsWith('.fuseraft\\')
+                );
+                if (auto) { configEl.value = auto.fsPath; }
+            }
         } else {
             configEl.innerHTML = '<option value="">No configs found in workspace</option>';
             if (hint) { hint.style.display = 'block'; }
