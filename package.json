@@ -182,17 +182,20 @@
         {
           "id": "fuseraft.sessions",
           "name": "Sessions",
-          "icon": "$(history)"
+          "icon": "$(history)",
+          "initiallyCollapsed": true
         },
         {
           "id": "fuseraft.configs",
           "name": "Configs",
-          "icon": "$(settings-gear)"
+          "icon": "$(settings-gear)",
+          "initiallyCollapsed": true
         },
         {
           "id": "fuseraft.context",
           "name": "Context",
-          "icon": "$(book)"
+          "icon": "$(book)",
+          "initiallyCollapsed": true
         }
       ]
     },
