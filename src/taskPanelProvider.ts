@@ -111,7 +111,6 @@ export class TaskPanelProvider implements vscode.WebviewViewProvider {
             flags.hitl    ? '--hitl'    : '',
             flags.tools   ? '--tools'   : '',
             flags.verbose ? '--verbose' : '',
-            flags.devui   ? '--devui'   : '',
             contextFlags,
             getRunFlags(),
         ].filter(Boolean).join(' ');
@@ -137,7 +136,6 @@ export class TaskPanelProvider implements vscode.WebviewViewProvider {
             flags.hitl    ? '--hitl'    : '',
             flags.tools   ? '--tools'   : '',
             flags.verbose ? '--verbose' : '',
-            flags.devui   ? '--devui'   : '',
             getRunFlags(),
         ].filter(Boolean).join(' ');
 
@@ -458,10 +456,6 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
             <label class="flag-row"><input type="checkbox" id="verbose"><span>Verbose</span></label>
             <div class="flag-desc">Enable debug logging and token counts</div>
         </div>
-        <div>
-            <label class="flag-row"><input type="checkbox" id="devui"><span>DevUI</span></label>
-            <div class="flag-desc">Open real-time session visualization in browser</div>
-        </div>
     </div>
 </div>
 
@@ -613,7 +607,6 @@ function getFlags() {
         hitl:    document.getElementById('hitl').checked,
         tools:   document.getElementById('tools').checked,
         verbose: document.getElementById('verbose').checked,
-        devui:   document.getElementById('devui').checked,
     };
 }
 
