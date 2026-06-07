@@ -210,7 +210,7 @@ export function activate(context: vscode.ExtensionContext): void {
             const MODEL_ITEMS = [
                 ...savedModelItem,
                 { label: 'claude-sonnet-4-6',       description: 'Anthropic',  modelFlag: 'claude-sonnet-4-6' },
-                { label: 'claude-opus-4-7',          description: 'Anthropic',  modelFlag: 'claude-opus-4-7' },
+                { label: 'claude-opus-4-8',          description: 'Anthropic',  modelFlag: 'claude-opus-4-8' },
                 { label: 'claude-haiku-4-5',         description: 'Anthropic',  modelFlag: 'claude-haiku-4-5' },
                 { label: 'gpt-4o',                   description: 'OpenAI',     modelFlag: 'gpt-4o' },
                 { label: 'gpt-4o-mini',              description: 'OpenAI',     modelFlag: 'gpt-4o-mini' },
@@ -330,13 +330,15 @@ export function activate(context: vscode.ExtensionContext): void {
         vscode.commands.registerCommand('fuseraft.repl', async () => {
             const models = [
                 'claude-sonnet-4-6',
-                'claude-opus-4-7',
+                'claude-opus-4-8',
                 'claude-haiku-4-5',
                 'gpt-4o',
                 'gpt-4o-mini',
+                'grok-4',
                 'grok-4-1-fast-reasoning',
-                'grok-code-fast-1',
-                'gemini-2.0-flash',
+                'gemini-2.5-flash',
+                'mistral-medium-latest',
+                'deepseek-chat',
             ];
 
             const replSessions = readReplSessions();
