@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as https from 'https';
+import * as http  from 'http';
 import * as os from 'os';
 import * as path from 'path';
 import { checkCli, invalidateCliCache, runInstaller, runUpdate, pollForInstalledBinary } from './fuseraftUtils';
@@ -60,6 +61,13 @@ const PROVIDERS: ProviderDef[] = [
         models: ['deepseek-chat'],
     },
     {
+        label: 'Ollama',
+        description: 'Local Ollama server (no API key required)',
+        provider: 'ollama',
+        endpoint: 'http://localhost:11434/v1',
+        models: ['llama3.2', 'phi4', 'mistral', 'gemma3', 'qwen2.5-coder'],
+    },
+    {
         label: '$(edit) Custom / Self-hosted',
         description: 'OpenAI-compatible endpoint',
         provider: 'custom',
@@ -114,7 +122,11 @@ function readSavedConfig(): { modelId: string; endpoint: string; provider: strin
             savedEndpoint.toLowerCase().replace(/\/$/, '') !==
                 CANONICAL_ENDPOINTS[provider].toLowerCase().replace(/\/$/, '')
         ) {
-            provider = 'custom';
+            // Restore 'ollama' when the saved endpoint matches the Ollama default,
+            // otherwise fall back to 'custom'.
+            provider = savedEndpoint.toLowerCase().replace(/\/$/, '') === 'http://localhost:11434/v1'
+                ? 'ollama'
+                : 'custom';
         }
 
         return {
@@ -265,7 +277,7 @@ export async function runSetupWizard(): Promise<void> {
             return;
         }
 
-        const actualProvider = msg.provider === 'custom' ? 'openai' : msg.provider;
+        const actualProvider = (msg.provider === 'custom' || msg.provider === 'ollama') ? 'openai' : msg.provider;
 
         if (msg.action === 'test') {
             const result = await testConnection(msg.modelId, msg.endpoint, actualProvider, msg.apiKey);
@@ -776,12 +788,14 @@ async function testConnection(
 
 function httpPost(url: string, headers: Record<string, string>, body: object): Promise<{ status: number; data: string }> {
     return new Promise((resolve, reject) => {
-        const bodyStr = JSON.stringify(body);
-        const parsed  = new URL(url);
-        const req = https.request(
+        const bodyStr  = JSON.stringify(body);
+        const parsed   = new URL(url);
+        const isHttps  = parsed.protocol === 'https:';
+        const transport = isHttps ? https : http;
+        const req = transport.request(
             {
                 hostname: parsed.hostname,
-                port:     parsed.port || 443,
+                port:     parsed.port || (isHttps ? 443 : 80),
                 path:     parsed.pathname + parsed.search,
                 method:   'POST',
                 headers:  {
@@ -824,10 +838,11 @@ async function testAnthropicConnection(modelId: string, endpoint: string, apiKey
 }
 
 async function testOpenAICompatibleConnection(modelId: string, endpoint: string, apiKey: string): Promise<{ ok: boolean; message: string }> {
-    const base = endpoint.replace(/\/$/, '');
+    const base    = endpoint.replace(/\/$/, '');
+    const headers: Record<string, string> = apiKey ? { 'Authorization': `Bearer ${apiKey}` } : {};
     const resp = await httpPost(
         `${base}/chat/completions`,
-        { 'Authorization': `Bearer ${apiKey}` },
+        headers,
         { model: modelId, max_tokens: 1, messages: [{ role: 'user', content: 'hi' }] }
     );
     return resp.status >= 200 && resp.status < 300
