@@ -4,7 +4,7 @@ import * as https from 'https';
 import * as http  from 'http';
 import * as os from 'os';
 import * as path from 'path';
-import { checkCli, invalidateCliCache, runInstaller, runUpdate, pollForInstalledBinary } from './fuseraftUtils';
+import { checkCli, invalidateCliCache, runInstaller, runUpdate, pollForInstalledBinary, storeApiKeyToCliKeychain, getApiKeyFromCliKeychain } from './fuseraftUtils';
 
 const CONFIG_DIR  = path.join(os.homedir(), '.fuseraft');
 const CONFIG_PATH = path.join(CONFIG_DIR, 'config');
@@ -102,9 +102,18 @@ const CANONICAL_ENDPOINTS: Record<string, string> = {
     deepseek:  'https://api.deepseek.com/v1',
 };
 
-/** Read fields from an existing config file without throwing. */
-function readSavedConfig(): { modelId: string; endpoint: string; provider: string; apiKey: string; hasPlaintextKey: boolean } {
-    const empty = { modelId: '', endpoint: '', provider: 'anthropic', apiKey: '', hasPlaintextKey: false };
+/** Read the plaintext API key from the config file without throwing (sync). */
+function readPlaintextKey(): string {
+    if (!fs.existsSync(CONFIG_PATH)) { return ''; }
+    try {
+        const cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+        return typeof cfg.apiKey === 'string' ? cfg.apiKey.trim() : '';
+    } catch { return ''; }
+}
+
+/** Read fields from an existing config file, including keychain key status. */
+async function readSavedConfig(): Promise<{ modelId: string; endpoint: string; provider: string; apiKey: string; hasPlaintextKey: boolean; hasKeychainKey: boolean }> {
+    const empty = { modelId: '', endpoint: '', provider: 'anthropic', apiKey: '', hasPlaintextKey: false, hasKeychainKey: false };
     if (!fs.existsSync(CONFIG_PATH)) { return empty; }
     try {
         const cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
@@ -129,12 +138,20 @@ function readSavedConfig(): { modelId: string; endpoint: string; provider: strin
                 : 'custom';
         }
 
+        const hasPlaintextKey = typeof cfg.apiKey === 'string' && cfg.apiKey.trim().length > 0;
+        // Only check the CLI keychain when there's no plaintext key — avoids a
+        // CLI round-trip for users who haven't migrated yet.
+        const hasKeychainKey = !hasPlaintextKey
+            ? (await getApiKeyFromCliKeychain()).length > 0
+            : false;
+
         return {
-            modelId:        cfg.modelId   || '',
-            endpoint:       savedEndpoint,
+            modelId:         cfg.modelId || '',
+            endpoint:        savedEndpoint,
             provider,
-            apiKey:         cfg.apiKey    || '',
-            hasPlaintextKey: typeof cfg.apiKey === 'string' && cfg.apiKey.trim().length > 0,
+            apiKey:          cfg.apiKey  || '',   // only the plaintext key; keychain key is not exposed
+            hasPlaintextKey,
+            hasKeychainKey,
         };
     } catch {
         return empty;
@@ -152,7 +169,7 @@ export async function runSetupWizard(): Promise<void> {
     }
 
     // Run the CLI check and config read in parallel before building the UI.
-    const [cli, saved] = await Promise.all([checkCli(), Promise.resolve(readSavedConfig())]);
+    const [cli, saved] = await Promise.all([checkCli(), readSavedConfig()]);
 
     const panel = vscode.window.createWebviewPanel(
         'fuseraftSetup',
@@ -174,6 +191,7 @@ export async function runSetupWizard(): Promise<void> {
         cli.found,
         cli.version,
         saved.hasPlaintextKey,
+        saved.hasKeychainKey,
         saved.provider,
         saved.endpoint,
         saved.modelId,
@@ -189,13 +207,13 @@ export async function runSetupWizard(): Promise<void> {
         if (msg.action === 'openBinaryPathSetting') {
             await vscode.commands.executeCommand('fuseraft.setBinaryPath');
             invalidateCliCache();
-            const newCli2  = await checkCli();
-            const newSaved2 = readSavedConfig();
+            const [newCli2, newSaved2] = await Promise.all([checkCli(), readSavedConfig()]);
             panel.webview.html = getSetupWebviewHtml(
                 panel.webview,
                 newCli2.found,
                 newCli2.version,
                 newSaved2.hasPlaintextKey,
+                newSaved2.hasKeychainKey,
                 newSaved2.provider,
                 newSaved2.endpoint,
                 newSaved2.modelId,
@@ -206,13 +224,13 @@ export async function runSetupWizard(): Promise<void> {
 
         if (msg.action === 'recheckCli') {
             invalidateCliCache();
-            const newCli = await checkCli();
-            const newSaved = readSavedConfig();
+            const [newCli, newSaved] = await Promise.all([checkCli(), readSavedConfig()]);
             panel.webview.html = getSetupWebviewHtml(
                 panel.webview,
                 newCli.found,
                 newCli.version,
                 newSaved.hasPlaintextKey,
+                newSaved.hasKeychainKey,
                 newSaved.provider,
                 newSaved.endpoint,
                 newSaved.modelId,
@@ -242,13 +260,13 @@ export async function runSetupWizard(): Promise<void> {
                 }
 
                 invalidateCliCache();
-                const newCli = await checkCli();
-                const newSaved = readSavedConfig();
+                const [newCli, newSaved] = await Promise.all([checkCli(), readSavedConfig()]);
                 panel.webview.html = getSetupWebviewHtml(
                     panel.webview,
                     newCli.found,
                     newCli.version,
                     newSaved.hasPlaintextKey,
+                    newSaved.hasKeychainKey,
                     newSaved.provider,
                     newSaved.endpoint,
                     newSaved.modelId,
@@ -266,14 +284,26 @@ export async function runSetupWizard(): Promise<void> {
         }
 
         if (msg.action === 'migrateKey') {
-            // Run fuseraft repl in a named terminal to migrate the API key to the OS keychain.
-            const { runInTerminal } = await import('./fuseraftUtils');
-            const { getBinary } = await import('./fuseraftUtils');
-            vscode.window.showInformationMessage(
-                'Opening fuseraft repl to secure your API key. The key will be moved to your OS keychain automatically. Type exit and press Enter when done.',
-                { modal: false }
+            // Migrate the plaintext key directly to the OS keychain without opening a terminal.
+            const plaintextKey = readPlaintextKey();
+            if (plaintextKey) {
+                const stored = await storeApiKeyToCliKeychain(plaintextKey);
+                if (stored) {
+                    try {
+                        const raw = fs.readFileSync(CONFIG_PATH, 'utf8');
+                        const cfg = JSON.parse(raw);
+                        delete cfg.apiKey;
+                        fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2), 'utf8');
+                    } catch { /* ignore — worst case the plaintext key lingers */ }
+                }
+            }
+            // Refresh the wizard to reflect the new keychain status.
+            const [migCli, migSaved] = await Promise.all([checkCli(), readSavedConfig()]);
+            panel.webview.html = getSetupWebviewHtml(
+                panel.webview, migCli.found, migCli.version,
+                migSaved.hasPlaintextKey, migSaved.hasKeychainKey,
+                migSaved.provider, migSaved.endpoint, migSaved.modelId, migSaved.apiKey
             );
-            runInTerminal(`${getBinary()} repl`, 'fuseraft — secure key');
             return;
         }
 
@@ -283,7 +313,13 @@ export async function runSetupWizard(): Promise<void> {
             const result = await testConnection(msg.modelId, msg.endpoint, actualProvider, msg.apiKey);
             panel.webview.postMessage({ type: 'testResult', result });
         } else if (msg.action === 'save') {
-            writeUserConfig(msg.modelId, msg.endpoint, actualProvider, msg.apiKey);
+            try {
+                await writeUserConfig(msg.modelId, msg.endpoint, actualProvider, msg.apiKey);
+            } catch (err: unknown) {
+                const message = err instanceof Error ? err.message : String(err);
+                panel.webview.postMessage({ type: 'saveError', message });
+                return;
+            }
             panel.dispose();
             // Offer to create an orchestration config immediately.
             const next = await vscode.window.showInformationMessage(
@@ -303,6 +339,7 @@ function getSetupWebviewHtml(
     cliFound: boolean,
     cliVersion: string,
     hasPlaintextKey: boolean,
+    hasKeychainKey: boolean,
     curProv: string,
     curEnd: string,
     curMod: string,
@@ -327,8 +364,9 @@ function getSetupWebviewHtml(
            </span></div>`;
 
     const keychainRow = hasPlaintextKey
-        ? `<div class="preflight-row warn"><span class="pi">⚠️</span><span>Your API key is stored in plaintext in <code>~/.fuseraft/config</code>.
-            Run <code>fuseraft repl</code> once to migrate it to the OS keychain.</span></div>`
+        ? `<div class="preflight-row warn"><span class="pi">⚠️</span><span>API key stored in plaintext. &nbsp;<a href="#" id="secureKeyLink" class="action-link">Secure it now</a></span></div>`
+        : hasKeychainKey
+        ? `<div class="preflight-row ok"><span class="pi">🔐</span><span>API key secured in OS keychain</span></div>`
         : '';
 
     const preflightSection = `
@@ -498,11 +536,10 @@ function getSetupWebviewHtml(
     <div class="form-group">
         <label for="apiKey">API Key</label>
         <div class="description">Paste your API key from your provider's dashboard.</div>
-        <input type="password" id="apiKey" placeholder="Paste your API key here" value="${escHtml(curKey)}" ${disabledAttr} />
-        ${hasPlaintextKey ? `<div style="margin-top:8px;">
-            <button id="migrateKeyBtn" class="secondary" style="font-size:12px;padding:5px 10px;">Secure my API key</button>
-            <span style="font-size:11px;color:var(--vscode-descriptionForeground);margin-left:8px;">Moves your key from this file into the OS keychain</span>
-        </div>` : ''}
+        <input type="password" id="apiKey"
+            placeholder="${hasKeychainKey ? 'Leave blank to keep your secured key' : 'Paste your API key here'}"
+            value="${escHtml(curKey)}" ${disabledAttr} />
+        ${hasKeychainKey ? `<div style="margin-top:6px;font-size:11px;color:var(--vscode-terminal-ansiGreen,#89d185);">✓ Key is secured in OS keychain — leave blank to keep it</div>` : ''}
     </div>
 
     <div id="testResult"></div>
@@ -580,9 +617,12 @@ function getSetupWebviewHtml(
         });
     }
 
-    const migrateKeyBtn = document.getElementById('migrateKeyBtn');
-    if (migrateKeyBtn) {
-        migrateKeyBtn.addEventListener('click', () => {
+    const secureKeyLink = document.getElementById('secureKeyLink');
+    if (secureKeyLink) {
+        secureKeyLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            secureKeyLink.textContent = 'Securing…';
+            secureKeyLink.classList.add('dimmed');
             vscode.postMessage({ action: 'migrateKey' });
         });
     }
@@ -696,6 +736,8 @@ function getSetupWebviewHtml(
             showResult(false, 'Please specify a model ID before saving');
             return;
         }
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Saving…';
         vscode.postMessage({ action: 'save', ...data });
     });
 
@@ -708,6 +750,11 @@ function getSetupWebviewHtml(
                 message.result.ok,
                 (message.result.ok ? 'Connection successful — ' : 'Connection failed — ') + message.result.message
             );
+        }
+        if (message.type === 'saveError') {
+            saveBtn.disabled = false;
+            saveBtn.textContent = 'Save Configuration';
+            showResult(false, message.message);
         }
         if (message.type === 'installerLaunched') {
             // Highlight the "Check again" link so the user knows what to do next
@@ -760,10 +807,15 @@ function escHtml(s: string): string {
     return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-function writeUserConfig(modelId: string, endpoint: string, provider: string, apiKey: string): void {
+async function writeUserConfig(modelId: string, endpoint: string, provider: string, apiKey: string): Promise<void> {
     fs.mkdirSync(CONFIG_DIR, { recursive: true });
     const onDisk: Record<string, string> = { modelId, endpoint, provider };
-    if (apiKey) { onDisk['apiKey'] = apiKey; }
+    if (apiKey) {
+        const stored = await storeApiKeyToCliKeychain(apiKey);
+        if (!stored) {
+            throw new Error('Failed to store the API key in the OS keychain. Your key was not saved.');
+        }
+    }
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(onDisk, null, 2), 'utf8');
 }
 
