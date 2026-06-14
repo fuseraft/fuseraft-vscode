@@ -40,6 +40,35 @@ export function invalidateCliCache(): void {
     _cliCheckCache = undefined;
 }
 
+/**
+ * Store an API key in the CLI's OS keychain by calling `fuseraft keychain --set`
+ * with FUSERAFT_API_KEY injected into the subprocess environment.
+ * Returns true on success, false if the CLI is not found or the write failed.
+ */
+export async function storeApiKeyToCliKeychain(apiKey: string): Promise<boolean> {
+    return new Promise(resolve => {
+        const binary = getBinary();
+        const env: NodeJS.ProcessEnv = { ...process.env, FUSERAFT_API_KEY: apiKey };
+        execFile(binary, ['keychain', '--set'], { env, timeout: 5000 }, (err) => {
+            resolve(!err);
+        });
+    });
+}
+
+/**
+ * Retrieve the API key from the CLI's OS keychain by calling `fuseraft keychain --get`.
+ * Returns the key on success, or an empty string if no key is stored or the CLI is unavailable.
+ */
+export async function getApiKeyFromCliKeychain(): Promise<string> {
+    return new Promise(resolve => {
+        const binary = getBinary();
+        execFile(binary, ['keychain', '--get'], { timeout: 5000 }, (err, stdout) => {
+            if (err || !stdout) { resolve(''); return; }
+            resolve(stdout.trim());
+        });
+    });
+}
+
 export async function checkCli(): Promise<CliCheckResult> {
     if (_cliCheckCache !== undefined) {
         return _cliCheckCache;
