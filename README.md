@@ -105,16 +105,17 @@ All commands are available via `Ctrl+Shift+P` / `Cmd+Shift+P` under the `fuseraf
 
    | Template | Description |
    |----------|-------------|
-   | `dev-team` | Planner → Developer → Tester → Reviewer with keyword routing and a periodic Verifier |
-   | `graph` | Same four-agent pipeline as a declarative directed graph with back-edges for revision cycles |
-   | `brownfield` | Archaeologist recons the codebase first, then Planner → Developer → Reviewer |
-   | `brownfield-graph` | Brownfield pipeline as a directed graph; Reviewer has separate back-edges to Developer and Planner |
-   | `magentic` | Manager LLM dynamically coordinates Researcher + Developer agents (no fixed routing) |
-   | `research` | Researcher gathers information, Writer produces the final report |
-   | `devops` | Three-agent pipeline for infrastructure and deployment tasks |
-   | `content` | Writer drafts, Editor refines and approves |
-   | `minimal` | Single general-purpose agent — simplest possible setup |
-   | `designer` | Describe your use case in plain language and get a validated config back |
+   | `solo` | Single capable agent with investigation tooling and lossless compaction — the right starting point for simple tasks |
+   | `pipeline` | Planner → Developer → Tester → Reviewer as a directed graph with investigation tooling — no evidence contracts |
+   | `swe` | Planner → PlannerCritic → Developer → Tester → Reviewer — full safeguards: evidence contracts, hypothesis tracking, periodic Verifier, lossless compaction |
+   | `greenfield` | Planner → Developer → Tester → Reviewer — optimised for new projects: no PlannerCritic, no Verifier, greenfield-aware Planner, larger Developer context window |
+   | `brownfield` | Archaeologist recons the codebase once → Planner → Developer → Reviewer as a graph; multi-target back-edges for revision and replan |
+   | `research` | Researcher gathers cited findings → Critic adversarially reviews for gaps → Writer synthesises the final document |
+   | `data` | DataEngineer fetches and structures data → Analyst computes findings → Reporter synthesises a final document |
+   | `devops` | OpsPlanner writes an ops plan with rollback_command → Executor runs steps → Verifier health-checks; can trigger rollback |
+   | `debate` | Proposer argues a position → Challenger critiques adversarially → Moderator synthesises a structured final verdict |
+   | `audit` | Auditor scans for security / quality / compliance issues → Prioritizer triages by severity → Developer fixes → Verifier confirms |
+   | `magentic` | AI-managed team: a manager LLM plans and coordinates 5 specialist workers dynamically; user approves the plan before execution |
 
 2. **Model** — pick from common models across all providers, use auto-detection, or type any model ID
 3. **Provider endpoint** — pick a known provider URL, use your saved default, or enter a custom URL
