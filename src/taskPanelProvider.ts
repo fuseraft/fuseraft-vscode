@@ -108,9 +108,10 @@ export class TaskPanelProvider implements vscode.WebviewViewProvider {
             .join(' ');
 
         const extra = [
-            flags.hitl    ? '--hitl'    : '',
-            flags.tools   ? '--tools'   : '',
-            flags.verbose ? '--verbose' : '',
+            flags.hitl     ? '--hitl'     : '',
+            flags.tools    ? '--tools'    : '',
+            flags.verbose  ? '--verbose'  : '',
+            flags.snapshot ? '--snapshot' : '',
             contextFlags,
             getRunFlags(),
         ].filter(Boolean).join(' ');
@@ -133,9 +134,10 @@ export class TaskPanelProvider implements vscode.WebviewViewProvider {
         if (!uris?.[0]) { return; }
 
         const extra = [
-            flags.hitl    ? '--hitl'    : '',
-            flags.tools   ? '--tools'   : '',
-            flags.verbose ? '--verbose' : '',
+            flags.hitl     ? '--hitl'     : '',
+            flags.tools    ? '--tools'    : '',
+            flags.verbose  ? '--verbose'  : '',
+            flags.snapshot ? '--snapshot' : '',
             getRunFlags(),
         ].filter(Boolean).join(' ');
 
@@ -456,6 +458,10 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
             <label class="flag-row"><input type="checkbox" id="verbose"><span>Verbose</span></label>
             <div class="flag-desc">Enable debug logging and token counts</div>
         </div>
+        <div>
+            <label class="flag-row"><input type="checkbox" id="snapshot"><span>Snapshot</span></label>
+            <div class="flag-desc">Write per-turn postmortem to ~/.fuseraft/snapshots/</div>
+        </div>
     </div>
 </div>
 
@@ -604,9 +610,10 @@ taskSection.addEventListener('drop', function(e) {
 
 function getFlags() {
     return {
-        hitl:    document.getElementById('hitl').checked,
-        tools:   document.getElementById('tools').checked,
-        verbose: document.getElementById('verbose').checked,
+        hitl:     document.getElementById('hitl').checked,
+        tools:    document.getElementById('tools').checked,
+        verbose:  document.getElementById('verbose').checked,
+        snapshot: document.getElementById('snapshot').checked,
     };
 }
 
