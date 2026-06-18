@@ -169,16 +169,17 @@ export function activate(context: vscode.ExtensionContext): void {
         vscode.commands.registerCommand('fuseraft.init', async () => {
             // Step 1: template
             const TEMPLATES = [
-                { label: 'dev-team',        description: 'Planner → Developer → Tester → Reviewer with keyword routing and a periodic Verifier' },
-                { label: 'graph',           description: 'Same four-agent pipeline as a declarative directed graph with back-edges for revision cycles' },
-                { label: 'brownfield',      description: 'Archaeologist recons the codebase first, then Planner → Developer → Reviewer' },
-                { label: 'brownfield-graph',description: 'Brownfield pipeline as a directed graph; Reviewer has separate back-edges to Developer and Planner' },
-                { label: 'magentic',        description: 'Manager LLM dynamically coordinates Researcher + Developer agents (no fixed routing)' },
-                { label: 'research',        description: 'Researcher gathers information, Writer produces the final report' },
-                { label: 'devops',          description: 'Three-agent pipeline for infrastructure and deployment tasks' },
-                { label: 'content',         description: 'Writer drafts, Editor refines and approves' },
-                { label: 'minimal',         description: 'Single general-purpose agent — simplest possible setup' },
-                { label: 'designer',        description: 'Describe your use case in plain language and get a validated config back' },
+                { label: 'solo',       description: 'Single capable agent with investigation tooling and lossless compaction — the right starting point for simple tasks' },
+                { label: 'pipeline',   description: 'Planner → Developer → Tester → Reviewer as a directed graph with investigation tooling — no evidence contracts; use swe for production work' },
+                { label: 'swe',        description: 'Planner → PlannerCritic → Developer → Tester → Reviewer — full safeguards: evidence contracts, hypothesis tracking, periodic Verifier, lossless compaction' },
+                { label: 'greenfield', description: 'Planner → Developer → Tester → Reviewer — optimised for new projects: no PlannerCritic, no Verifier, greenfield-aware Planner, larger Developer context window' },
+                { label: 'brownfield', description: 'Archaeologist recons the codebase once → Planner → Developer → Reviewer as a graph; multi-target back-edges (REVISION REQUIRED → Developer, REPLAN REQUIRED → Planner)' },
+                { label: 'research',   description: 'Researcher gathers cited findings → Critic adversarially reviews for gaps → Writer synthesises the final document' },
+                { label: 'data',       description: 'DataEngineer fetches and structures data → Analyst computes findings → Reporter synthesises a final document' },
+                { label: 'devops',     description: 'OpsPlanner writes an ops plan with rollback_command → Executor runs steps → Verifier health-checks; can trigger rollback' },
+                { label: 'debate',     description: 'Proposer argues a position → Challenger critiques adversarially → Moderator synthesises a structured final verdict' },
+                { label: 'audit',      description: 'Auditor scans for security / quality / compliance issues → Prioritizer triages by severity → Developer fixes → Verifier confirms' },
+                { label: 'magentic',   description: 'AI-managed team: a manager LLM plans and coordinates 5 specialist workers dynamically; user approves the plan before execution' },
                 { label: '$(terminal) Interactive wizard', description: 'Run the full fuseraft init wizard in the terminal' },
             ];
 
