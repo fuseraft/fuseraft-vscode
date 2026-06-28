@@ -193,6 +193,11 @@ body{
 .tool-badge.active{
   outline:1px solid var(--vscode-focusBorder);outline-offset:1px
 }
+.tool-badge.tool-overflow{
+  background:var(--vscode-button-secondaryBackground,rgba(128,128,128,.2));
+  color:var(--vscode-button-secondaryForeground,var(--vscode-descriptionForeground));
+  font-style:italic
+}
 .tool-detail{
   font-family:var(--vscode-editor-font-family,monospace);font-size:10px;
   background:var(--vscode-textCodeBlock-background,rgba(128,128,128,.12));
@@ -266,6 +271,15 @@ body{
   color:var(--vscode-descriptionForeground);font-size:11px;
   padding:4px 0;animation:fadein .2s ease
 }
+.cot-toggle{
+  display:flex;align-items:center;gap:4px;
+  font-size:10px;color:var(--vscode-descriptionForeground);
+  cursor:pointer;user-select:none;padding:2px 0;
+  font-style:italic;opacity:.7
+}
+.cot-toggle:hover{opacity:1}
+.cot-toggle::before{content:'▶ ';font-size:8px}
+.cot-toggle.open::before{content:'▼ '}
 @keyframes fadein{from{opacity:0}to{opacity:1}}
 .dots span{
   display:inline-block;width:4px;height:4px;border-radius:50%;
@@ -326,10 +340,14 @@ let curTools    = null;
 let curText     = '';
 let curMsgDiv   = null;
 let isStreaming  = false;
+let curToolList     = [];
+let curToolExpanded = false;
 
 // Tool-detail expand state — at most one expanded at a time.
 let activeDetailBadge = null;
 let activeDetail      = null;
+
+const TOOL_VISIBLE_MAX = 5;
 
 /* ── helpers ─────────────────────────────────────────── */
 function esc(s){
@@ -414,6 +432,8 @@ function startAssistant(){
   curMsgDiv.appendChild(curBubble);
 
   curText='';
+  curToolList=[];
+  curToolExpanded=false;
   $msgs.appendChild(curMsgDiv);
   scrollBottom();
 }
@@ -433,9 +453,48 @@ function appendToken(text){
   scrollBottom();
 }
 
+function _makeBadge(name, args){
+  const hasArgs = args && Object.keys(args).length > 0;
+  const badge = document.createElement('span');
+  badge.className = 'tool-badge';
+  badge.textContent = name;
+  const full = hasArgs ? fmtArgsFull(args) : '(no arguments)';
+  if(hasArgs){
+    badge.addEventListener('mouseenter', e => tipShow(e, fmtArgsSummary(args)));
+    badge.addEventListener('mousemove',  e => tipMove(e));
+    badge.addEventListener('mouseleave',     tipHide);
+  }
+  badge.addEventListener('click', () => { tipHide(); toggleDetail(badge, full); });
+  return badge;
+}
+
+function _renderToolRow(){
+  if(!curTools) return;
+  collapseDetail();
+  curTools.innerHTML='';
+  const count = curToolList.length;
+  if(count <= TOOL_VISIBLE_MAX || curToolExpanded){
+    for(const {name, args} of curToolList){
+      curTools.appendChild(_makeBadge(name, args));
+    }
+    if(count > TOOL_VISIBLE_MAX){
+      const pill = document.createElement('span');
+      pill.className='tool-badge tool-overflow';
+      pill.textContent='▲ collapse';
+      pill.addEventListener('click', ()=>{ curToolExpanded=false; _renderToolRow(); scrollBottom(); });
+      curTools.appendChild(pill);
+    }
+  } else {
+    const pill = document.createElement('span');
+    pill.className='tool-badge tool-overflow';
+    pill.textContent=count+' tool calls ▶';
+    pill.addEventListener('click', ()=>{ curToolExpanded=true; _renderToolRow(); scrollBottom(); });
+    curTools.appendChild(pill);
+  }
+}
+
 function addToolBadge(name, args){
   if(!curTools){
-    // thinking indicator → replace with proper assistant message
     if(curMsgDiv && curMsgDiv.querySelector('.thinking')){
       curMsgDiv.innerHTML='';
       curTools = document.createElement('div');
@@ -446,28 +505,15 @@ function addToolBadge(name, args){
       curBubble.innerHTML='<span class="cursor"></span>';
       curMsgDiv.appendChild(curBubble);
       curText='';
+      curToolList=[];
+      curToolExpanded=false;
     } else {
       startAssistant();
     }
   }
-  const hasArgs = args && Object.keys(args).length > 0;
-  const badge = document.createElement('span');
-  badge.className = 'tool-badge';
-  badge.textContent = name;
-
-  const full = hasArgs ? fmtArgsFull(args) : '(no arguments)';
-
-  if(hasArgs){
-    badge.addEventListener('mouseenter', e => tipShow(e, fmtArgsSummary(args)));
-    badge.addEventListener('mousemove',  e => tipMove(e));
-    badge.addEventListener('mouseleave',     tipHide);
-  }
-  badge.addEventListener('click', () => {
-    tipHide();
-    toggleDetail(badge, full);
-  });
-
-  curTools.appendChild(badge);
+  curToolList.push({name, args});
+  _renderToolRow();
+  scrollBottom();
 }
 
 /* ── tooltip ─────────────────────────────────────────── */
@@ -531,13 +577,30 @@ function fmtArgsFull(args){
   }).join('\\n\\n');
 }
 
+function _collapseIntoCot(msgDiv, bubble, toolsRow){
+  const toggle = document.createElement('div');
+  toggle.className='cot-toggle';
+  toggle.textContent='chain of thought';
+  msgDiv.insertBefore(toggle, toolsRow||bubble);
+  toolsRow.style.display='none';
+  bubble.style.display='none';
+  toggle.addEventListener('click',()=>{
+    const open=toggle.classList.contains('open');
+    toggle.classList.toggle('open',!open);
+    toolsRow.style.display=open?'none':'';
+    bubble.style.display=open?'none':'';
+    scrollBottom();
+  });
+}
+
 function finalise(){
   if(curBubble){
     const rendered = mdToHtml(curText);
     curBubble.innerHTML = rendered || '';
     if(!rendered && (!curTools || !curTools.children.length)){
-      // empty response — remove the whole message div
       curMsgDiv?.remove();
+    } else if(curText.trim().endsWith(':')){
+      _collapseIntoCot(curMsgDiv, curBubble, curTools);
     } else {
       curBubble.classList.add('finalised');
     }
@@ -545,6 +608,7 @@ function finalise(){
     curMsgDiv.remove();
   }
   curBubble=null; curTools=null; curText=''; curMsgDiv=null;
+  curToolList=[]; curToolExpanded=false;
   isStreaming=false;
   setEnabled(true);
   scrollBottom();
@@ -660,6 +724,7 @@ window.addEventListener('message',evt=>{
         curMsgDiv.innerHTML='<div class="bubble"><em>(cancelled)</em></div>';
       }
       curBubble=null; curTools=null; curText=''; curMsgDiv=null;
+      curToolList=[]; curToolExpanded=false;
       isStreaming=false;
       setEnabled(true);
       scrollBottom();
@@ -667,6 +732,7 @@ window.addEventListener('message',evt=>{
 
     case 'error':
       if(curMsgDiv){ curMsgDiv.remove(); curBubble=null; curTools=null; curText=''; curMsgDiv=null; }
+      curToolList=[]; curToolExpanded=false;
       addSystem('Error: '+(msg.text||'unknown error'));
       isStreaming=false;
       setEnabled(true);
