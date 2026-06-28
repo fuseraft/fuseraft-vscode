@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
+import * as http from 'http';
 import * as https from 'https';
-import * as http  from 'http';
 import * as os from 'os';
 import * as path from 'path';
 import { checkCli, invalidateCliCache, runInstaller, runUpdate, pollForInstalledBinary, storeApiKeyToCliKeychain, getApiKeyFromCliKeychain, fetchProviderModels } from './fuseraftUtils';
@@ -920,7 +920,7 @@ function httpPost(url: string, headers: Record<string, string>, body: object): P
                     ...headers,
                 },
             },
-            res => {
+            (res: http.IncomingMessage) => {
                 let data = '';
                 res.on('data', (chunk: string) => { data += chunk; });
                 res.on('end', () => resolve({ status: res.statusCode ?? 0, data }));
