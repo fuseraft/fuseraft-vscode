@@ -4,7 +4,7 @@ import * as https from 'https';
 import * as http  from 'http';
 import * as os from 'os';
 import * as path from 'path';
-import { checkCli, invalidateCliCache, runInstaller, runUpdate, pollForInstalledBinary, storeApiKeyToCliKeychain, getApiKeyFromCliKeychain } from './fuseraftUtils';
+import { checkCli, invalidateCliCache, runInstaller, runUpdate, pollForInstalledBinary, storeApiKeyToCliKeychain, getApiKeyFromCliKeychain, fetchProviderModels } from './fuseraftUtils';
 
 const CONFIG_DIR  = path.join(os.homedir(), '.fuseraft');
 const CONFIG_PATH = path.join(CONFIG_DIR, 'config');
@@ -171,6 +171,14 @@ export async function runSetupWizard(): Promise<void> {
     // Run the CLI check and config read in parallel before building the UI.
     const [cli, saved] = await Promise.all([checkCli(), readSavedConfig()]);
 
+    // Try to pre-fetch the model list from the configured provider.
+    let liveModels: string[] | null = null;
+    if (saved.endpoint) {
+        const apiKey = saved.apiKey || await getApiKeyFromCliKeychain();
+        const isOllama = saved.provider === 'ollama';
+        liveModels = await fetchProviderModels(saved.endpoint, apiKey, isOllama);
+    }
+
     const panel = vscode.window.createWebviewPanel(
         'fuseraftSetup',
         'fuseraft setup',
@@ -195,7 +203,8 @@ export async function runSetupWizard(): Promise<void> {
         saved.provider,
         saved.endpoint,
         saved.modelId,
-        saved.apiKey
+        saved.apiKey,
+        liveModels
     );
 
     panel.webview.onDidReceiveMessage(async (msg) => {
@@ -217,7 +226,8 @@ export async function runSetupWizard(): Promise<void> {
                 newSaved2.provider,
                 newSaved2.endpoint,
                 newSaved2.modelId,
-                newSaved2.apiKey
+                newSaved2.apiKey,
+                liveModels
             );
             return;
         }
@@ -234,8 +244,18 @@ export async function runSetupWizard(): Promise<void> {
                 newSaved.provider,
                 newSaved.endpoint,
                 newSaved.modelId,
-                newSaved.apiKey
+                newSaved.apiKey,
+                liveModels
             );
+            return;
+        }
+
+        if (msg.action === 'fetchModels') {
+            const isOllama = (msg.provider as string) === 'ollama';
+            const apiKey = (msg.apiKey as string) || await getApiKeyFromCliKeychain();
+            const models = await fetchProviderModels(msg.endpoint as string, apiKey, isOllama);
+            if (models) { liveModels = models; }
+            panel.webview.postMessage({ type: 'modelsLoaded', models: models ?? [] });
             return;
         }
 
@@ -270,7 +290,8 @@ export async function runSetupWizard(): Promise<void> {
                     newSaved.provider,
                     newSaved.endpoint,
                     newSaved.modelId,
-                    newSaved.apiKey
+                    newSaved.apiKey,
+                    liveModels
                 );
             });
             return;
@@ -302,7 +323,8 @@ export async function runSetupWizard(): Promise<void> {
             panel.webview.html = getSetupWebviewHtml(
                 panel.webview, migCli.found, migCli.version,
                 migSaved.hasPlaintextKey, migSaved.hasKeychainKey,
-                migSaved.provider, migSaved.endpoint, migSaved.modelId, migSaved.apiKey
+                migSaved.provider, migSaved.endpoint, migSaved.modelId, migSaved.apiKey,
+                liveModels
             );
             return;
         }
@@ -343,10 +365,17 @@ function getSetupWebviewHtml(
     curProv: string,
     curEnd: string,
     curMod: string,
-    curKey: string
+    curKey: string,
+    liveModels: string[] | null = null
 ): string {
     const nonce = Math.random().toString(36).substring(2, 15);
-    const providersJson = JSON.stringify(PROVIDERS);
+    // When live models were fetched for the current provider, inject them into
+    // that provider's entry so the select is populated with the real list.
+    const providersData = (liveModels && liveModels.length > 0)
+        ? PROVIDERS.map(p => p.provider === curProv ? { ...p, models: liveModels } : p)
+        : PROVIDERS;
+    const providersJson = JSON.stringify(providersData);
+    const liveModelCount = liveModels ? liveModels.length : 0;
 
     // Build pre-flight rows
     const cliRow = cliFound
@@ -528,9 +557,15 @@ function getSetupWebviewHtml(
 
     <div class="form-group">
         <label for="model">Model ID</label>
-        <div class="description">Select or type the model you wish to use.</div>
+        <div class="description">
+            Select or type the model you wish to use.
+            ${liveModelCount > 0
+                ? `<span id="liveModelsBadge" style="margin-left:6px;color:var(--vscode-terminal-ansiGreen,#89d185);font-size:11px;">✓ ${liveModelCount} models loaded from provider</span>`
+                : ''}
+        </div>
         <select id="modelSelect" ${disabledAttr}></select>
         <input type="text" id="modelInput" style="display: none; margin-top: 8px;" placeholder="Enter custom model ID" ${disabledAttr} />
+        ${cliFound ? `<div style="margin-top:6px;"><a href="#" id="loadModelsBtn" style="font-size:12px;color:var(--vscode-textLink-foreground,#3794ff);">↻ Load models from provider</a></div>` : ''}
     </div>
 
     <div class="form-group">
@@ -690,6 +725,17 @@ function getSetupWebviewHtml(
 
     providerEl.addEventListener('change', updateForm);
 
+    const loadModelsBtn = document.getElementById('loadModelsBtn');
+    if (loadModelsBtn) {
+        loadModelsBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            loadModelsBtn.textContent = '↻ Loading…';
+            loadModelsBtn.style.pointerEvents = 'none';
+            const data = getFormData();
+            vscode.postMessage({ action: 'fetchModels', endpoint: endpointEl.value.trim(), apiKey: data.apiKey, provider: providerEl.value });
+        });
+    }
+
     modelSelectEl.addEventListener('change', () => {
         if (modelSelectEl.value === '__custom__') {
             modelInputEl.style.display = 'block';
@@ -755,6 +801,24 @@ function getSetupWebviewHtml(
             saveBtn.disabled = false;
             saveBtn.textContent = 'Save Configuration';
             showResult(false, message.message);
+        }
+        if (message.type === 'modelsLoaded') {
+            const btn = document.getElementById('loadModelsBtn');
+            const badge = document.getElementById('liveModelsBadge');
+            const loaded = message.models;
+            if (loaded && loaded.length > 0) {
+                // Inject into the current provider entry so updateForm picks them up
+                const p = providers.find(x => x.provider === providerEl.value);
+                if (p) { p.models = loaded; }
+                updateForm();
+                if (btn) { btn.textContent = '✓ ' + loaded.length + ' models loaded'; }
+                if (badge) { badge.textContent = '✓ ' + loaded.length + ' models loaded from provider'; }
+            } else {
+                if (btn) {
+                    btn.textContent = '✗ Could not load — check endpoint and API key';
+                    btn.style.pointerEvents = 'auto';
+                }
+            }
         }
         if (message.type === 'installerLaunched') {
             // Highlight the "Check again" link so the user knows what to do next

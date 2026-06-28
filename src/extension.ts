@@ -13,6 +13,7 @@ import {
     promptForTask, buildRunCommand, buildInitCommand, runInTerminal,
     runInstaller, runUpdate, getSessionsDir, checkCli, invalidateCliCache, disposeOutputChannel,
     readReplSessions, formatRelativeTime, ReplSessionInfo,
+    readProviderConfig, fetchProviderModels,
 } from './fuseraftUtils';
 import { isConfigured, runSetupWizard } from './setupWizard';
 
@@ -331,7 +332,7 @@ export function activate(context: vscode.ExtensionContext): void {
     // fuseraft.repl — open interactive REPL in a webview chat panel
     context.subscriptions.push(
         vscode.commands.registerCommand('fuseraft.repl', async () => {
-            const models = [
+            const fallbackModels = [
                 'claude-sonnet-4-6',
                 'claude-opus-4-8',
                 'claude-haiku-4-5',
@@ -343,6 +344,14 @@ export function activate(context: vscode.ExtensionContext): void {
                 'mistral-medium-latest',
                 'deepseek-chat',
             ];
+
+            const provCfg = readProviderConfig();
+            let liveModels: string[] | null = null;
+            if (provCfg?.endpoint) {
+                const isOllama = provCfg.provider === 'ollama';
+                liveModels = await fetchProviderModels(provCfg.endpoint, provCfg.apiKey, isOllama);
+            }
+            const models = liveModels ?? fallbackModels;
 
             const replSessions = readReplSessions();
             const resumeEntry = replSessions.length > 0
