@@ -1,5 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
+import * as https from 'https';
+import * as http from 'http';
 import * as path from 'path';
 import * as os from 'os';
 import { execFile } from 'child_process';
@@ -107,6 +109,85 @@ export function readApiKeyFromConfig(): string {
     } catch {
         return '';
     }
+}
+
+export interface ProviderConfig {
+    endpoint: string;
+    apiKey: string;
+    provider: string;
+    modelId: string;
+}
+
+/**
+ * Read provider connection fields from ~/.fuseraft/config.
+ * Returns null when the file is absent, unreadable, or lacks an endpoint.
+ */
+export function readProviderConfig(): ProviderConfig | null {
+    const configPath = path.join(os.homedir(), '.fuseraft', 'config');
+    try {
+        if (!fs.existsSync(configPath)) { return null; }
+        const cfg = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        if (!cfg.modelId || !cfg.endpoint) { return null; }
+        return {
+            endpoint: String(cfg.endpoint).trim(),
+            apiKey:   typeof cfg.apiKey === 'string' ? cfg.apiKey.trim() : '',
+            provider: typeof cfg.provider === 'string' ? cfg.provider.trim() : '',
+            modelId:  String(cfg.modelId).trim(),
+        };
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Fetch available model IDs from the provider's models endpoint.
+ * Uses GET {endpoint}/models for OpenAI-compatible providers, or
+ * GET {endpoint}/api/tags for Ollama.
+ * Returns a sorted array of model ID strings, or null on any error.
+ */
+export function fetchProviderModels(
+    endpoint: string,
+    apiKey: string,
+    isOllama: boolean,
+    timeoutMs = 8000
+): Promise<string[] | null> {
+    return new Promise(resolve => {
+        const base = endpoint.replace(/\/$/, '');
+        const urlStr = isOllama ? `${base}/api/tags` : `${base}/models`;
+
+        let parsed: URL;
+        try { parsed = new URL(urlStr); }
+        catch { resolve(null); return; }
+
+        const lib = parsed.protocol === 'https:' ? https : http;
+        const options: https.RequestOptions = {
+            hostname: parsed.hostname,
+            port:     parsed.port ? parseInt(parsed.port) : (parsed.protocol === 'https:' ? 443 : 80),
+            path:     parsed.pathname + parsed.search,
+            method:   'GET',
+            headers:  apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
+        };
+
+        const req = lib.request(options, res => {
+            let data = '';
+            res.on('data', (chunk: Buffer) => { data += chunk.toString(); });
+            res.on('end', () => {
+                try {
+                    if (res.statusCode !== 200) { resolve(null); return; }
+                    const json = JSON.parse(data);
+                    const ids: string[] = isOllama
+                        ? (json.models ?? []).map((m: { name?: string }) => m.name).filter(Boolean)
+                        : (json.data   ?? []).map((m: { id?:   string }) => m.id  ).filter(Boolean);
+                    resolve(ids.sort());
+                } catch { resolve(null); }
+            });
+        });
+
+        req.on('error',   () => resolve(null));
+        req.on('timeout', () => { req.destroy(); resolve(null); });
+        req.setTimeout(timeoutMs);
+        req.end();
+    });
 }
 
 export function logToChannel(msg: string): void {
