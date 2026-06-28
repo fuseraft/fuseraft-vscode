@@ -252,6 +252,10 @@ body{
 }
 .bubble strong{font-weight:600}
 .bubble em{font-style:italic}
+.bubble table{border-collapse:collapse;margin:6px 0;font-size:.9em;width:auto}
+.bubble th,.bubble td{border:1px solid var(--vscode-panel-border);padding:4px 10px;text-align:left}
+.bubble th{background:var(--vscode-textCodeBlock-background,rgba(128,128,128,.15));font-weight:600}
+.bubble tr:nth-child(even) td{background:rgba(128,128,128,.06)}
 .cursor{
   display:inline-block;width:2px;height:1em;
   background:var(--vscode-editor-foreground);
@@ -389,9 +393,24 @@ function mdToHtml(raw){
     const items=m.replace(/^[ \\t]*\\d+\\. (.+)$/gm,'<li>$1</li>');
     return '<ol>'+items+'</ol>';
   });
+  // tables: match header row | separator row | one or more data rows
+  s = s.replace(/((?:^[ \\t]*\\|.+\\|[ \\t]*$\\n?){2,})/gm, m=>{
+    const rows = m.trim().split('\\n');
+    if(rows.length < 2) return m;
+    const isSep = r => /^[ \\t]*\\|[-| :\\t]+\\|[ \\t]*$/.test(r);
+    const sepIdx = rows.findIndex(isSep);
+    if(sepIdx < 1) return m;
+    const parseRow = r => r.replace(/^[ \\t]*\\|/, '').replace(/\\|[ \\t]*$/, '').split('|').map(c=>c.trim());
+    const headers = parseRow(rows[0]);
+    const thead = '<thead><tr>' + headers.map(h=>'<th>'+h+'</th>').join('') + '</tr></thead>';
+    const bodyRows = rows.slice(sepIdx+1).filter(r=>r.trim()).map(r=>{
+      return '<tr>'+parseRow(r).map(c=>'<td>'+c+'</td>').join('')+'</tr>';
+    });
+    return '<table>'+thead+'<tbody>'+bodyRows.join('')+'</tbody></table>';
+  });
   // paragraphs
   s = s.split('\\n\\n').map(para=>{
-    if(/^<(h[1-3]|ul|ol|blockquote|pre|\\x00)/.test(para.trimStart())) return para;
+    if(/^<(h[1-3]|ul|ol|blockquote|pre|table|\\x00)/.test(para.trimStart())) return para;
     return '<p>'+para.replace(/\\n/g,'<br>')+'</p>';
   }).join('\\n');
   // restore code blocks
