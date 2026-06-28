@@ -254,6 +254,13 @@ body{
   vertical-align:text-bottom;margin-left:1px
 }
 @keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
+.bubble.finalised::after{
+  content:'';
+  display:block;
+  width:16px;height:2px;
+  background:var(--vscode-panel-border);
+  margin-top:8px;border-radius:1px;opacity:.5
+}
 .thinking{
   display:flex;align-items:center;gap:6px;
   color:var(--vscode-descriptionForeground);font-size:11px;
@@ -531,6 +538,8 @@ function finalise(){
     if(!rendered && (!curTools || !curTools.children.length)){
       // empty response — remove the whole message div
       curMsgDiv?.remove();
+    } else {
+      curBubble.classList.add('finalised');
     }
   } else if(curMsgDiv){
     curMsgDiv.remove();
@@ -545,6 +554,14 @@ function addSystem(text){
   const d=document.createElement('div');
   d.className='msg system';
   d.innerHTML='<div class="bubble">'+esc(text)+'</div>';
+  $msgs.appendChild(d);
+  scrollBottom();
+}
+
+function addSystemHtml(html){
+  const d=document.createElement('div');
+  d.className='msg system';
+  d.innerHTML='<div class="bubble">'+html+'</div>';
   $msgs.appendChild(d);
   scrollBottom();
 }
@@ -661,7 +678,7 @@ window.addEventListener('message',evt=>{
       steps.forEach(s=>{
         lines.push((s.step)+'. '+esc(s.description||'')+(s.tool?' <span class="tool-badge">'+esc(s.tool)+'</span>':''));
       });
-      addSystem(lines.join('<br>'));
+      addSystemHtml(lines.join('<br>'));
       break;
     }
 
