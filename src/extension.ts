@@ -13,7 +13,7 @@ import {
     promptForTask, buildRunCommand, buildInitCommand, runInTerminal,
     runInstaller, runUpdate, getSessionsDir, checkCli, invalidateCliCache, disposeOutputChannel,
     readReplSessions, formatRelativeTime, ReplSessionInfo,
-    readProviderConfig, fetchProviderModels,
+    readProviderConfig, fetchModelsViaCli,
 } from './fuseraftUtils';
 import { isConfigured, runSetupWizard } from './setupWizard';
 
@@ -345,13 +345,10 @@ export function activate(context: vscode.ExtensionContext): void {
                 'deepseek-chat',
             ];
 
-            const provCfg = readProviderConfig();
-            let liveModels: string[] | null = null;
-            if (provCfg?.endpoint) {
-                const isOllama = provCfg.provider === 'ollama';
-                liveModels = await fetchProviderModels(provCfg.endpoint, provCfg.apiKey, isOllama);
-            }
-            const models = liveModels ?? fallbackModels;
+            const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            const cliModels = await fetchModelsViaCli(workspaceRoot);
+            const models = cliModels?.list ?? fallbackModels;
+            const currentModel = cliModels?.current ?? readProviderConfig()?.modelId ?? '';
 
             const replSessions = readReplSessions();
             const resumeEntry = replSessions.length > 0
@@ -362,7 +359,7 @@ export function activate(context: vscode.ExtensionContext): void {
                 [
                     ...resumeEntry,
                     { label: '$(settings-gear) Use configured default', description: 'from ~/.fuseraft/config', isResume: false },
-                    ...models.map(m => ({ label: m, description: '', isResume: false })),
+                    ...models.map(m => ({ label: m, description: m === currentModel ? 'current' : '', isResume: false })),
                     { label: '$(edit) Enter model ID…', description: '', isResume: false },
                 ],
                 { title: 'fuseraft REPL', placeHolder: 'Start a new session or resume a previous one' }
@@ -370,7 +367,6 @@ export function activate(context: vscode.ExtensionContext): void {
             if (!picked) { return; }
 
             if ((picked as { isResume?: boolean }).isResume) {
-                const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
                 await pickAndResumeReplSession(replSessions, workspaceRoot);
                 return;
             }
@@ -388,7 +384,6 @@ export function activate(context: vscode.ExtensionContext): void {
                 model = picked.label;
             }
 
-            const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
             ReplPanelProvider.show(model, undefined, workspaceRoot);
         })
     );

@@ -190,6 +190,28 @@ export function fetchProviderModels(
     });
 }
 
+/**
+ * Run `fuseraft models` and return the list of available model IDs plus the
+ * currently configured model. Returns null if the command fails or returns no
+ * models (e.g. no provider configured yet).
+ */
+export function fetchModelsViaCli(cwd?: string): Promise<{ list: string[]; current: string } | null> {
+    return new Promise(resolve => {
+        const configKey = readApiKeyFromConfig();
+        const env: NodeJS.ProcessEnv = { ...process.env };
+        if (configKey && !env['FUSERAFT_API_KEY']) { env['FUSERAFT_API_KEY'] = configKey; }
+        execFile(getBinary(), ['models'], { env, ...(cwd ? { cwd } : {}) }, (_err, stdout) => {
+            if (!stdout?.trim()) { resolve(null); return; }
+            const lines = stdout.split('\n').map((l: string) => l.trim()).filter(Boolean);
+            const modelLines = lines.filter((l: string) => !l.startsWith('Available'));
+            const list = modelLines.map((l: string) => l.replace(/\s*←\s*current\s*$/, '').trim()).filter(Boolean);
+            const current = modelLines.find((l: string) => l.includes('← current'))
+                ?.replace(/\s*←\s*current\s*$/, '').trim() ?? '';
+            resolve(list.length > 0 ? { list, current } : null);
+        });
+    });
+}
+
 export function logToChannel(msg: string): void {
     getOutputChannel().appendLine(`[${new Date().toISOString()}] ${msg}`);
 }
