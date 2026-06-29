@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as cp from 'child_process';
-import { getBinary, readApiKeyFromConfig } from './fuseraftUtils';
+import { getBinary, readApiKeyFromConfig, fetchModelsViaCli } from './fuseraftUtils';
 
 interface ReplEvent {
     type: string;
@@ -48,9 +48,13 @@ export class ReplPanelProvider {
         this._sessionId = resumeId;   // refined to actual sessionId once CLI emits 'ready'
         panel.webview.html = this._html();
 
-        panel.webview.onDidReceiveMessage((msg: { type: string; text?: string }) => {
+        panel.webview.onDidReceiveMessage((msg: { type: string; text?: string; model?: string }) => {
             if (msg.type === 'user_input' && msg.text !== undefined) {
                 this._send({ type: 'user_input', text: msg.text });
+            } else if (msg.type === 'interrupt') {
+                this._proc?.kill(process.platform === 'win32' ? undefined : 'SIGINT');
+            } else if (msg.type === 'model_change' && msg.model) {
+                this._send({ type: 'user_input', text: `/model ${msg.model}` });
             }
         });
 
@@ -60,6 +64,7 @@ export class ReplPanelProvider {
         });
 
         this._spawn(model, resumeId, cwd);
+        this._fetchModels(cwd);
     }
 
     private _spawn(model: string, resumeId?: string, cwd?: string): void {
@@ -117,6 +122,14 @@ export class ReplPanelProvider {
         });
     }
 
+    private _fetchModels(cwd?: string): void {
+        fetchModelsViaCli(cwd).then(result => {
+            if (result && result.list.length > 0) {
+                this._panel.webview.postMessage({ type: 'models', list: result.list, current: result.current });
+            }
+        });
+    }
+
     private _send(msg: object): void {
         this._proc?.stdin?.write(JSON.stringify(msg) + '\n');
     }
@@ -144,12 +157,68 @@ body{
   font-size:11px;color:var(--vscode-descriptionForeground);
   flex-shrink:0
 }
-#header .model{font-weight:600;color:var(--vscode-editor-foreground)}
 #header .session{opacity:.6}
+#model-select{
+  font-family:var(--vscode-font-family);
+  font-size:11px;font-weight:600;
+  color:var(--vscode-editor-foreground);
+  background:var(--vscode-dropdown-background,var(--vscode-input-background));
+  border:1px solid var(--vscode-dropdown-border,transparent);
+  border-radius:4px;padding:1px 4px;
+  outline:none;cursor:pointer;max-width:260px
+}
+#model-select:disabled{opacity:.5;cursor:default}
+#model-select option{
+  background:var(--vscode-dropdown-background,var(--vscode-editor-background));
+  color:var(--vscode-editor-foreground)
+}
 #messages{
   flex:1;overflow-y:auto;padding:12px;
-  display:flex;flex-direction:column;gap:10px
+  display:flex;flex-direction:column;gap:10px;
+  position:relative
 }
+#welcome{
+  position:absolute;inset:0;
+  display:flex;align-items:center;justify-content:center;
+  padding:32px 24px;
+  background:var(--vscode-editor-background);
+  z-index:5
+}
+#welcome-inner{
+  width:100%;max-width:540px;
+  display:flex;flex-direction:column;gap:14px
+}
+#welcome-title{
+  font-size:1.3em;font-weight:600;
+  text-align:center;
+  color:var(--vscode-editor-foreground)
+}
+#welcome-hint{
+  font-size:.92em;text-align:center;
+  color:var(--vscode-descriptionForeground)
+}
+#welcome-input{
+  width:100%;min-height:72px;max-height:200px;
+  padding:10px 14px;resize:none;outline:none;
+  background:var(--vscode-input-background);
+  color:var(--vscode-input-foreground);
+  border:1px solid var(--vscode-input-border,var(--vscode-panel-border));
+  border-radius:8px;
+  font-family:var(--vscode-font-family);
+  font-size:var(--vscode-font-size);
+  line-height:1.5
+}
+#welcome-input:focus{border-color:var(--vscode-focusBorder)}
+#welcome-input:disabled{opacity:.45;cursor:not-allowed}
+#welcome-send{
+  align-self:flex-end;height:36px;padding:0 20px;
+  background:var(--vscode-button-background);
+  color:var(--vscode-button-foreground);
+  border:none;border-radius:6px;cursor:pointer;
+  font-size:var(--vscode-font-size);white-space:nowrap
+}
+#welcome-send:hover:not(:disabled){background:var(--vscode-button-hoverBackground)}
+#welcome-send:disabled{opacity:.45;cursor:not-allowed}
 .msg{display:flex;flex-direction:column;gap:4px}
 .msg.user{align-items:flex-end}
 .msg.assistant{align-items:flex-start}
@@ -318,26 +387,50 @@ body{
 }
 #send:hover:not(:disabled){background:var(--vscode-button-hoverBackground)}
 #send:disabled{opacity:.45;cursor:not-allowed}
+#stop{
+  height:36px;padding:0 14px;
+  background:var(--vscode-button-secondaryBackground,rgba(128,128,128,.2));
+  color:var(--vscode-button-secondaryForeground,var(--vscode-editor-foreground));
+  border:none;border-radius:6px;cursor:pointer;
+  font-size:var(--vscode-font-size);white-space:nowrap;display:none
+}
+#stop:hover{background:var(--vscode-button-secondaryHoverBackground,rgba(128,128,128,.3))}
 </style>
 </head>
 <body>
 <div id="header">
   <span>fuseraft REPL</span>
-  <span class="model" id="model-label"></span>
+  <select id="model-select" disabled title="Switch model"></select>
   <span class="session" id="session-label"></span>
 </div>
 <div id="tip"></div>
-<div id="messages"></div>
+<div id="messages">
+  <div id="welcome">
+    <div id="welcome-inner">
+      <div id="welcome-title">fuseraft</div>
+      <div id="welcome-hint">What would you like to work on?</div>
+      <textarea id="welcome-input" rows="3" placeholder="Ask something or type a /command…" disabled></textarea>
+      <button id="welcome-send" disabled>Send</button>
+    </div>
+  </div>
+</div>
 <div id="footer">
   <textarea id="input" rows="1" placeholder="Ask something or type a /command…" disabled></textarea>
+  <button id="stop">Stop</button>
   <button id="send" disabled>Send</button>
 </div>
 <script>
-const vscode = acquireVsCodeApi();
-const $msgs  = document.getElementById('messages');
-const $input = document.getElementById('input');
-const $send  = document.getElementById('send');
-const $tip   = document.getElementById('tip');
+const vscode   = acquireVsCodeApi();
+const $msgs    = document.getElementById('messages');
+const $input   = document.getElementById('input');
+const $send    = document.getElementById('send');
+const $stop    = document.getElementById('stop');
+const $tip     = document.getElementById('tip');
+const $welcome     = document.getElementById('welcome');
+const $wInput      = document.getElementById('welcome-input');
+const $wSend       = document.getElementById('welcome-send');
+const $modelSelect = document.getElementById('model-select');
+let modelsLoaded   = false;
 
 let curBubble   = null;
 let curTools    = null;
@@ -425,7 +518,10 @@ function scrollBottom(){
 function setEnabled(on){
   $input.disabled = !on;
   $send.disabled  = !on;
-  if(on) $input.focus();
+  $send.style.display = (!on && isStreaming) ? 'none' : '';
+  $stop.style.display = (!on && isStreaming) ? '' : 'none';
+  if(modelsLoaded) $modelSelect.disabled = !on;
+  if(on && $welcome.style.display==='none') $input.focus();
 }
 
 /* ── message builders ────────────────────────────────── */
@@ -671,6 +767,33 @@ function addFileChanges(changes){
   scrollBottom();
 }
 
+/* ── welcome prompt ──────────────────────────────────── */
+function dismissWelcome(){
+  if($welcome.style.display==='none') return;
+  $welcome.style.display='none';
+}
+
+function sendFromWelcome(){
+  const text=$wInput.value.trim();
+  if(!text||isStreaming) return;
+  dismissWelcome();
+  $wInput.value='';
+  addUser(text);
+  isStreaming=true;
+  setEnabled(false);
+  if(!text.startsWith('/')) startThinking();
+  vscode.postMessage({type:'user_input',text});
+}
+
+$wSend.addEventListener('click',sendFromWelcome);
+$wInput.addEventListener('keydown',e=>{
+  if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendFromWelcome();}
+});
+$wInput.addEventListener('input',()=>{
+  $wInput.style.height='auto';
+  $wInput.style.height=Math.min($wInput.scrollHeight,200)+'px';
+});
+
 /* ── send ────────────────────────────────────────────── */
 function send(){
   const text = $input.value.trim();
@@ -690,6 +813,13 @@ function send(){
 }
 
 $send.addEventListener('click',send);
+$stop.addEventListener('click',()=>{ vscode.postMessage({type:'interrupt'}); });
+$modelSelect.addEventListener('change',()=>{
+  if(isStreaming) return;
+  isStreaming=true;
+  setEnabled(false);
+  vscode.postMessage({type:'model_change',model:$modelSelect.value});
+});
 $input.addEventListener('keydown',e=>{
   if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();}
 });
@@ -703,10 +833,31 @@ window.addEventListener('message',evt=>{
   const msg=evt.data;
   switch(msg.type){
     case 'ready':
-      document.getElementById('model-label').textContent=msg.model||'';
       document.getElementById('session-label').textContent=msg.sessionId?'· '+msg.sessionId:'';
+      if(!modelsLoaded && msg.model){
+        const opt=document.createElement('option');
+        opt.value=msg.model; opt.textContent=msg.model; opt.selected=true;
+        $modelSelect.appendChild(opt);
+      }
+      $wInput.disabled=false;
+      $wSend.disabled=false;
+      $wInput.focus();
       setEnabled(true);
       break;
+
+    case 'models':{
+      const cur=msg.current||'';
+      $modelSelect.innerHTML='';
+      for(const m of (msg.list||[])){
+        const opt=document.createElement('option');
+        opt.value=m; opt.textContent=m;
+        if(m===cur) opt.selected=true;
+        $modelSelect.appendChild(opt);
+      }
+      modelsLoaded=true;
+      $modelSelect.disabled=$input.disabled;
+      break;
+    }
 
     case 'token':
       if(!curBubble){
@@ -789,6 +940,7 @@ window.addEventListener('message',evt=>{
 
     case 'session_end':
       addSystem('Session ended.');
+      isStreaming=false;
       setEnabled(false);
       break;
   }
