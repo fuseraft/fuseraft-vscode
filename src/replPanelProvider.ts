@@ -130,11 +130,11 @@ export class ReplPanelProvider {
 
         this._proc.on('exit', () => {
             this._alive = false;
-            this._panel.webview.postMessage({ type: 'session_end' });
+            try { this._panel.webview.postMessage({ type: 'session_end' }); } catch { /* panel disposed */ }
         });
 
         this._proc.on('error', (err: Error) => {
-            this._panel.webview.postMessage({ type: 'error', text: err.message });
+            try { this._panel.webview.postMessage({ type: 'error', text: err.message }); } catch { /* panel disposed */ }
         });
     }
 
@@ -337,6 +337,7 @@ body{
 }
 .bubble strong{font-weight:600}
 .bubble em{font-style:italic}
+.bubble ol+ol,.bubble ol+ul,.bubble ul+ol{margin-top:-2px}
 .bubble table{border-collapse:collapse;margin:6px 0;font-size:.9em;width:auto}
 .bubble th,.bubble td{border:1px solid var(--vscode-panel-border);padding:4px 10px;text-align:left}
 .bubble th{background:var(--vscode-textCodeBlock-background,rgba(128,128,128,.15));font-weight:600}
@@ -572,8 +573,10 @@ function mdToHtml(raw){
   });
   // ordered list
   s = s.replace(/((?:^[ \\t]*\\d+\\. .+$\\n?)+)/gm,m=>{
+    const startMatch=m.match(/^[ \\t]*(\\d+)\\./);
+    const start=startMatch?parseInt(startMatch[1]):1;
     const items=m.replace(/^[ \\t]*\\d+\\. (.+)$/gm,'<li>$1</li>');
-    return '<ol>'+items+'</ol>';
+    return '<ol'+(start>1?' start="'+start+'"':'')+'>'+items+'</ol>';
   });
   // tables: match header row | separator row | one or more data rows
   s = s.replace(/((?:^[ \\t]*\\|.+\\|[ \\t]*$\\n?){2,})/gm, m=>{
@@ -904,8 +907,8 @@ function send(){
   if(!text.startsWith('/')) startThinking();
   let payload = text;
   if(attachedFiles.length){
-    const list = attachedFiles.map((f,i)=>(i+1)+'. '+f.path).join('\n');
-    payload = 'The user referenced the following files which may be of interest in this message:\n'+list+'\n\n'+text;
+    const list = attachedFiles.map((f,i)=>(i+1)+'. '+f.path).join('\\n');
+    payload = 'The user referenced the following files which may be of interest in this message:\\n'+list+'\\n\\n'+text;
     attachedFiles=[];
     renderAttachments();
   }
