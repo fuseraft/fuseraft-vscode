@@ -55,6 +55,22 @@ export class ReplPanelProvider {
                 this._proc?.kill(process.platform === 'win32' ? undefined : 'SIGINT');
             } else if (msg.type === 'model_change' && msg.model) {
                 this._send({ type: 'user_input', text: `/model ${msg.model}` });
+            } else if (msg.type === 'pick_files') {
+                vscode.window.showOpenDialog({
+                    canSelectMany: true,
+                    openLabel: 'Attach',
+                    title: 'Attach files to message',
+                }).then(uris => {
+                    if (uris && uris.length > 0) {
+                        this._panel.webview.postMessage({
+                            type: 'files_picked',
+                            files: uris.map(u => ({
+                                name: u.fsPath.split(/[/\\]/).pop() ?? u.fsPath,
+                                path: u.fsPath,
+                            })),
+                        });
+                    }
+                });
             }
         });
 
@@ -363,8 +379,31 @@ body{
 @keyframes pulse{0%,80%,100%{transform:scale(.8);opacity:.5}40%{transform:scale(1.2);opacity:1}}
 #footer{
   border-top:1px solid var(--vscode-panel-border);
-  padding:8px;display:flex;gap:6px;align-items:flex-end;flex-shrink:0
+  padding:8px;display:flex;flex-direction:column;gap:4px;flex-shrink:0
 }
+#attach-row{display:none;flex-wrap:wrap;gap:4px;padding-bottom:2px}
+#attach-row.has-files{display:flex}
+.attach-chip{
+  display:inline-flex;align-items:center;gap:5px;
+  padding:2px 8px 2px 10px;border-radius:12px;font-size:11px;
+  background:var(--vscode-badge-background);
+  color:var(--vscode-badge-foreground)
+}
+.attach-chip-remove{
+  cursor:pointer;opacity:.6;font-size:10px;line-height:1;
+  padding:1px 2px;border-radius:2px
+}
+.attach-chip-remove:hover{opacity:1}
+#input-row{display:flex;gap:6px;align-items:flex-end}
+#attach-btn{
+  height:36px;width:36px;flex-shrink:0;
+  background:var(--vscode-button-secondaryBackground,rgba(128,128,128,.2));
+  color:var(--vscode-button-secondaryForeground,var(--vscode-editor-foreground));
+  border:none;border-radius:6px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center
+}
+#attach-btn:hover:not(:disabled){background:var(--vscode-button-secondaryHoverBackground,rgba(128,128,128,.3))}
+#attach-btn:disabled{opacity:.45;cursor:not-allowed}
 #input{
   flex:1;min-height:36px;max-height:120px;
   padding:7px 10px;resize:none;outline:none;
@@ -395,6 +434,15 @@ body{
   font-size:var(--vscode-font-size);white-space:nowrap;display:none
 }
 #stop:hover{background:var(--vscode-button-secondaryHoverBackground,rgba(128,128,128,.3))}
+#thinking-bar{
+  display:none;flex-shrink:0;
+  padding:4px 12px;
+  border-top:1px solid var(--vscode-panel-border);
+  align-items:center;gap:6px;
+  color:var(--vscode-descriptionForeground);font-size:11px;
+  animation:fadein .15s ease
+}
+#thinking-bar.active{display:flex}
 </style>
 </head>
 <body>
@@ -414,10 +462,22 @@ body{
     </div>
   </div>
 </div>
-<div id="footer">
-  <textarea id="input" rows="1" placeholder="Ask something or type a /command…" disabled></textarea>
-  <button id="stop">Stop</button>
-  <button id="send" disabled>Send</button>
+<div id="thinking-bar">
+  <span class="dots"><span></span><span></span><span></span></span>
+  <span id="thinking-label">Thinking…</span>
+</div>
+<div id="footer" style="display:none">
+  <div id="attach-row"></div>
+  <div id="input-row">
+    <button id="attach-btn" title="Attach files" disabled>
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+        <path d="M4.5 3a2.5 2.5 0 0 1 5 0v9a1.5 1.5 0 0 1-3 0V5a.5.5 0 0 1 1 0v7a.5.5 0 0 0 1 0V3a1.5 1.5 0 1 0-3 0v9a2.5 2.5 0 0 0 5 0V5a.5.5 0 0 1 1 0v7a3.5 3.5 0 1 1-7 0z"/>
+      </svg>
+    </button>
+    <textarea id="input" rows="1" placeholder="Ask something or type a /command…" disabled></textarea>
+    <button id="stop">Stop</button>
+    <button id="send" disabled>Send</button>
+  </div>
 </div>
 <script>
 const vscode   = acquireVsCodeApi();
@@ -426,11 +486,40 @@ const $input   = document.getElementById('input');
 const $send    = document.getElementById('send');
 const $stop    = document.getElementById('stop');
 const $tip     = document.getElementById('tip');
-const $welcome     = document.getElementById('welcome');
-const $wInput      = document.getElementById('welcome-input');
-const $wSend       = document.getElementById('welcome-send');
-const $modelSelect = document.getElementById('model-select');
-let modelsLoaded   = false;
+const $welcome      = document.getElementById('welcome');
+const $wInput       = document.getElementById('welcome-input');
+const $wSend        = document.getElementById('welcome-send');
+const $modelSelect  = document.getElementById('model-select');
+const $thinkingBar   = document.getElementById('thinking-bar');
+const $thinkingLabel = document.getElementById('thinking-label');
+const $footer        = document.getElementById('footer');
+const $attachBtn     = document.getElementById('attach-btn');
+const $attachRow     = document.getElementById('attach-row');
+let modelsLoaded     = false;
+let attachedFiles    = []; // [{name, path}]
+
+function renderAttachments(){
+  $attachRow.innerHTML='';
+  if(!attachedFiles.length){ $attachRow.classList.remove('has-files'); return; }
+  $attachRow.classList.add('has-files');
+  for(const {name,path} of attachedFiles){
+    const chip=document.createElement('span');
+    chip.className='attach-chip';
+    const label=document.createElement('span');
+    label.textContent=name;
+    const rm=document.createElement('span');
+    rm.className='attach-chip-remove';
+    rm.textContent='✕';
+    rm.title='Remove';
+    rm.addEventListener('click',()=>{
+      attachedFiles=attachedFiles.filter(f=>f.path!==path);
+      renderAttachments();
+    });
+    chip.appendChild(label);
+    chip.appendChild(rm);
+    $attachRow.appendChild(chip);
+  }
+}
 
 let curBubble   = null;
 let curTools    = null;
@@ -515,11 +604,16 @@ function scrollBottom(){
   $msgs.scrollTop = $msgs.scrollHeight;
 }
 
+function setThinkingLabel(text){ $thinkingLabel.textContent = text; }
+function resetThinkingLabel(){ $thinkingLabel.textContent = 'Thinking…'; }
+
 function setEnabled(on){
   $input.disabled = !on;
   $send.disabled  = !on;
   $send.style.display = (!on && isStreaming) ? 'none' : '';
-  $stop.style.display = (!on && isStreaming) ? '' : 'none';
+  $stop.style.display = (!on && isStreaming) ? 'block' : 'none';
+  $thinkingBar.classList.toggle('active', !on && isStreaming);
+  $attachBtn.disabled = !on;
   if(modelsLoaded) $modelSelect.disabled = !on;
   if(on && $welcome.style.display==='none') $input.focus();
 }
@@ -725,6 +819,7 @@ function finalise(){
   curBubble=null; curTools=null; curText=''; curMsgDiv=null;
   curToolList=[]; curToolExpanded=false;
   isStreaming=false;
+  resetThinkingLabel();
   setEnabled(true);
   scrollBottom();
 }
@@ -771,6 +866,7 @@ function addFileChanges(changes){
 function dismissWelcome(){
   if($welcome.style.display==='none') return;
   $welcome.style.display='none';
+  $footer.style.display='flex';
 }
 
 function sendFromWelcome(){
@@ -780,6 +876,7 @@ function sendFromWelcome(){
   $wInput.value='';
   addUser(text);
   isStreaming=true;
+  if(text.trim()==='/exit') setThinkingLabel('Ending your session…');
   setEnabled(false);
   if(!text.startsWith('/')) startThinking();
   vscode.postMessage({type:'user_input',text});
@@ -802,18 +899,22 @@ function send(){
   $input.style.height='36px';
   addUser(text);
   isStreaming=true;
+  if(text.trim()==='/exit') setThinkingLabel('Ending your session…');
   setEnabled(false);
-  // Only start the streaming bubble for non-slash-commands.
-  if(text.startsWith('/')){
-    // slash commands output is handled CLI-side; we just wait for message_end
-  } else {
-    startThinking();
+  if(!text.startsWith('/')) startThinking();
+  let payload = text;
+  if(attachedFiles.length){
+    const list = attachedFiles.map((f,i)=>(i+1)+'. '+f.path).join('\n');
+    payload = 'The user referenced the following files which may be of interest in this message:\n'+list+'\n\n'+text;
+    attachedFiles=[];
+    renderAttachments();
   }
-  vscode.postMessage({type:'user_input',text});
+  vscode.postMessage({type:'user_input',text:payload});
 }
 
 $send.addEventListener('click',send);
 $stop.addEventListener('click',()=>{ vscode.postMessage({type:'interrupt'}); });
+$attachBtn.addEventListener('click',()=>{ vscode.postMessage({type:'pick_files'}); });
 $modelSelect.addEventListener('change',()=>{
   if(isStreaming) return;
   isStreaming=true;
@@ -896,6 +997,7 @@ window.addEventListener('message',evt=>{
       curBubble=null; curTools=null; curText=''; curMsgDiv=null;
       curToolList=[]; curToolExpanded=false;
       isStreaming=false;
+      resetThinkingLabel();
       setEnabled(true);
       scrollBottom();
       break;
@@ -905,6 +1007,7 @@ window.addEventListener('message',evt=>{
       curToolList=[]; curToolExpanded=false;
       addSystem('Error: '+(msg.text||'unknown error'));
       isStreaming=false;
+      resetThinkingLabel();
       setEnabled(true);
       break;
 
@@ -942,6 +1045,14 @@ window.addEventListener('message',evt=>{
       addSystem('Session ended.');
       isStreaming=false;
       setEnabled(false);
+      break;
+
+    case 'files_picked':
+      for(const f of (msg.files||[])){
+        if(!attachedFiles.find(a=>a.path===f.path))
+          attachedFiles.push(f);
+      }
+      renderAttachments();
       break;
   }
 });
