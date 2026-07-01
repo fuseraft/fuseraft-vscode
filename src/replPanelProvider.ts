@@ -52,7 +52,14 @@ export class ReplPanelProvider {
             if (msg.type === 'user_input' && msg.text !== undefined) {
                 this._send({ type: 'user_input', text: msg.text });
             } else if (msg.type === 'interrupt') {
-                this._proc?.kill(process.platform === 'win32' ? undefined : 'SIGINT');
+                if (process.platform === 'win32') {
+                    // Windows has no equivalent of SIGINT for child processes; send the
+                    // interrupt as a JSON message over stdin so the CLI can cancel the
+                    // active request without terminating the session.
+                    this._proc?.stdin?.write(JSON.stringify({ type: 'interrupt' }) + '\n');
+                } else {
+                    this._proc?.kill('SIGINT');
+                }
             } else if (msg.type === 'model_change' && msg.model) {
                 this._send({ type: 'user_input', text: `/model ${msg.model}` });
             } else if (msg.type === 'pick_files') {
