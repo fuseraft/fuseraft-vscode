@@ -504,7 +504,22 @@ const $footer        = document.getElementById('footer');
 const $attachBtn     = document.getElementById('attach-btn');
 const $attachRow     = document.getElementById('attach-row');
 let modelsLoaded     = false;
+let activeModel      = ''; // model actually running this session, set by the CLI's 'ready' event
 let attachedFiles    = []; // [{name, path}]
+
+// Marks the given model as selected in the dropdown, adding it as an option
+// first if the provider's model list didn't happen to include it (e.g. a
+// manually entered model ID).
+function selectModel(model){
+  if(!model) return;
+  activeModel = model;
+  for(const opt of $modelSelect.options){
+    if(opt.value===model){ opt.selected=true; return; }
+  }
+  const opt=document.createElement('option');
+  opt.value=model; opt.textContent=model; opt.selected=true;
+  $modelSelect.appendChild(opt);
+}
 
 function renderAttachments(){
   $attachRow.innerHTML='';
@@ -945,11 +960,7 @@ window.addEventListener('message',evt=>{
   switch(msg.type){
     case 'ready':
       document.getElementById('session-label').textContent=msg.sessionId?'· '+msg.sessionId:'';
-      if(!modelsLoaded && msg.model){
-        const opt=document.createElement('option');
-        opt.value=msg.model; opt.textContent=msg.model; opt.selected=true;
-        $modelSelect.appendChild(opt);
-      }
+      if(msg.model) selectModel(msg.model);
       $wInput.disabled=false;
       $wSend.disabled=false;
       $wInput.focus();
@@ -957,15 +968,17 @@ window.addEventListener('message',evt=>{
       break;
 
     case 'models':{
-      const cur=msg.current||'';
       $modelSelect.innerHTML='';
       for(const m of (msg.list||[])){
         const opt=document.createElement('option');
         opt.value=m; opt.textContent=m;
-        if(m===cur) opt.selected=true;
         $modelSelect.appendChild(opt);
       }
       modelsLoaded=true;
+      // Prefer the model this session actually launched with (from 'ready')
+      // over msg.current, which just reflects the persisted global default
+      // and knows nothing about a per-session --model override.
+      selectModel(activeModel || msg.current || '');
       $modelSelect.disabled=$input.disabled;
       break;
     }
