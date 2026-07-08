@@ -168,6 +168,8 @@ export function activate(context: vscode.ExtensionContext): void {
     // fuseraft.init — multi-step wizard: template → model → endpoint → output path → run
     context.subscriptions.push(
         vscode.commands.registerCommand('fuseraft.init', async () => {
+            const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+
             // Step 1: template
             const TEMPLATES = [
                 { label: 'solo',       description: 'Single capable agent with investigation tooling and lossless compaction — the right starting point for simple tasks' },
@@ -198,41 +200,43 @@ export function activate(context: vscode.ExtensionContext): void {
 
             const template = templatePick.label;
 
-            // Step 2: model — pre-populate from saved config if available
-            const savedModelId = (() => {
-                try {
-                    const p = path.join(require('os').homedir(), '.fuseraft', 'config');
-                    const cfg = JSON.parse(require('fs').readFileSync(p, 'utf8'));
-                    return typeof cfg.modelId === 'string' && cfg.modelId.trim() ? cfg.modelId.trim() : '';
-                } catch { return ''; }
-            })();
+            // Step 2: model — same pattern as fuseraft.repl: try `fuseraft models`
+            // (works once an API key is configured) and fall back to a
+            // pre-defined list when the CLI call fails or returns nothing.
+            const fallbackModels = [
+                'claude-sonnet-4-6',
+                'claude-opus-4-8',
+                'claude-haiku-4-5',
+                'gpt-4o',
+                'gpt-4o-mini',
+                'grok-4',
+                'grok-4-1-fast-reasoning',
+                'gemini-2.5-flash',
+                'mistral-medium-latest',
+                'deepseek-chat',
+            ];
+            const cliModels = await fetchModelsViaCli(workspaceRoot);
+            const models = cliModels?.list ?? fallbackModels;
+            const currentModel = cliModels?.current ?? readProviderConfig()?.modelId ?? '';
 
-            const savedModelItem = savedModelId
-                ? [{ label: `$(settings-gear) Use configured model (${savedModelId})`, description: 'from your provider setup', modelFlag: '' }]
+            const savedModelItem = currentModel
+                ? [{ label: `$(settings-gear) Use configured model (${currentModel})`, description: 'from your provider setup', modelFlag: '' }]
                 : [{ label: '$(settings-gear) Auto-detect from API keys', description: 'uses ~/.fuseraft/config or env vars', modelFlag: '' }];
 
-            const MODEL_ITEMS = [
-                ...savedModelItem,
-                { label: 'claude-sonnet-4-6',       description: 'Anthropic',  modelFlag: 'claude-sonnet-4-6' },
-                { label: 'claude-opus-4-8',          description: 'Anthropic',  modelFlag: 'claude-opus-4-8' },
-                { label: 'claude-haiku-4-5',         description: 'Anthropic',  modelFlag: 'claude-haiku-4-5' },
-                { label: 'gpt-4o',                   description: 'OpenAI',     modelFlag: 'gpt-4o' },
-                { label: 'gpt-4o-mini',              description: 'OpenAI',     modelFlag: 'gpt-4o-mini' },
-                { label: 'grok-4',                   description: 'xAI',        modelFlag: 'grok-4' },
-                { label: 'grok-4-1-fast-reasoning',  description: 'xAI',        modelFlag: 'grok-4-1-fast-reasoning' },
-                { label: 'gemini-2.5-flash',         description: 'Google',     modelFlag: 'gemini-2.5-flash' },
-                { label: 'mistral-medium-latest',    description: 'Mistral',    modelFlag: 'mistral-medium-latest' },
-                { label: 'deepseek-chat',            description: 'DeepSeek',   modelFlag: 'deepseek-chat' },
-                { label: '$(edit) Enter model ID…',  description: '',           modelFlag: '' },
-            ] as const;
-
-            const modelPick = await vscode.window.showQuickPick([...MODEL_ITEMS], {
-                title: 'fuseraft init  (2 / 4)  — Model',
-                placeHolder: 'Pick a model or use auto-detection',
-            });
+            const modelPick = await vscode.window.showQuickPick(
+                [
+                    ...savedModelItem,
+                    ...models.map(m => ({ label: m, description: m === currentModel ? 'current' : '', modelFlag: m })),
+                    { label: '$(edit) Enter model ID…', description: '', modelFlag: '' },
+                ],
+                {
+                    title: 'fuseraft init  (2 / 4)  — Model',
+                    placeHolder: 'Pick a model or use auto-detection',
+                }
+            );
             if (!modelPick) { return; }
 
-            let modelFlag = (modelPick as { modelFlag: string }).modelFlag;
+            let modelFlag = modelPick.modelFlag;
             if (modelPick.label === '$(edit) Enter model ID…') {
                 const custom = await vscode.window.showInputBox({
                     title: 'Model ID',
@@ -274,7 +278,6 @@ export function activate(context: vscode.ExtensionContext): void {
             }
 
             // Step 4: output path
-            const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
             const outputPath = await vscode.window.showInputBox({
                 title: 'fuseraft init  (4 / 4)  — Output Path',
                 prompt: 'Config file path (relative to workspace root, or absolute)',
