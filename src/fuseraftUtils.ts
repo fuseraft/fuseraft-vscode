@@ -50,7 +50,7 @@ export function invalidateCliCache(): void {
 export async function storeApiKeyToCliKeychain(apiKey: string): Promise<boolean> {
     return new Promise(resolve => {
         const binary = getBinary();
-        const env: NodeJS.ProcessEnv = { ...process.env, FUSERAFT_API_KEY: apiKey };
+        const env: NodeJS.ProcessEnv = { ...process.env, FUSERAFT_API_KEY: apiKey, ...getFuseraftHomeEnvOverride() };
         execFile(binary, ['keychain', '--set'], { env, timeout: 5000 }, (err) => {
             resolve(!err);
         });
@@ -64,7 +64,8 @@ export async function storeApiKeyToCliKeychain(apiKey: string): Promise<boolean>
 export async function getApiKeyFromCliKeychain(): Promise<string> {
     return new Promise(resolve => {
         const binary = getBinary();
-        execFile(binary, ['keychain', '--get'], { timeout: 5000 }, (err, stdout) => {
+        const env: NodeJS.ProcessEnv = { ...process.env, ...getFuseraftHomeEnvOverride() };
+        execFile(binary, ['keychain', '--get'], { env, timeout: 5000 }, (err, stdout) => {
             if (err || !stdout) { resolve(''); return; }
             resolve(stdout.trim());
         });
@@ -94,14 +95,43 @@ export function getBinary(): string {
 }
 
 /**
- * Read the plaintext API key from ~/.fuseraft/config, if one is stored there.
+ * Resolves the fuseraft home directory, mirroring FuseraftPaths.GlobalRoot in
+ * fuseraft-cli: the fuseraft.homeDir setting takes priority (so it can be
+ * configured without touching shell env — useful when the OS home directory
+ * isn't durable, e.g. roaming/ephemeral profiles), then a FUSERAFT_HOME
+ * already present in this process's environment, then the ~/.fuseraft default.
+ */
+export function getFuseraftHome(): string {
+    const configured = vscode.workspace.getConfiguration('fuseraft').get<string>('homeDir', '').trim();
+    const raw = configured || process.env['FUSERAFT_HOME'] || '';
+    if (!raw) { return path.join(os.homedir(), '.fuseraft'); }
+
+    const expanded = (raw === '~' || raw.startsWith('~/'))
+        ? path.join(os.homedir(), raw.slice(1))
+        : raw;
+    return path.resolve(expanded);
+}
+
+/**
+ * Returns { FUSERAFT_HOME: <dir> } when fuseraft.homeDir is configured, so
+ * CLI subprocesses/terminals pick it up even without a real FUSERAFT_HOME
+ * environment variable set. Empty object when unconfigured, so an existing
+ * FUSERAFT_HOME in the parent environment passes through untouched.
+ */
+export function getFuseraftHomeEnvOverride(): NodeJS.ProcessEnv {
+    const configured = vscode.workspace.getConfiguration('fuseraft').get<string>('homeDir', '').trim();
+    return configured ? { FUSERAFT_HOME: getFuseraftHome() } : {};
+}
+
+/**
+ * Read the plaintext API key from <fuseraft home>/config, if one is stored there.
  * Returns an empty string when the file is absent, unreadable, or has no key.
  * Used to inject FUSERAFT_API_KEY into child processes and terminals so the
  * CLI can always find the key even when it can't locate the config file
  * (common on Windows where home-directory resolution differs between shells).
  */
 export function readApiKeyFromConfig(): string {
-    const configPath = path.join(os.homedir(), '.fuseraft', 'config');
+    const configPath = path.join(getFuseraftHome(), 'config');
     try {
         if (!fs.existsSync(configPath)) { return ''; }
         const cfg = JSON.parse(fs.readFileSync(configPath, 'utf8'));
@@ -123,7 +153,7 @@ export interface ProviderConfig {
  * Returns null when the file is absent, unreadable, or lacks an endpoint.
  */
 export function readProviderConfig(): ProviderConfig | null {
-    const configPath = path.join(os.homedir(), '.fuseraft', 'config');
+    const configPath = path.join(getFuseraftHome(), 'config');
     try {
         if (!fs.existsSync(configPath)) { return null; }
         const cfg = JSON.parse(fs.readFileSync(configPath, 'utf8'));
@@ -198,7 +228,7 @@ export function fetchProviderModels(
 export function fetchModelsViaCli(cwd?: string): Promise<{ list: string[]; current: string } | null> {
     return new Promise(resolve => {
         const configKey = readApiKeyFromConfig();
-        const env: NodeJS.ProcessEnv = { ...process.env };
+        const env: NodeJS.ProcessEnv = { ...process.env, ...getFuseraftHomeEnvOverride() };
         if (configKey && !env['FUSERAFT_API_KEY']) { env['FUSERAFT_API_KEY'] = configKey; }
         execFile(getBinary(), ['models'], { env, ...(cwd ? { cwd } : {}) }, (_err, stdout) => {
             if (!stdout?.trim()) { resolve(null); return; }
@@ -228,15 +258,15 @@ export function getRunFlags(): string {
 }
 
 export function getSessionsDir(): string {
-    return path.join(os.homedir(), '.fuseraft', 'sessions');
+    return path.join(getFuseraftHome(), 'sessions');
 }
 
 export function getReplSessionsDir(): string {
-    return path.join(os.homedir(), '.fuseraft', 'repl-sessions');
+    return path.join(getFuseraftHome(), 'repl-sessions');
 }
 
 export function getMemoryReplDir(): string {
-    return path.join(os.homedir(), '.fuseraft', 'memory', 'repl');
+    return path.join(getFuseraftHome(), 'memory', 'repl');
 }
 
 export interface ReplSessionInfo {
@@ -516,9 +546,13 @@ export function runInTerminal(command: string, name = 'fuseraft', reuse = false)
         // channel for the key.
         const apiKey = readApiKeyFromConfig();
         const injectKey = apiKey && !process.env['FUSERAFT_API_KEY'];
+        const env: NodeJS.ProcessEnv = {
+            ...(injectKey ? { FUSERAFT_API_KEY: apiKey } : {}),
+            ...getFuseraftHomeEnvOverride(),
+        };
         terminal = vscode.window.createTerminal({
             name,
-            env: injectKey ? { FUSERAFT_API_KEY: apiKey } : undefined,
+            env: Object.keys(env).length > 0 ? env : undefined,
         });
     }
 

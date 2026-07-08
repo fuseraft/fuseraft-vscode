@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as cp from 'child_process';
-import { getBinary, readApiKeyFromConfig, fetchModelsViaCli } from './fuseraftUtils';
+import { getBinary, readApiKeyFromConfig, fetchModelsViaCli, getFuseraftHomeEnvOverride } from './fuseraftUtils';
 
 interface ReplEvent {
     type: string;
@@ -102,7 +102,7 @@ export class ReplPanelProvider {
         // that the extension used when writing it, so the env var is the
         // reliable channel for the key.
         const configKey = readApiKeyFromConfig();
-        const env: NodeJS.ProcessEnv = { ...process.env };
+        const env: NodeJS.ProcessEnv = { ...process.env, ...getFuseraftHomeEnvOverride() };
         if (configKey && !env['FUSERAFT_API_KEY']) { env['FUSERAFT_API_KEY'] = configKey; }
 
         this._proc = cp.spawn(getBinary(), args, {

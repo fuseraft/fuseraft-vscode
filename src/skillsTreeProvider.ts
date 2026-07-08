@@ -1,17 +1,17 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
+import { getFuseraftHome } from './fuseraftUtils';
 
 export interface SkillInfo {
-    /** Directory name under ~/.fuseraft/skills — also the identifier used by 'skills remove'. */
+    /** Directory name under <fuseraft home>/skills — also the identifier used by 'skills remove'. */
     slug: string;
     name: string;
     description: string;
 }
 
 export function getSkillsDir(): string {
-    return path.join(os.homedir(), '.fuseraft', 'skills');
+    return path.join(getFuseraftHome(), 'skills');
 }
 
 const NAME_RE = /^name:\s*(.+)$/im;
@@ -80,6 +80,14 @@ export class SkillsTreeProvider implements vscode.TreeDataProvider<SkillItemNode
 
     dispose(): void {
         this.watcher?.close();
+    }
+
+    /** Re-arms the watcher against the current skills dir (e.g. after fuseraft.homeDir changes) and refreshes. */
+    resetWatcher(): void {
+        this.watcher?.close();
+        this.watcher = undefined;
+        this.watchSkillsDir();
+        this.refresh();
     }
 
     private watchSkillsDir(): void {

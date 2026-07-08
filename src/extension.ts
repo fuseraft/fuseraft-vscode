@@ -17,7 +17,7 @@ import {
     promptForTask, buildRunCommand, buildInitCommand, runInTerminal,
     runInstaller, runUpdate, getSessionsDir, checkCli, invalidateCliCache, disposeOutputChannel,
     readReplSessions, formatRelativeTime, ReplSessionInfo,
-    readProviderConfig, fetchModelsViaCli, getMemoryReplDir,
+    readProviderConfig, fetchModelsViaCli, getMemoryReplDir, getFuseraftHome,
 } from './fuseraftUtils';
 import { isConfigured, runSetupWizard } from './setupWizard';
 
@@ -126,6 +126,19 @@ export function activate(context: vscode.ExtensionContext): void {
         vscode.workspace.onDidChangeConfiguration(e => {
             if (e.affectsConfiguration('fuseraft.binaryPath')) {
                 invalidateCliCache();
+            }
+        })
+    );
+
+    // Re-arm the global-state tree views whenever the home directory setting changes,
+    // since they each watch a directory computed from it (~/.fuseraft/... by default).
+    context.subscriptions.push(
+        vscode.workspace.onDidChangeConfiguration(e => {
+            if (e.affectsConfiguration('fuseraft.homeDir')) {
+                sessionProvider.resetWatcher();
+                memoryProvider.resetWatcher();
+                skillsProvider.resetWatcher();
+                scheduleProvider.resetWatcher();
             }
         })
     );
@@ -1013,6 +1026,53 @@ export function activate(context: vscode.ExtensionContext): void {
                 'binaryPath', newPath, vscode.ConfigurationTarget.Global
             );
             vscode.window.showInformationMessage(`fuseraft binary path set to: ${newPath}`);
+        })
+    );
+
+    // fuseraft.setHomeDir — pick a folder or manually enter a path to override the fuseraft home directory
+    context.subscriptions.push(
+        vscode.commands.registerCommand('fuseraft.setHomeDir', async () => {
+            const current = vscode.workspace.getConfiguration('fuseraft').get<string>('homeDir', '');
+            const choice = await vscode.window.showQuickPick(
+                [
+                    { label: '$(folder-opened) Browse for folder…', action: 'browse' as const },
+                    { label: '$(edit) Enter path manually',          action: 'manual' as const },
+                    { label: '$(discard) Reset to default',          action: 'reset'  as const, description: "Uses ~/.fuseraft (or FUSERAFT_HOME if set in your shell)" },
+                ],
+                { title: 'Set fuseraft home directory', placeHolder: current ? `Current: ${current}` : `Current: ${getFuseraftHome()} (default)` }
+            );
+            if (!choice) { return; }
+
+            let newDir: string | undefined;
+            if (choice.action === 'browse') {
+                const uris = await vscode.window.showOpenDialog({
+                    canSelectMany: false,
+                    canSelectFiles: false,
+                    canSelectFolders: true,
+                    title: 'Select fuseraft home directory',
+                });
+                if (!uris?.[0]) { return; }
+                newDir = uris[0].fsPath;
+            } else if (choice.action === 'manual') {
+                newDir = await vscode.window.showInputBox({
+                    title: 'fuseraft home directory',
+                    prompt: 'Overrides the default ~/.fuseraft — matches the FUSERAFT_HOME environment variable',
+                    placeHolder: 'e.g. ~/work-fuseraft or Z:\\fuseraft-home',
+                    value: current,
+                    ignoreFocusOut: true,
+                });
+                if (newDir === undefined) { return; }
+                newDir = newDir.trim();
+            } else {
+                newDir = '';
+            }
+
+            await vscode.workspace.getConfiguration('fuseraft').update(
+                'homeDir', newDir, vscode.ConfigurationTarget.Global
+            );
+            vscode.window.showInformationMessage(
+                newDir ? `fuseraft home directory set to: ${newDir}` : 'fuseraft home directory reset to default.'
+            );
         })
     );
 

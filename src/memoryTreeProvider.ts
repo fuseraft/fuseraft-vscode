@@ -116,6 +116,14 @@ export class MemoryTreeProvider implements vscode.TreeDataProvider<MemoryItemNod
         this.watcher?.close();
     }
 
+    /** Re-arms the watcher against the current memory dir (e.g. after fuseraft.homeDir changes) and refreshes. */
+    resetWatcher(): void {
+        this.watcher?.close();
+        this.watcher = undefined;
+        this.watchMemoryDir();
+        this.refresh();
+    }
+
     private watchMemoryDir(): void {
         const dir = getMemoryReplDir();
         try {

@@ -21,6 +21,14 @@ export class SessionTreeProvider implements vscode.TreeDataProvider<SessionItem>
         this.watcher?.close();
     }
 
+    /** Re-arms the watcher against the current sessions dir (e.g. after fuseraft.homeDir changes) and refreshes. */
+    resetWatcher(): void {
+        this.watcher?.close();
+        this.watcher = undefined;
+        this.watchSessionsDir();
+        this.refresh();
+    }
+
     private watchSessionsDir(): void {
         const dir = getSessionsDir();
         try {

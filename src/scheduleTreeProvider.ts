@@ -1,8 +1,8 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
 import { parseSimpleYaml, yamlString, yamlNestedUtcDate } from './simpleYaml';
+import { getFuseraftHome } from './fuseraftUtils';
 
 export interface ScheduledJobInfo {
     name: string;
@@ -16,7 +16,7 @@ export interface ScheduledJobInfo {
 }
 
 export function getScheduleDir(): string {
-    return path.join(os.homedir(), '.fuseraft', 'schedule');
+    return path.join(getFuseraftHome(), 'schedule');
 }
 
 /** Mirrors ScheduleListCommand in fuseraft-cli — reads every *.yaml job file. */
@@ -82,6 +82,14 @@ export class ScheduleTreeProvider implements vscode.TreeDataProvider<ScheduleIte
 
     dispose(): void {
         this.watcher?.close();
+    }
+
+    /** Re-arms the watcher against the current schedule dir (e.g. after fuseraft.homeDir changes) and refreshes. */
+    resetWatcher(): void {
+        this.watcher?.close();
+        this.watcher = undefined;
+        this.watchScheduleDir();
+        this.refresh();
     }
 
     private watchScheduleDir(): void {

@@ -263,6 +263,12 @@
         "title": "Set Binary Path",
         "category": "fuseraft",
         "icon": "$(file-binary)"
+      },
+      {
+        "command": "fuseraft.setHomeDir",
+        "title": "Set Home Directory",
+        "category": "fuseraft",
+        "icon": "$(folder)"
       }
     ],
     "viewsContainers": {
@@ -606,6 +612,11 @@
           "type": "string",
           "default": "fuseraft",
           "description": "Path to the fuseraft binary. Defaults to 'fuseraft' (must be on PATH). Set to an absolute path if needed."
+        },
+        "fuseraft.homeDir": {
+          "type": "string",
+          "default": "",
+          "description": "Override the fuseraft home directory (default: ~/.fuseraft). Matches the CLI's FUSERAFT_HOME environment variable — useful when the OS home directory isn't durable (roaming/ephemeral profiles, RDS/VDI). Leave blank to use the default, or an already-set FUSERAFT_HOME environment variable."
         },
         "fuseraft.defaultConfigPath": {
           "type": "string",

@@ -2,12 +2,12 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as http from 'http';
 import * as https from 'https';
-import * as os from 'os';
 import * as path from 'path';
-import { checkCli, invalidateCliCache, runInstaller, runUpdate, pollForInstalledBinary, storeApiKeyToCliKeychain, getApiKeyFromCliKeychain, fetchProviderModels } from './fuseraftUtils';
+import { checkCli, invalidateCliCache, runInstaller, runUpdate, pollForInstalledBinary, storeApiKeyToCliKeychain, getApiKeyFromCliKeychain, fetchProviderModels, getFuseraftHome } from './fuseraftUtils';
 
-const CONFIG_DIR  = path.join(os.homedir(), '.fuseraft');
-const CONFIG_PATH = path.join(CONFIG_DIR, 'config');
+/** Re-resolved on every call (not cached) so it reflects live changes to fuseraft.homeDir. */
+function getConfigDir(): string { return getFuseraftHome(); }
+function getConfigPath(): string { return path.join(getConfigDir(), 'config'); }
 
 interface ProviderDef {
     label: string;
@@ -77,9 +77,9 @@ const PROVIDERS: ProviderDef[] = [
 ];
 
 export function isConfigured(): boolean {
-    if (!fs.existsSync(CONFIG_PATH)) { return false; }
+    if (!fs.existsSync(getConfigPath())) { return false; }
     try {
-        const cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+        const cfg = JSON.parse(fs.readFileSync(getConfigPath(), 'utf8'));
         return typeof cfg.modelId === 'string' && cfg.modelId.trim().length > 0;
     } catch {
         return false;
@@ -104,9 +104,9 @@ const CANONICAL_ENDPOINTS: Record<string, string> = {
 
 /** Read the plaintext API key from the config file without throwing (sync). */
 function readPlaintextKey(): string {
-    if (!fs.existsSync(CONFIG_PATH)) { return ''; }
+    if (!fs.existsSync(getConfigPath())) { return ''; }
     try {
-        const cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+        const cfg = JSON.parse(fs.readFileSync(getConfigPath(), 'utf8'));
         return typeof cfg.apiKey === 'string' ? cfg.apiKey.trim() : '';
     } catch { return ''; }
 }
@@ -114,9 +114,9 @@ function readPlaintextKey(): string {
 /** Read fields from an existing config file, including keychain key status. */
 async function readSavedConfig(): Promise<{ modelId: string; endpoint: string; provider: string; apiKey: string; hasPlaintextKey: boolean; hasKeychainKey: boolean }> {
     const empty = { modelId: '', endpoint: '', provider: 'anthropic', apiKey: '', hasPlaintextKey: false, hasKeychainKey: false };
-    if (!fs.existsSync(CONFIG_PATH)) { return empty; }
+    if (!fs.existsSync(getConfigPath())) { return empty; }
     try {
-        const cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+        const cfg = JSON.parse(fs.readFileSync(getConfigPath(), 'utf8'));
         let provider = cfg.provider || 'anthropic';
         const savedEndpoint: string = cfg.endpoint || '';
 
@@ -311,10 +311,10 @@ export async function runSetupWizard(): Promise<void> {
                 const stored = await storeApiKeyToCliKeychain(plaintextKey);
                 if (stored) {
                     try {
-                        const raw = fs.readFileSync(CONFIG_PATH, 'utf8');
+                        const raw = fs.readFileSync(getConfigPath(), 'utf8');
                         const cfg = JSON.parse(raw);
                         delete cfg.apiKey;
-                        fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2), 'utf8');
+                        fs.writeFileSync(getConfigPath(), JSON.stringify(cfg, null, 2), 'utf8');
                     } catch { /* ignore — worst case the plaintext key lingers */ }
                 }
             }
@@ -872,7 +872,7 @@ function escHtml(s: string): string {
 }
 
 async function writeUserConfig(modelId: string, endpoint: string, provider: string, apiKey: string): Promise<void> {
-    fs.mkdirSync(CONFIG_DIR, { recursive: true });
+    fs.mkdirSync(getConfigDir(), { recursive: true });
     const onDisk: Record<string, string> = { modelId, endpoint, provider };
     if (apiKey) {
         const stored = await storeApiKeyToCliKeychain(apiKey);
@@ -880,7 +880,7 @@ async function writeUserConfig(modelId: string, endpoint: string, provider: stri
             throw new Error('Failed to store the API key in the OS keychain. Your key was not saved.');
         }
     }
-    fs.writeFileSync(CONFIG_PATH, JSON.stringify(onDisk, null, 2), 'utf8');
+    fs.writeFileSync(getConfigPath(), JSON.stringify(onDisk, null, 2), 'utf8');
 }
 
 async function testConnection(
