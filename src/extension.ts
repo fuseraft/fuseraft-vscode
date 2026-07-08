@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import { SessionTreeProvider, SessionItem } from './sessionTreeProvider';
 import { ConfigTreeProvider, ConfigItem } from './configTreeProvider';
 import { ContextTreeProvider, ContextItemNode, getContextDir, readContextIndex } from './contextTreeProvider';
+import { MemoryTreeProvider, MemoryItemNode, readMemoryEntries } from './memoryTreeProvider';
 import { FuseraftCodeLensProvider, isFuseraftConfig } from './codeLensProvider';
 import { TaskPanelProvider } from './taskPanelProvider';
 import { SessionViewPanel } from './sessionViewPanel';
@@ -13,7 +14,7 @@ import {
     promptForTask, buildRunCommand, buildInitCommand, runInTerminal,
     runInstaller, runUpdate, getSessionsDir, checkCli, invalidateCliCache, disposeOutputChannel,
     readReplSessions, formatRelativeTime, ReplSessionInfo,
-    readProviderConfig, fetchModelsViaCli,
+    readProviderConfig, fetchModelsViaCli, getMemoryReplDir,
 } from './fuseraftUtils';
 import { isConfigured, runSetupWizard } from './setupWizard';
 
@@ -21,6 +22,7 @@ export function activate(context: vscode.ExtensionContext): void {
     const sessionProvider = new SessionTreeProvider();
     const configProvider = new ConfigTreeProvider();
     const contextProvider = new ContextTreeProvider();
+    const memoryProvider = new MemoryTreeProvider();
     const codeLensProvider = new FuseraftCodeLensProvider();
     const taskPanel = new TaskPanelProvider(context.extensionUri);
 
@@ -35,6 +37,10 @@ export function activate(context: vscode.ExtensionContext): void {
     });
     vscode.window.createTreeView('fuseraft.context', {
         treeDataProvider: contextProvider,
+        showCollapseAll: false,
+    });
+    vscode.window.createTreeView('fuseraft.memory', {
+        treeDataProvider: memoryProvider,
         showCollapseAll: false,
     });
 
@@ -589,6 +595,80 @@ export function activate(context: vscode.ExtensionContext): void {
         })
     );
 
+    // fuseraft.refreshMemory
+    context.subscriptions.push(
+        vscode.commands.registerCommand('fuseraft.refreshMemory', () => {
+            memoryProvider.refresh();
+        })
+    );
+
+    // fuseraft.memoryDelete — delete a single stored REPL memory
+    context.subscriptions.push(
+        vscode.commands.registerCommand('fuseraft.memoryDelete', async (arg?: MemoryItemNode) => {
+            let name: string | undefined;
+            if (arg?.entry?.name) {
+                name = arg.entry.name;
+            } else {
+                const entries = readMemoryEntries(getMemoryReplDir());
+                if (entries.length === 0) {
+                    vscode.window.showInformationMessage('No memories to delete.');
+                    return;
+                }
+                const picked = await vscode.window.showQuickPick(
+                    entries.map(e => ({ label: e.name, description: e.description })),
+                    { title: 'Delete Memory', placeHolder: 'Select a memory to delete' }
+                );
+                if (!picked) { return; }
+                name = picked.label;
+            }
+
+            runInTerminal(`${getBinary()} memory delete '${name}'`, 'fuseraft memory', true);
+            setTimeout(() => memoryProvider.refresh(), 1500);
+        })
+    );
+
+    // fuseraft.memoryDeleteAll — wipe every stored REPL memory
+    context.subscriptions.push(
+        vscode.commands.registerCommand('fuseraft.memoryDeleteAll', async () => {
+            const entries = readMemoryEntries(getMemoryReplDir());
+            if (entries.length === 0) {
+                vscode.window.showInformationMessage('No memories to delete.');
+                return;
+            }
+
+            const confirm = await vscode.window.showWarningMessage(
+                `Delete all ${entries.length} REPL memor${entries.length === 1 ? 'y' : 'ies'}? This cannot be undone.`,
+                { modal: true },
+                'Delete All'
+            );
+            if (confirm !== 'Delete All') { return; }
+
+            runInTerminal(`${getBinary()} memory delete --all --yes`, 'fuseraft memory', true);
+            setTimeout(() => memoryProvider.refresh(), 1500);
+        })
+    );
+
+    // fuseraft.knowledgeGc — dry-run the knowledge lifecycle policies and show the report
+    context.subscriptions.push(
+        vscode.commands.registerCommand('fuseraft.knowledgeGc', () => {
+            runInTerminal(`${getBinary()} knowledge gc`, 'fuseraft knowledge', true);
+        })
+    );
+
+    // fuseraft.knowledgeGcApply — commit knowledge lifecycle changes to disk
+    context.subscriptions.push(
+        vscode.commands.registerCommand('fuseraft.knowledgeGcApply', async () => {
+            const confirm = await vscode.window.showWarningMessage(
+                'Apply knowledge GC? This archives superseded ADRs, demotes/prunes repository memories, and decays provenance claims.',
+                { modal: true },
+                'Apply'
+            );
+            if (confirm !== 'Apply') { return; }
+
+            runInTerminal(`${getBinary()} knowledge gc --apply`, 'fuseraft knowledge', true);
+        })
+    );
+
     // fuseraft.install — run the platform-appropriate CLI installer in a terminal
     context.subscriptions.push(
         vscode.commands.registerCommand('fuseraft.install', () => {
@@ -670,7 +750,7 @@ export function activate(context: vscode.ExtensionContext): void {
         vscode.commands.registerCommand('fuseraft.setup', () => runSetupWizard())
     );
 
-    context.subscriptions.push(sessionProvider, configProvider, contextProvider);
+    context.subscriptions.push(sessionProvider, configProvider, contextProvider, memoryProvider);
 }
 
 async function pickAndResumeReplSession(sessions: ReplSessionInfo[], cwd?: string): Promise<void> {

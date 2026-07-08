@@ -235,6 +235,10 @@ export function getReplSessionsDir(): string {
     return path.join(os.homedir(), '.fuseraft', 'repl-sessions');
 }
 
+export function getMemoryReplDir(): string {
+    return path.join(os.homedir(), '.fuseraft', 'memory', 'repl');
+}
+
 export interface ReplSessionInfo {
     sessionId: string;
     modelId: string;
