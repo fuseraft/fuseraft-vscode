@@ -169,6 +169,78 @@
         "icon": "$(archive)"
       },
       {
+        "command": "fuseraft.archCheck",
+        "title": "Check Architecture Compliance",
+        "category": "fuseraft",
+        "icon": "$(shield)"
+      },
+      {
+        "command": "fuseraft.refreshSkills",
+        "title": "Refresh Skills",
+        "category": "fuseraft",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "fuseraft.skillsAdd",
+        "title": "Add Skill",
+        "category": "fuseraft",
+        "icon": "$(add)"
+      },
+      {
+        "command": "fuseraft.skillsRemove",
+        "title": "Remove Skill",
+        "category": "fuseraft",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "fuseraft.refreshObjectives",
+        "title": "Refresh Objectives",
+        "category": "fuseraft",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "fuseraft.objectiveCreate",
+        "title": "Create Objective",
+        "category": "fuseraft",
+        "icon": "$(add)"
+      },
+      {
+        "command": "fuseraft.objectiveStatus",
+        "title": "View Objective Status",
+        "category": "fuseraft",
+        "icon": "$(open-preview)"
+      },
+      {
+        "command": "fuseraft.refreshSchedule",
+        "title": "Refresh Schedule",
+        "category": "fuseraft",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "fuseraft.scheduleAdd",
+        "title": "Add Scheduled Job",
+        "category": "fuseraft",
+        "icon": "$(add)"
+      },
+      {
+        "command": "fuseraft.scheduleRemove",
+        "title": "Remove Scheduled Job",
+        "category": "fuseraft",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "fuseraft.scheduleRunNow",
+        "title": "Run Job Now",
+        "category": "fuseraft",
+        "icon": "$(play)"
+      },
+      {
+        "command": "fuseraft.scheduleRunDue",
+        "title": "Run Due Jobs",
+        "category": "fuseraft",
+        "icon": "$(run-all)"
+      },
+      {
         "command": "fuseraft.install",
         "title": "Install CLI",
         "category": "fuseraft",
@@ -232,6 +304,24 @@
           "name": "Memory",
           "icon": "$(lightbulb)",
           "initiallyCollapsed": true
+        },
+        {
+          "id": "fuseraft.skills",
+          "name": "Skills",
+          "icon": "$(tools)",
+          "initiallyCollapsed": true
+        },
+        {
+          "id": "fuseraft.objectives",
+          "name": "Objectives",
+          "icon": "$(checklist)",
+          "initiallyCollapsed": true
+        },
+        {
+          "id": "fuseraft.schedule",
+          "name": "Schedule",
+          "icon": "$(calendar)",
+          "initiallyCollapsed": true
         }
       ]
     },
@@ -243,6 +333,18 @@
       {
         "view": "fuseraft.memory",
         "contents": "No memories stored yet.\n\nMemories are saved automatically during REPL sessions and persist across sessions in ~/.fuseraft/memory/repl."
+      },
+      {
+        "view": "fuseraft.skills",
+        "contents": "No skills installed.\n\n[Add Skill](command:fuseraft.skillsAdd)\n\nSkills are reusable instructions agents can load on demand during a session."
+      },
+      {
+        "view": "fuseraft.objectives",
+        "contents": "No objectives yet.\n\n[Create Objective](command:fuseraft.objectiveCreate)\n\nObjectives track long-horizon goals across multiple sessions."
+      },
+      {
+        "view": "fuseraft.schedule",
+        "contents": "No scheduled jobs.\n\n[Add Scheduled Job](command:fuseraft.scheduleAdd)\n\nScheduled jobs run fuseraft sessions automatically on a cron expression."
       }
     ],
     "menus": {
@@ -295,6 +397,41 @@
         {
           "command": "fuseraft.refreshMemory",
           "when": "view == fuseraft.memory",
+          "group": "navigation"
+        },
+        {
+          "command": "fuseraft.skillsAdd",
+          "when": "view == fuseraft.skills",
+          "group": "navigation"
+        },
+        {
+          "command": "fuseraft.refreshSkills",
+          "when": "view == fuseraft.skills",
+          "group": "navigation"
+        },
+        {
+          "command": "fuseraft.objectiveCreate",
+          "when": "view == fuseraft.objectives",
+          "group": "navigation"
+        },
+        {
+          "command": "fuseraft.refreshObjectives",
+          "when": "view == fuseraft.objectives",
+          "group": "navigation"
+        },
+        {
+          "command": "fuseraft.scheduleAdd",
+          "when": "view == fuseraft.schedule",
+          "group": "navigation"
+        },
+        {
+          "command": "fuseraft.scheduleRunDue",
+          "when": "view == fuseraft.schedule",
+          "group": "navigation"
+        },
+        {
+          "command": "fuseraft.refreshSchedule",
+          "when": "view == fuseraft.schedule",
           "group": "navigation"
         }
       ],
@@ -373,6 +510,41 @@
           "command": "fuseraft.memoryDelete",
           "when": "view == fuseraft.memory && viewItem == memoryItem",
           "group": "1_memory"
+        },
+        {
+          "command": "fuseraft.skillsRemove",
+          "when": "view == fuseraft.skills && viewItem == skillItem",
+          "group": "inline"
+        },
+        {
+          "command": "fuseraft.skillsRemove",
+          "when": "view == fuseraft.skills && viewItem == skillItem",
+          "group": "1_skill"
+        },
+        {
+          "command": "fuseraft.objectiveStatus",
+          "when": "view == fuseraft.objectives && viewItem == objectiveItem",
+          "group": "inline"
+        },
+        {
+          "command": "fuseraft.objectiveStatus",
+          "when": "view == fuseraft.objectives && viewItem == objectiveItem",
+          "group": "1_objective"
+        },
+        {
+          "command": "fuseraft.scheduleRunNow",
+          "when": "view == fuseraft.schedule && viewItem == scheduleItem",
+          "group": "inline"
+        },
+        {
+          "command": "fuseraft.scheduleRunNow",
+          "when": "view == fuseraft.schedule && viewItem == scheduleItem",
+          "group": "1_schedule"
+        },
+        {
+          "command": "fuseraft.scheduleRemove",
+          "when": "view == fuseraft.schedule && viewItem == scheduleItem",
+          "group": "1_schedule"
         }
       ],
       "editor/context": [

@@ -5,6 +5,9 @@ import { SessionTreeProvider, SessionItem } from './sessionTreeProvider';
 import { ConfigTreeProvider, ConfigItem } from './configTreeProvider';
 import { ContextTreeProvider, ContextItemNode, getContextDir, readContextIndex } from './contextTreeProvider';
 import { MemoryTreeProvider, MemoryItemNode, readMemoryEntries } from './memoryTreeProvider';
+import { SkillsTreeProvider, SkillItemNode, readSkills, getSkillsDir } from './skillsTreeProvider';
+import { ObjectiveTreeProvider, ObjectiveItemNode, readObjectives, getObjectivesDir } from './objectiveTreeProvider';
+import { ScheduleTreeProvider, ScheduleItemNode, readScheduledJobs, getScheduleDir } from './scheduleTreeProvider';
 import { FuseraftCodeLensProvider, isFuseraftConfig } from './codeLensProvider';
 import { TaskPanelProvider } from './taskPanelProvider';
 import { SessionViewPanel } from './sessionViewPanel';
@@ -23,6 +26,9 @@ export function activate(context: vscode.ExtensionContext): void {
     const configProvider = new ConfigTreeProvider();
     const contextProvider = new ContextTreeProvider();
     const memoryProvider = new MemoryTreeProvider();
+    const skillsProvider = new SkillsTreeProvider();
+    const objectiveProvider = new ObjectiveTreeProvider();
+    const scheduleProvider = new ScheduleTreeProvider();
     const codeLensProvider = new FuseraftCodeLensProvider();
     const taskPanel = new TaskPanelProvider(context.extensionUri);
 
@@ -41,6 +47,18 @@ export function activate(context: vscode.ExtensionContext): void {
     });
     vscode.window.createTreeView('fuseraft.memory', {
         treeDataProvider: memoryProvider,
+        showCollapseAll: false,
+    });
+    vscode.window.createTreeView('fuseraft.skills', {
+        treeDataProvider: skillsProvider,
+        showCollapseAll: false,
+    });
+    vscode.window.createTreeView('fuseraft.objectives', {
+        treeDataProvider: objectiveProvider,
+        showCollapseAll: false,
+    });
+    vscode.window.createTreeView('fuseraft.schedule', {
+        treeDataProvider: scheduleProvider,
         showCollapseAll: false,
     });
 
@@ -669,6 +687,259 @@ export function activate(context: vscode.ExtensionContext): void {
         })
     );
 
+    // fuseraft.archCheck — scan for architecture layer violations and show the report
+    context.subscriptions.push(
+        vscode.commands.registerCommand('fuseraft.archCheck', () => {
+            runInTerminal(`${getBinary()} arch check`, 'fuseraft arch', true);
+        })
+    );
+
+    // fuseraft.refreshSkills
+    context.subscriptions.push(
+        vscode.commands.registerCommand('fuseraft.refreshSkills', () => {
+            skillsProvider.refresh();
+        })
+    );
+
+    // fuseraft.skillsAdd — pick a skill directory or SKILL.md file, run skills add
+    context.subscriptions.push(
+        vscode.commands.registerCommand('fuseraft.skillsAdd', async () => {
+            const uris = await vscode.window.showOpenDialog({
+                canSelectMany: false,
+                canSelectFiles: true,
+                canSelectFolders: true,
+                openLabel: 'Add Skill',
+                title: 'Select a skill directory (containing SKILL.md) or a SKILL.md file',
+            });
+            if (!uris?.[0]) { return; }
+
+            runInTerminal(`${getBinary()} skills add '${uris[0].fsPath}'`, 'fuseraft skills', true);
+            setTimeout(() => skillsProvider.refresh(), 1500);
+        })
+    );
+
+    // fuseraft.skillsRemove — remove an installed skill by slug
+    context.subscriptions.push(
+        vscode.commands.registerCommand('fuseraft.skillsRemove', async (arg?: SkillItemNode) => {
+            let slug: string | undefined;
+            if (arg?.skill?.slug) {
+                slug = arg.skill.slug;
+            } else {
+                const skills = readSkills(getSkillsDir());
+                if (skills.length === 0) {
+                    vscode.window.showInformationMessage('No skills to remove.');
+                    return;
+                }
+                const picked = await vscode.window.showQuickPick(
+                    skills.map(s => ({ label: s.slug, description: s.description })),
+                    { title: 'Remove Skill', placeHolder: 'Select a skill to remove' }
+                );
+                if (!picked) { return; }
+                slug = picked.label;
+            }
+
+            runInTerminal(`${getBinary()} skills remove '${slug}'`, 'fuseraft skills', true);
+            setTimeout(() => skillsProvider.refresh(), 1500);
+        })
+    );
+
+    // fuseraft.refreshObjectives
+    context.subscriptions.push(
+        vscode.commands.registerCommand('fuseraft.refreshObjectives', () => {
+            objectiveProvider.refresh();
+        })
+    );
+
+    // fuseraft.objectiveCreate — prompt for title/description/tasks, run objective create
+    context.subscriptions.push(
+        vscode.commands.registerCommand('fuseraft.objectiveCreate', async () => {
+            const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            if (!workspaceRoot) {
+                vscode.window.showWarningMessage('Open a workspace folder to manage objectives.');
+                return;
+            }
+
+            const title = await vscode.window.showInputBox({
+                title: 'Objective title',
+                prompt: 'Short title for this long-horizon objective',
+                placeHolder: 'e.g. Ship the knowledge layer',
+                ignoreFocusOut: true,
+            });
+            if (!title?.trim()) { return; }
+
+            const description = await vscode.window.showInputBox({
+                title: 'Description (optional)',
+                prompt: 'What this objective achieves and why it matters',
+                ignoreFocusOut: true,
+            });
+            if (description === undefined) { return; }
+
+            const tasks = await vscode.window.showInputBox({
+                title: 'Initial tasks (optional)',
+                prompt: 'Comma-separated list of remaining tasks',
+                placeHolder: 'e.g. Design, Implement, Test',
+                ignoreFocusOut: true,
+            });
+            if (tasks === undefined) { return; }
+
+            const binary = getBinary();
+            const descFlag  = description.trim() ? ` --description '${description.trim()}'` : '';
+            const tasksFlag = tasks.trim() ? ` --tasks '${tasks.trim()}'` : '';
+            runInTerminal(
+                `${binary} objective create --title '${title.trim()}'${descFlag}${tasksFlag}`,
+                'fuseraft objective'
+            );
+            setTimeout(() => objectiveProvider.refresh(), 2000);
+        })
+    );
+
+    // fuseraft.objectiveStatus — show detailed status/progress for an objective
+    context.subscriptions.push(
+        vscode.commands.registerCommand('fuseraft.objectiveStatus', async (arg?: ObjectiveItemNode) => {
+            let id: string | undefined;
+            if (arg?.objective?.id) {
+                id = arg.objective.id;
+            } else {
+                const dir = getObjectivesDir();
+                const objectives = dir ? readObjectives(dir) : [];
+                if (objectives.length === 0) {
+                    vscode.window.showInformationMessage('No objectives found.');
+                    return;
+                }
+                const picked = await vscode.window.showQuickPick(
+                    objectives.map(o => ({ label: o.id, description: `${o.title} (${o.status})` })),
+                    { title: 'View Objective Status', placeHolder: 'Select an objective' }
+                );
+                if (!picked) { return; }
+                id = picked.label;
+            }
+
+            runInTerminal(`${getBinary()} objective status '${id}'`, 'fuseraft objective', true);
+        })
+    );
+
+    // fuseraft.refreshSchedule
+    context.subscriptions.push(
+        vscode.commands.registerCommand('fuseraft.refreshSchedule', () => {
+            scheduleProvider.refresh();
+        })
+    );
+
+    // fuseraft.scheduleAdd — prompt for name/cron/task, run schedule add
+    context.subscriptions.push(
+        vscode.commands.registerCommand('fuseraft.scheduleAdd', async () => {
+            const name = await vscode.window.showInputBox({
+                title: 'Job name',
+                prompt: 'Unique name used as the filename slug',
+                placeHolder: 'e.g. nightly-audit',
+                ignoreFocusOut: true,
+            });
+            if (!name?.trim()) { return; }
+
+            const cronPick = await vscode.window.showQuickPick(
+                [
+                    { label: '0 * * * *', description: 'Every hour' },
+                    { label: '0 2 * * *', description: 'Daily at 2 AM UTC' },
+                    { label: '0 9 * * 1', description: 'Weekly, Monday at 9 AM UTC' },
+                    { label: '0 0 1 * *', description: 'Monthly on the 1st at midnight UTC' },
+                    { label: '$(edit) Enter custom cron expression…', description: '' },
+                ],
+                { title: 'fuseraft schedule add — Cron', placeHolder: 'Select a schedule or enter a custom cron expression' }
+            );
+            if (!cronPick) { return; }
+
+            let cron = cronPick.label;
+            if (cron.startsWith('$(edit)')) {
+                const custom = await vscode.window.showInputBox({
+                    title: 'Cron expression',
+                    prompt: '5-field cron expression (minute hour day month weekday)',
+                    placeHolder: 'e.g. 0 2 * * *',
+                    ignoreFocusOut: true,
+                });
+                if (!custom?.trim()) { return; }
+                cron = custom.trim();
+            }
+
+            const task = await vscode.window.showInputBox({
+                title: 'Task',
+                prompt: "Task description passed to 'fuseraft run' as the session goal",
+                ignoreFocusOut: true,
+            });
+            if (!task?.trim()) { return; }
+
+            runInTerminal(
+                `${getBinary()} schedule add '${name.trim()}' --cron '${cron}' --task '${task.trim()}'`,
+                'fuseraft schedule'
+            );
+            setTimeout(() => scheduleProvider.refresh(), 2000);
+        })
+    );
+
+    // fuseraft.scheduleRemove — remove a scheduled job by name
+    context.subscriptions.push(
+        vscode.commands.registerCommand('fuseraft.scheduleRemove', async (arg?: ScheduleItemNode) => {
+            let name: string | undefined;
+            if (arg?.job?.name) {
+                name = arg.job.name;
+            } else {
+                const jobs = readScheduledJobs(getScheduleDir());
+                if (jobs.length === 0) {
+                    vscode.window.showInformationMessage('No scheduled jobs to remove.');
+                    return;
+                }
+                const picked = await vscode.window.showQuickPick(
+                    jobs.map(j => ({ label: j.name, description: j.cron })),
+                    { title: 'Remove Scheduled Job', placeHolder: 'Select a job to remove' }
+                );
+                if (!picked) { return; }
+                name = picked.label;
+            }
+
+            const confirm = await vscode.window.showWarningMessage(
+                `Remove scheduled job '${name}'?`,
+                { modal: true },
+                'Remove'
+            );
+            if (confirm !== 'Remove') { return; }
+
+            runInTerminal(`${getBinary()} schedule remove '${name}'`, 'fuseraft schedule', true);
+            setTimeout(() => scheduleProvider.refresh(), 1500);
+        })
+    );
+
+    // fuseraft.scheduleRunNow — force-run a specific job now, ignoring its schedule
+    context.subscriptions.push(
+        vscode.commands.registerCommand('fuseraft.scheduleRunNow', async (arg?: ScheduleItemNode) => {
+            let name: string | undefined;
+            if (arg?.job?.name) {
+                name = arg.job.name;
+            } else {
+                const jobs = readScheduledJobs(getScheduleDir());
+                if (jobs.length === 0) {
+                    vscode.window.showInformationMessage('No scheduled jobs to run.');
+                    return;
+                }
+                const picked = await vscode.window.showQuickPick(
+                    jobs.map(j => ({ label: j.name, description: j.cron })),
+                    { title: 'Run Scheduled Job Now', placeHolder: 'Select a job to run' }
+                );
+                if (!picked) { return; }
+                name = picked.label;
+            }
+
+            runInTerminal(`${getBinary()} schedule run --name '${name}'`, 'fuseraft schedule', true);
+            setTimeout(() => scheduleProvider.refresh(), 3000);
+        })
+    );
+
+    // fuseraft.scheduleRunDue — execute every job that is currently due
+    context.subscriptions.push(
+        vscode.commands.registerCommand('fuseraft.scheduleRunDue', () => {
+            runInTerminal(`${getBinary()} schedule run`, 'fuseraft schedule', true);
+            setTimeout(() => scheduleProvider.refresh(), 3000);
+        })
+    );
+
     // fuseraft.install — run the platform-appropriate CLI installer in a terminal
     context.subscriptions.push(
         vscode.commands.registerCommand('fuseraft.install', () => {
@@ -750,7 +1021,10 @@ export function activate(context: vscode.ExtensionContext): void {
         vscode.commands.registerCommand('fuseraft.setup', () => runSetupWizard())
     );
 
-    context.subscriptions.push(sessionProvider, configProvider, contextProvider, memoryProvider);
+    context.subscriptions.push(
+        sessionProvider, configProvider, contextProvider, memoryProvider,
+        skillsProvider, objectiveProvider, scheduleProvider
+    );
 }
 
 async function pickAndResumeReplSession(sessions: ReplSessionInfo[], cwd?: string): Promise<void> {
