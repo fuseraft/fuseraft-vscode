@@ -2,7 +2,7 @@
   "name": "fuseraft",
   "displayName": "fuseraft",
   "description": "Run and manage fuseraft from VS Code",
-  "version": "0.1.36",
+  "version": "0.1.37",
   "publisher": "fuseraft",
   "license": "MIT",
   "repository": {

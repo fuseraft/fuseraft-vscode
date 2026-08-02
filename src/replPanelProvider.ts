@@ -274,6 +274,20 @@ body{
   border:1px solid var(--vscode-panel-border);
   border-radius:4px;padding:4px 8px;max-width:100%
 }
+.msg-actions{
+  display:flex;align-items:center;height:16px;
+  opacity:0;transition:opacity .12s
+}
+.msg:hover .msg-actions,.msg-actions:focus-within{opacity:1}
+.copy-btn{
+  display:flex;align-items:center;justify-content:center;
+  width:18px;height:18px;padding:0;border:none;border-radius:3px;
+  background:transparent;color:var(--vscode-descriptionForeground);
+  cursor:pointer
+}
+.copy-btn:hover{background:var(--vscode-toolbar-hoverBackground,rgba(128,128,128,.2));color:var(--vscode-editor-foreground)}
+.copy-btn svg{width:12px;height:12px;pointer-events:none}
+.copy-btn.copied{color:var(--vscode-terminal-ansiGreen,#89d185)}
 .tool-row{display:flex;flex-wrap:wrap;gap:3px;padding-bottom:2px}
 .tool-badge{
   padding:1px 6px;border-radius:3px;font-size:10px;
@@ -565,6 +579,40 @@ function esc(s){
     .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+const ICON_COPY  = '<svg viewBox="0 0 16 16" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M4 4V2.5A1.5 1.5 0 0 1 5.5 1h7A1.5 1.5 0 0 1 14 2.5v7a1.5 1.5 0 0 1-1.5 1.5H11v1.5A1.5 1.5 0 0 1 9.5 14h-7A1.5 1.5 0 0 1 1 12.5v-7A1.5 1.5 0 0 1 2.5 4H4zm1 0h4.5A1.5 1.5 0 0 1 11 5.5V10h1.5a.5.5 0 0 0 .5-.5v-7a.5.5 0 0 0-.5-.5h-7a.5.5 0 0 0-.5.5V4zM2.5 5a.5.5 0 0 0-.5.5v7a.5.5 0 0 0 .5.5h7a.5.5 0 0 0 .5-.5v-7a.5.5 0 0 0-.5-.5h-7z"/></svg>';
+const ICON_CHECK = '<svg viewBox="0 0 16 16" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M13.85 4.15a.5.5 0 0 1 0 .707l-7 7a.5.5 0 0 1-.707 0l-3.5-3.5a.5.5 0 1 1 .707-.707L6.5 10.793l6.646-6.647a.5.5 0 0 1 .707 0z"/></svg>';
+
+function makeCopyBtn(getText){
+  const btn=document.createElement('button');
+  btn.type='button';
+  btn.className='copy-btn';
+  btn.title='Copy message';
+  btn.innerHTML=ICON_COPY;
+  btn.addEventListener('click',e=>{
+    e.stopPropagation();
+    const text=getText();
+    if(!text) return;
+    navigator.clipboard.writeText(text).then(()=>{
+      btn.innerHTML=ICON_CHECK;
+      btn.classList.add('copied');
+      btn.title='Copied!';
+      setTimeout(()=>{
+        btn.innerHTML=ICON_COPY;
+        btn.classList.remove('copied');
+        btn.title='Copy message';
+      },1200);
+    });
+  });
+  return btn;
+}
+
+function makeActionsRow(getText){
+  const row=document.createElement('div');
+  row.className='msg-actions';
+  row.appendChild(makeCopyBtn(getText));
+  return row;
+}
+
 function mdToHtml(raw){
   if(!raw) return '';
   const blocks=[];
@@ -648,6 +696,7 @@ function addUser(text){
   const d = document.createElement('div');
   d.className='msg user';
   d.innerHTML='<div class="bubble">'+esc(text).replace(/\\n/g,'<br>')+'</div>';
+  d.appendChild(makeActionsRow(()=>text));
   $msgs.appendChild(d);
   scrollBottom();
 }
@@ -830,13 +879,16 @@ function _collapseIntoCot(msgDiv, bubble, toolsRow){
 function finalise(){
   if(curBubble){
     const rendered = mdToHtml(curText);
+    const text = curText;
     curBubble.innerHTML = rendered || '';
     if(!rendered && (!curTools || !curTools.children.length)){
       curMsgDiv?.remove();
     } else if(curText.trim().endsWith(':')){
       _collapseIntoCot(curMsgDiv, curBubble, curTools);
+      curMsgDiv.appendChild(makeActionsRow(()=>text));
     } else {
       curBubble.classList.add('finalised');
+      curMsgDiv.appendChild(makeActionsRow(()=>text));
     }
   } else if(curMsgDiv){
     curMsgDiv.remove();
