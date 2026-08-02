@@ -363,6 +363,12 @@ body{
 .bubble th,.bubble td{border:1px solid var(--vscode-panel-border);padding:4px 10px;text-align:left}
 .bubble th{background:var(--vscode-textCodeBlock-background,rgba(128,128,128,.15));font-weight:600}
 .bubble tr:nth-child(even) td{background:rgba(128,128,128,.06)}
+.bubble a{color:var(--vscode-textLink-foreground);text-decoration:none}
+.bubble a:hover{color:var(--vscode-textLink-activeForeground);text-decoration:underline}
+.bubble img{max-width:100%;border-radius:4px;margin:4px 0;display:block}
+.bubble hr{border:none;border-top:1px solid var(--vscode-panel-border);margin:10px 0}
+.bubble li.task-list-item{list-style:none;margin-left:-20px}
+.bubble li.task-list-item input[type=checkbox]{margin-right:6px;vertical-align:middle}
 .cursor{
   display:inline-block;width:2px;height:1em;
   background:var(--vscode-editor-foreground);
@@ -613,41 +619,80 @@ function makeActionsRow(getText){
   return row;
 }
 
+function buildList(text){
+  const lines=text.replace(/\\n$/,'').split('\\n');
+  const root={children:[]};
+  const stack=[{indent:-1,node:root}];
+  for(const line of lines){
+    const m=line.match(/^([ \\t]*)(?:([-*+])|(\\d+)\\.)[ \\t]+(.*)$/);
+    if(!m) continue;
+    const indent=m[1].replace(/\\t/g,'    ').length;
+    const ordered=m[3]!==undefined;
+    const number=ordered?parseInt(m[3],10):null;
+    let content=m[4];
+    let task=null;
+    const tm=content.match(/^\\[([ xX])\\][ \\t]+(.*)$/);
+    if(tm){ task=tm[1]!==' '; content=tm[2]; }
+    while(stack.length>1 && indent<=stack[stack.length-1].indent) stack.pop();
+    const parent=stack[stack.length-1].node;
+    if(parent.children.length===0){ parent.ordered=ordered; parent.start=number; }
+    const item={content,children:[],task};
+    parent.children.push(item);
+    stack.push({indent,node:item});
+  }
+  function render(node){
+    if(!node.children.length) return '';
+    const tag=node.ordered?'ol':'ul';
+    const attr=(node.ordered && node.start && node.start!==1)?' start="'+node.start+'"':'';
+    return '<'+tag+attr+'>'+node.children.map(c=>{
+      const cls=c.task!==null?' class="task-list-item"':'';
+      const box=c.task!==null?'<input type="checkbox" disabled'+(c.task?' checked':'')+'> ':'';
+      return '<li'+cls+'>'+box+c.content+render(c)+'</li>';
+    }).join('')+'</'+tag+'>';
+  }
+  return render(root);
+}
+
 function mdToHtml(raw){
   if(!raw) return '';
   const blocks=[];
+  // block-level constructs are stashed as placeholders (padded with blank
+  // lines) so the paragraph pass below never mangles their inner markup,
+  // even when the source has no blank line separating them from prose.
+  const stash=html=>{
+    const i=blocks.length;
+    blocks.push(html);
+    return '\\n\\n\\x00'+i+'\\x00\\n\\n';
+  };
   // extract fenced code blocks
   let s = raw.replace(/\`\`\`(\\w*)\\n?([\\s\\S]*?)\`\`\`/g,(_,lang,code)=>{
-    const i=blocks.length;
     const attr=lang?' data-lang="'+esc(lang)+'"':'';
-    blocks.push('<pre'+attr+'><code>'+esc(code.replace(/\\n$/,''))+'</code></pre>');
-    return '\\x00'+i+'\\x00';
+    return stash('<pre'+attr+'><code>'+esc(code.replace(/\\n$/,''))+'</code></pre>');
   });
   s = esc(s);
   // inline code
   s = s.replace(/\`([^\`\\n]+)\`/g,'<code>$1</code>');
+  // images (before links: image syntax is link syntax prefixed with !)
+  s = s.replace(/!\\[([^\\]\\n]*)\\]\\((https?:\\/\\/[^\\s)]+)\\)/g,(_,alt,url)=>'<img src="'+url+'" alt="'+alt+'" loading="lazy">');
+  // links (http/https/mailto only, to avoid javascript:/data: hrefs)
+  s = s.replace(/\\[([^\\]\\n]+)\\]\\((https?:\\/\\/[^\\s)]+|mailto:[^\\s)]+)\\)/g,(_,text,url)=>'<a href="'+url+'" title="'+url+'" target="_blank" rel="noopener noreferrer">'+text+'</a>');
   // bold+italic, bold, italic
   s = s.replace(/\\*\\*\\*([^*]+?)\\*\\*\\*/g,'<strong><em>$1</em></strong>');
   s = s.replace(/\\*\\*([^*]+?)\\*\\*/g,'<strong>$1</strong>');
   s = s.replace(/(?<!\\*)\\*([^*\\n]+?)\\*(?!\\*)/g,'<em>$1</em>');
   // headers
-  s = s.replace(/^### (.+)$/gm,'<h3>$1</h3>');
-  s = s.replace(/^## (.+)$/gm,'<h2>$1</h2>');
-  s = s.replace(/^# (.+)$/gm,'<h1>$1</h1>');
-  // blockquote
-  s = s.replace(/^&gt; (.+)$/gm,'<blockquote>$1</blockquote>');
-  // unordered list
-  s = s.replace(/((?:^[ \\t]*[-*+] .+$\\n?)+)/gm,m=>{
-    const items=m.replace(/^[ \\t]*[-*+] (.+)$/gm,'<li>$1</li>');
-    return '<ul>'+items+'</ul>';
+  s = s.replace(/^### (.+)$/gm,(_,t)=>stash('<h3>'+t+'</h3>'));
+  s = s.replace(/^## (.+)$/gm,(_,t)=>stash('<h2>'+t+'</h2>'));
+  s = s.replace(/^# (.+)$/gm,(_,t)=>stash('<h1>'+t+'</h1>'));
+  // horizontal rule
+  s = s.replace(/^ {0,3}(?:-{3,}|_{3,}|\\*{3,})[ \\t]*$/gm,()=>stash('<hr>'));
+  // blockquote (consecutive lines merge into a single quote block)
+  s = s.replace(/((?:^&gt; ?.*$\\n?)+)/gm,m=>{
+    const text=m.replace(/^&gt; ?/gm,'').replace(/\\n$/,'');
+    return stash('<blockquote>'+text.split('\\n').join('<br>')+'</blockquote>');
   });
-  // ordered list
-  s = s.replace(/((?:^[ \\t]*\\d+\\. .+$\\n?)+)/gm,m=>{
-    const startMatch=m.match(/^[ \\t]*(\\d+)\\./);
-    const start=startMatch?parseInt(startMatch[1]):1;
-    const items=m.replace(/^[ \\t]*\\d+\\. (.+)$/gm,'<li>$1</li>');
-    return '<ol'+(start>1?' start="'+start+'"':'')+'>'+items+'</ol>';
-  });
+  // lists (unordered/ordered, arbitrarily nested by indentation)
+  s = s.replace(/((?:^[ \\t]*(?:[-*+]|\\d+\\.)[ \\t]+.+$\\n?)+)/gm,m=>stash(buildList(m)));
   // tables: match header row | separator row | one or more data rows
   s = s.replace(/((?:^[ \\t]*\\|.+\\|[ \\t]*$\\n?){2,})/gm, m=>{
     const rows = m.trim().split('\\n');
@@ -661,14 +706,14 @@ function mdToHtml(raw){
     const bodyRows = rows.slice(sepIdx+1).filter(r=>r.trim()).map(r=>{
       return '<tr>'+parseRow(r).map(c=>'<td>'+c+'</td>').join('')+'</tr>';
     });
-    return '<table>'+thead+'<tbody>'+bodyRows.join('')+'</tbody></table>';
+    return stash('<table>'+thead+'<tbody>'+bodyRows.join('')+'</tbody></table>');
   });
   // paragraphs
-  s = s.split('\\n\\n').map(para=>{
-    if(/^<(h[1-3]|ul|ol|blockquote|pre|table|\\x00)/.test(para.trimStart())) return para;
+  s = s.split(/\\n{2,}/).filter(p=>p.trim()!=='').map(para=>{
+    if(/^\\x00\\d+\\x00$/.test(para.trim())) return para.trim();
     return '<p>'+para.replace(/\\n/g,'<br>')+'</p>';
   }).join('\\n');
-  // restore code blocks
+  // restore stashed blocks
   s = s.replace(/\\x00(\\d+)\\x00/g,(_,i)=>blocks[parseInt(i)]);
   return s;
 }
@@ -695,7 +740,7 @@ function setEnabled(on){
 function addUser(text){
   const d = document.createElement('div');
   d.className='msg user';
-  d.innerHTML='<div class="bubble">'+esc(text).replace(/\\n/g,'<br>')+'</div>';
+  d.innerHTML='<div class="bubble">'+mdToHtml(text)+'</div>';
   d.appendChild(makeActionsRow(()=>text));
   $msgs.appendChild(d);
   scrollBottom();
