@@ -1081,6 +1081,10 @@ window.addEventListener('message',evt=>{
       addSystem('Session compacted — history replaced with handoff summary.');
       break;
 
+    case 'text':
+      addSystemHtml(mdToHtml(msg.text||''));
+      break;
+
     case 'error':
       if(curMsgDiv){ curMsgDiv.remove(); curBubble=null; curTools=null; curText=''; curMsgDiv=null; }
       curToolList=[]; curToolExpanded=false;
