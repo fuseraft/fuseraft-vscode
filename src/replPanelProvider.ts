@@ -420,10 +420,10 @@ body{
 .bubble p{margin:4px 0}
 .bubble p:first-child{margin-top:0}
 .bubble p:last-child{margin-bottom:0}
-.bubble h1,.bubble h2,.bubble h3{margin:8px 0 4px;font-weight:600}
+.bubble h1,.bubble h2,.bubble h3,.bubble h4,.bubble h5,.bubble h6{margin:8px 0 4px;font-weight:600}
 .bubble h1{font-size:1.2em}
 .bubble h2{font-size:1.1em}
-.bubble h3{font-size:1em}
+.bubble h3,.bubble h4,.bubble h5,.bubble h6{font-size:1em}
 .bubble ul,.bubble ol{margin:4px 0;padding-left:20px}
 .bubble li{margin:2px 0}
 .bubble code{
@@ -954,6 +954,9 @@ function mdToHtml(raw){
   s = s.replace(/\\*\\*([^*]+?)\\*\\*/g,'<strong>$1</strong>');
   s = s.replace(/(?<!\\*)\\*([^*\\n]+?)\\*(?!\\*)/g,'<em>$1</em>');
   // headers
+  s = s.replace(/^###### (.+)$/gm,(_,t)=>stash('<h6>'+t+'</h6>'));
+  s = s.replace(/^##### (.+)$/gm,(_,t)=>stash('<h5>'+t+'</h5>'));
+  s = s.replace(/^#### (.+)$/gm,(_,t)=>stash('<h4>'+t+'</h4>'));
   s = s.replace(/^### (.+)$/gm,(_,t)=>stash('<h3>'+t+'</h3>'));
   s = s.replace(/^## (.+)$/gm,(_,t)=>stash('<h2>'+t+'</h2>'));
   s = s.replace(/^# (.+)$/gm,(_,t)=>stash('<h1>'+t+'</h1>'));
@@ -970,7 +973,15 @@ function mdToHtml(raw){
   s = s.replace(/((?:^[ \\t]*\\|.+\\|[ \\t]*$\\n?){2,})/gm, m=>{
     const rows = m.trim().split('\\n');
     if(rows.length < 2) return m;
-    const isSep = r => /^[ \\t]*\\|[-| :\\t]+\\|[ \\t]*$/.test(r);
+    // A separator row's cells must each be dashes (with optional alignment colons) — checked
+    // cell-by-cell rather than with a blanket character class, which would also accept an
+    // all-blank header row like "| | |" (itself made only of pipes/spaces) as the separator.
+    const isSep = r => {
+      const t = r.trim();
+      if(!/^\\|.*\\|$/.test(t)) return false;
+      const cells = t.slice(1,-1).split('|');
+      return cells.length>0 && cells.every(c=>/^:?-+:?$/.test(c.trim()));
+    };
     const sepIdx = rows.findIndex(isSep);
     if(sepIdx < 1) return m;
     const parseRow = r => r.replace(/^[ \\t]*\\|/, '').replace(/\\|[ \\t]*$/, '').split('|').map(c=>c.trim());
