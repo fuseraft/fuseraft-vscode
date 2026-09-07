@@ -48,9 +48,11 @@ export class ReplPanelProvider {
         this._sessionId = resumeId;   // refined to actual sessionId once CLI emits 'ready'
         panel.webview.html = this._html();
 
-        panel.webview.onDidReceiveMessage((msg: { type: string; text?: string; model?: string }) => {
+        panel.webview.onDidReceiveMessage((msg: { type: string; text?: string; model?: string; approved?: boolean }) => {
             if (msg.type === 'user_input' && msg.text !== undefined) {
                 this._send({ type: 'user_input', text: msg.text });
+            } else if (msg.type === 'approval_response' && typeof msg.approved === 'boolean') {
+                this._send({ type: 'approval_response', approved: msg.approved });
             } else if (msg.type === 'interrupt') {
                 if (process.platform === 'win32') {
                     // Windows has no equivalent of SIGINT for child processes; send the
@@ -273,6 +275,42 @@ body{
   background:var(--vscode-textCodeBlock-background,rgba(128,128,128,.12));
   border:1px solid var(--vscode-panel-border);
   border-radius:4px;padding:4px 8px;max-width:100%
+}
+.approval-bubble{
+  max-width:92%;
+  background:var(--vscode-inputValidation-warningBackground,rgba(226,192,141,.12));
+  border:1px solid var(--vscode-inputValidation-warningBorder,var(--vscode-editorWarning-foreground,#e2c08d));
+  border-radius:8px;padding:10px 12px
+}
+.approval-title{
+  font-size:11px;font-weight:600;
+  color:var(--vscode-editorWarning-foreground,#e2c08d);
+  margin-bottom:6px
+}
+.approval-cmd{
+  font-family:var(--vscode-editor-font-family,monospace);font-size:11px;
+  background:var(--vscode-textCodeBlock-background,rgba(128,128,128,.15));
+  border-radius:4px;padding:6px 8px;margin:0 0 8px;
+  white-space:pre-wrap;word-break:break-all
+}
+.approval-actions{display:flex;gap:8px}
+.approval-btn{
+  height:28px;padding:0 14px;border:none;border-radius:6px;cursor:pointer;
+  font-size:var(--vscode-font-size);font-weight:600
+}
+.approval-allow{
+  background:var(--vscode-button-background);
+  color:var(--vscode-button-foreground)
+}
+.approval-allow:hover{background:var(--vscode-button-hoverBackground)}
+.approval-deny{
+  background:var(--vscode-button-secondaryBackground,rgba(128,128,128,.2));
+  color:var(--vscode-button-secondaryForeground,var(--vscode-editor-foreground))
+}
+.approval-deny:hover{background:var(--vscode-button-secondaryHoverBackground,rgba(128,128,128,.3))}
+.approval-status{
+  margin-top:8px;font-size:11px;font-style:italic;
+  color:var(--vscode-descriptionForeground)
 }
 .msg-actions{
   display:flex;align-items:center;height:16px;
@@ -970,6 +1008,62 @@ function addWarning(text){
   scrollBottom();
 }
 
+/* ── HITL shell-command approval ─────────────────────── */
+let curApprovalDiv = null;
+
+function addApproval(command){
+  const d = document.createElement('div');
+  d.className='msg system';
+  const bubble = document.createElement('div');
+  bubble.className='bubble approval-bubble';
+  bubble.innerHTML =
+    '<div class="approval-title">⏸ Shell command requested</div>' +
+    '<pre class="approval-cmd">'+esc(command||'')+'</pre>';
+  const actions = document.createElement('div');
+  actions.className='approval-actions';
+  const allowBtn = document.createElement('button');
+  allowBtn.className='approval-btn approval-allow';
+  allowBtn.textContent='Allow';
+  allowBtn.addEventListener('click',()=>respondApproval(true));
+  const denyBtn = document.createElement('button');
+  denyBtn.className='approval-btn approval-deny';
+  denyBtn.textContent='Deny';
+  denyBtn.addEventListener('click',()=>respondApproval(false));
+  actions.appendChild(allowBtn);
+  actions.appendChild(denyBtn);
+  bubble.appendChild(actions);
+  d.appendChild(bubble);
+  $msgs.appendChild(d);
+  curApprovalDiv = d;
+  setThinkingLabel('Waiting for approval…');
+  scrollBottom();
+}
+
+function respondApproval(approved){
+  if(!curApprovalDiv) return;
+  settleApproval(curApprovalDiv, approved);
+  curApprovalDiv = null;
+  vscode.postMessage({type:'approval_response', approved});
+}
+
+// Removes the Allow/Deny buttons and appends a resolved-status line. Split out from
+// respondApproval so an abandoned approval (session ended / turn cancelled while pending)
+// can also be visually resolved without pretending a response was sent to the CLI.
+function settleApproval(div, approved){
+  const actions = div.querySelector('.approval-actions');
+  if(actions) actions.remove();
+  const status = document.createElement('div');
+  status.className='approval-status';
+  status.textContent = approved===null ? 'Cancelled' : (approved ? 'Allowed' : 'Denied');
+  div.querySelector('.approval-bubble')?.appendChild(status);
+}
+
+function abandonPendingApproval(){
+  if(!curApprovalDiv) return;
+  settleApproval(curApprovalDiv, null);
+  curApprovalDiv = null;
+}
+
 function addFileChanges(changes){
   if(!changes||!changes.length) return;
   const sigilLabel={'A':'added','M':'modified','D':'deleted','R':'renamed'};
@@ -1104,11 +1198,16 @@ window.addEventListener('message',evt=>{
       addToolBadge(msg.name||'tool', msg.args||null);
       break;
 
+    case 'approval_request':
+      addApproval(msg.command||'');
+      break;
+
     case 'message_end':
       finalise();
       break;
 
     case 'cancelled':
+      abandonPendingApproval();
       if(curBubble){
         curBubble.innerHTML=mdToHtml(curText)||'<em>(cancelled)</em>';
       } else if(curMsgDiv){
@@ -1131,6 +1230,7 @@ window.addEventListener('message',evt=>{
       break;
 
     case 'error':
+      abandonPendingApproval();
       if(curMsgDiv){ curMsgDiv.remove(); curBubble=null; curTools=null; curText=''; curMsgDiv=null; }
       curToolList=[]; curToolExpanded=false;
       addSystem('Error: '+(msg.text||'unknown error'));
@@ -1170,6 +1270,7 @@ window.addEventListener('message',evt=>{
       break;
 
     case 'session_end':
+      abandonPendingApproval();
       addSystem('Session ended.');
       isStreaming=false;
       setEnabled(false);
