@@ -211,36 +211,6 @@
         "icon": "$(open-preview)"
       },
       {
-        "command": "fuseraft.refreshSchedule",
-        "title": "Refresh Schedule",
-        "category": "fuseraft",
-        "icon": "$(refresh)"
-      },
-      {
-        "command": "fuseraft.scheduleAdd",
-        "title": "Add Scheduled Job",
-        "category": "fuseraft",
-        "icon": "$(add)"
-      },
-      {
-        "command": "fuseraft.scheduleRemove",
-        "title": "Remove Scheduled Job",
-        "category": "fuseraft",
-        "icon": "$(trash)"
-      },
-      {
-        "command": "fuseraft.scheduleRunNow",
-        "title": "Run Job Now",
-        "category": "fuseraft",
-        "icon": "$(play)"
-      },
-      {
-        "command": "fuseraft.scheduleRunDue",
-        "title": "Run Due Jobs",
-        "category": "fuseraft",
-        "icon": "$(run-all)"
-      },
-      {
         "command": "fuseraft.install",
         "title": "Install CLI",
         "category": "fuseraft",
@@ -322,12 +292,6 @@
           "name": "Objectives",
           "icon": "$(checklist)",
           "initiallyCollapsed": true
-        },
-        {
-          "id": "fuseraft.schedule",
-          "name": "Schedule",
-          "icon": "$(calendar)",
-          "initiallyCollapsed": true
         }
       ]
     },
@@ -347,10 +311,6 @@
       {
         "view": "fuseraft.objectives",
         "contents": "No objectives yet.\n\n[Create Objective](command:fuseraft.objectiveCreate)\n\nObjectives track long-horizon goals across multiple sessions."
-      },
-      {
-        "view": "fuseraft.schedule",
-        "contents": "No scheduled jobs.\n\n[Add Scheduled Job](command:fuseraft.scheduleAdd)\n\nScheduled jobs run fuseraft sessions automatically on a cron expression."
       }
     ],
     "menus": {
@@ -423,21 +383,6 @@
         {
           "command": "fuseraft.refreshObjectives",
           "when": "view == fuseraft.objectives",
-          "group": "navigation"
-        },
-        {
-          "command": "fuseraft.scheduleAdd",
-          "when": "view == fuseraft.schedule",
-          "group": "navigation"
-        },
-        {
-          "command": "fuseraft.scheduleRunDue",
-          "when": "view == fuseraft.schedule",
-          "group": "navigation"
-        },
-        {
-          "command": "fuseraft.refreshSchedule",
-          "when": "view == fuseraft.schedule",
           "group": "navigation"
         }
       ],
@@ -536,21 +481,6 @@
           "command": "fuseraft.objectiveStatus",
           "when": "view == fuseraft.objectives && viewItem == objectiveItem",
           "group": "1_objective"
-        },
-        {
-          "command": "fuseraft.scheduleRunNow",
-          "when": "view == fuseraft.schedule && viewItem == scheduleItem",
-          "group": "inline"
-        },
-        {
-          "command": "fuseraft.scheduleRunNow",
-          "when": "view == fuseraft.schedule && viewItem == scheduleItem",
-          "group": "1_schedule"
-        },
-        {
-          "command": "fuseraft.scheduleRemove",
-          "when": "view == fuseraft.schedule && viewItem == scheduleItem",
-          "group": "1_schedule"
         }
       ],
       "editor/context": [

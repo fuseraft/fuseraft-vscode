@@ -7,7 +7,6 @@ import { ContextTreeProvider, ContextItemNode, getContextDir, readContextIndex }
 import { MemoryTreeProvider, MemoryItemNode, readMemoryEntries } from './memoryTreeProvider';
 import { SkillsTreeProvider, SkillItemNode, readSkills, getSkillsDir } from './skillsTreeProvider';
 import { ObjectiveTreeProvider, ObjectiveItemNode, readObjectives, getObjectivesDir } from './objectiveTreeProvider';
-import { ScheduleTreeProvider, ScheduleItemNode, readScheduledJobs, getScheduleDir } from './scheduleTreeProvider';
 import { FuseraftCodeLensProvider, isFuseraftConfig } from './codeLensProvider';
 import { TaskPanelProvider } from './taskPanelProvider';
 import { SessionViewPanel } from './sessionViewPanel';
@@ -28,7 +27,6 @@ export function activate(context: vscode.ExtensionContext): void {
     const memoryProvider = new MemoryTreeProvider();
     const skillsProvider = new SkillsTreeProvider();
     const objectiveProvider = new ObjectiveTreeProvider();
-    const scheduleProvider = new ScheduleTreeProvider();
     const codeLensProvider = new FuseraftCodeLensProvider();
     const taskPanel = new TaskPanelProvider(context.extensionUri);
 
@@ -57,11 +55,6 @@ export function activate(context: vscode.ExtensionContext): void {
         treeDataProvider: objectiveProvider,
         showCollapseAll: false,
     });
-    vscode.window.createTreeView('fuseraft.schedule', {
-        treeDataProvider: scheduleProvider,
-        showCollapseAll: false,
-    });
-
     // Task panel webview (sidebar)
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(TaskPanelProvider.viewType, taskPanel, {
@@ -138,7 +131,6 @@ export function activate(context: vscode.ExtensionContext): void {
                 sessionProvider.resetWatcher();
                 memoryProvider.resetWatcher();
                 skillsProvider.resetWatcher();
-                scheduleProvider.resetWatcher();
             }
         })
     );
@@ -831,128 +823,6 @@ export function activate(context: vscode.ExtensionContext): void {
         })
     );
 
-    // fuseraft.refreshSchedule
-    context.subscriptions.push(
-        vscode.commands.registerCommand('fuseraft.refreshSchedule', () => {
-            scheduleProvider.refresh();
-        })
-    );
-
-    // fuseraft.scheduleAdd — prompt for name/cron/task, run schedule add
-    context.subscriptions.push(
-        vscode.commands.registerCommand('fuseraft.scheduleAdd', async () => {
-            const name = await vscode.window.showInputBox({
-                title: 'Job name',
-                prompt: 'Unique name used as the filename slug',
-                placeHolder: 'e.g. nightly-audit',
-                ignoreFocusOut: true,
-            });
-            if (!name?.trim()) { return; }
-
-            const cronPick = await vscode.window.showQuickPick(
-                [
-                    { label: '0 * * * *', description: 'Every hour' },
-                    { label: '0 2 * * *', description: 'Daily at 2 AM UTC' },
-                    { label: '0 9 * * 1', description: 'Weekly, Monday at 9 AM UTC' },
-                    { label: '0 0 1 * *', description: 'Monthly on the 1st at midnight UTC' },
-                    { label: '$(edit) Enter custom cron expression…', description: '' },
-                ],
-                { title: 'fuseraft schedule add — Cron', placeHolder: 'Select a schedule or enter a custom cron expression' }
-            );
-            if (!cronPick) { return; }
-
-            let cron = cronPick.label;
-            if (cron.startsWith('$(edit)')) {
-                const custom = await vscode.window.showInputBox({
-                    title: 'Cron expression',
-                    prompt: '5-field cron expression (minute hour day month weekday)',
-                    placeHolder: 'e.g. 0 2 * * *',
-                    ignoreFocusOut: true,
-                });
-                if (!custom?.trim()) { return; }
-                cron = custom.trim();
-            }
-
-            const task = await vscode.window.showInputBox({
-                title: 'Task',
-                prompt: "Task description passed to 'fuseraft run' as the session goal",
-                ignoreFocusOut: true,
-            });
-            if (!task?.trim()) { return; }
-
-            runInTerminal(
-                `${getBinary()} schedule add '${name.trim()}' --cron '${cron}' --task '${task.trim()}'`,
-                'fuseraft schedule'
-            );
-            setTimeout(() => scheduleProvider.refresh(), 2000);
-        })
-    );
-
-    // fuseraft.scheduleRemove — remove a scheduled job by name
-    context.subscriptions.push(
-        vscode.commands.registerCommand('fuseraft.scheduleRemove', async (arg?: ScheduleItemNode) => {
-            let name: string | undefined;
-            if (arg?.job?.name) {
-                name = arg.job.name;
-            } else {
-                const jobs = readScheduledJobs(getScheduleDir());
-                if (jobs.length === 0) {
-                    vscode.window.showInformationMessage('No scheduled jobs to remove.');
-                    return;
-                }
-                const picked = await vscode.window.showQuickPick(
-                    jobs.map(j => ({ label: j.name, description: j.cron })),
-                    { title: 'Remove Scheduled Job', placeHolder: 'Select a job to remove' }
-                );
-                if (!picked) { return; }
-                name = picked.label;
-            }
-
-            const confirm = await vscode.window.showWarningMessage(
-                `Remove scheduled job '${name}'?`,
-                { modal: true },
-                'Remove'
-            );
-            if (confirm !== 'Remove') { return; }
-
-            runInTerminal(`${getBinary()} schedule remove '${name}'`, 'fuseraft schedule', true);
-            setTimeout(() => scheduleProvider.refresh(), 1500);
-        })
-    );
-
-    // fuseraft.scheduleRunNow — force-run a specific job now, ignoring its schedule
-    context.subscriptions.push(
-        vscode.commands.registerCommand('fuseraft.scheduleRunNow', async (arg?: ScheduleItemNode) => {
-            let name: string | undefined;
-            if (arg?.job?.name) {
-                name = arg.job.name;
-            } else {
-                const jobs = readScheduledJobs(getScheduleDir());
-                if (jobs.length === 0) {
-                    vscode.window.showInformationMessage('No scheduled jobs to run.');
-                    return;
-                }
-                const picked = await vscode.window.showQuickPick(
-                    jobs.map(j => ({ label: j.name, description: j.cron })),
-                    { title: 'Run Scheduled Job Now', placeHolder: 'Select a job to run' }
-                );
-                if (!picked) { return; }
-                name = picked.label;
-            }
-
-            runInTerminal(`${getBinary()} schedule run --name '${name}'`, 'fuseraft schedule', true);
-            setTimeout(() => scheduleProvider.refresh(), 3000);
-        })
-    );
-
-    // fuseraft.scheduleRunDue — execute every job that is currently due
-    context.subscriptions.push(
-        vscode.commands.registerCommand('fuseraft.scheduleRunDue', () => {
-            runInTerminal(`${getBinary()} schedule run`, 'fuseraft schedule', true);
-            setTimeout(() => scheduleProvider.refresh(), 3000);
-        })
-    );
-
     // fuseraft.install — run the platform-appropriate CLI installer in a terminal
     context.subscriptions.push(
         vscode.commands.registerCommand('fuseraft.install', () => {
@@ -1083,7 +953,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
     context.subscriptions.push(
         sessionProvider, configProvider, contextProvider, memoryProvider,
-        skillsProvider, objectiveProvider, scheduleProvider
+        skillsProvider, objectiveProvider
     );
 }
 
