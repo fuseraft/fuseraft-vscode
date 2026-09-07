@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as cp from 'child_process';
 import { getBinary, readApiKeyFromConfig, fetchModelsViaCli, getFuseraftHomeEnvOverride } from './fuseraftUtils';
+import { readSkills, getSkillsDir } from './skillsTreeProvider';
 
 interface ReplEvent {
     type: string;
@@ -94,6 +95,7 @@ export class ReplPanelProvider {
 
         this._spawn(model, resumeId, cwd);
         this._fetchModels(cwd);
+        this._fetchSkills();
     }
 
     private _spawn(model: string, resumeId?: string, cwd?: string): void {
@@ -161,6 +163,15 @@ export class ReplPanelProvider {
                 this._panel.webview.postMessage({ type: 'models', list: result.list, current: result.current });
             }
         });
+    }
+
+    /** Feeds the webview the $skill-name completion list — matched against the skill's frontmatter
+     *  `name` (not its directory slug), mirroring how ReplTurn resolves `$<skill-name>` invocations. */
+    private _fetchSkills(): void {
+        try {
+            const names = readSkills(getSkillsDir()).map(s => s.name);
+            this._panel.webview.postMessage({ type: 'skills', list: names });
+        } catch { /* skills dir missing/unreadable — webview just gets no skill completions */ }
     }
 
     private _send(msg: object): void {
@@ -249,19 +260,35 @@ body{
   font-size:.92em;text-align:center;
   color:var(--vscode-descriptionForeground)
 }
-#welcome-input{
-  width:100%;min-height:72px;max-height:200px;
-  padding:10px 14px;resize:none;outline:none;
-  background:var(--vscode-input-background);
-  color:var(--vscode-input-foreground);
-  border:1px solid var(--vscode-input-border,var(--vscode-panel-border));
+#welcome-input-wrap{
+  position:relative;width:100%;min-height:72px;max-height:200px
+}
+#welcome-input-wrap.disabled{opacity:.45}
+#welcome-highlight,#welcome-input{
+  position:absolute;top:0;left:0;width:100%;
+  padding:10px 14px;
+  border:1px solid transparent;
   border-radius:8px;
   font-family:var(--vscode-font-family);
   font-size:var(--vscode-font-size);
-  line-height:1.5
+  line-height:1.5;
+  box-sizing:border-box
 }
-#welcome-input:focus{border-color:var(--vscode-focusBorder)}
-#welcome-input:disabled{opacity:.45;cursor:not-allowed}
+#welcome-highlight{
+  background:var(--vscode-input-background);
+  color:var(--vscode-input-foreground);
+  border-color:var(--vscode-input-border,var(--vscode-panel-border));
+  white-space:pre-wrap;word-wrap:break-word;overflow:hidden;
+  pointer-events:none
+}
+#welcome-input{
+  resize:none;outline:none;
+  background:transparent;color:transparent;
+  caret-color:var(--vscode-input-foreground)
+}
+#welcome-input::placeholder{color:var(--vscode-input-placeholderForeground,var(--vscode-descriptionForeground))}
+#welcome-input-wrap:focus-within #welcome-highlight{border-color:var(--vscode-focusBorder)}
+#welcome-input-wrap.disabled #welcome-input{cursor:not-allowed}
 #welcome-send{
   align-self:flex-end;height:36px;padding:0 20px;
   background:var(--vscode-button-background);
@@ -497,19 +524,37 @@ body{
 }
 #attach-btn:hover:not(:disabled){background:var(--vscode-button-secondaryHoverBackground,rgba(128,128,128,.3))}
 #attach-btn:disabled{opacity:.45;cursor:not-allowed}
-#input{
-  flex:1;min-height:36px;max-height:120px;
-  padding:7px 10px;resize:none;outline:none;
-  background:var(--vscode-input-background);
-  color:var(--vscode-input-foreground);
-  border:1px solid var(--vscode-input-border,var(--vscode-panel-border));
+#input-wrap{
+  position:relative;flex:1;min-height:36px;max-height:120px
+}
+#input-wrap.disabled{opacity:.45}
+#input-highlight,#input{
+  position:absolute;top:0;left:0;width:100%;
+  padding:7px 10px;
+  border:1px solid transparent;
   border-radius:6px;
   font-family:var(--vscode-font-family);
   font-size:var(--vscode-font-size);
-  line-height:1.4
+  line-height:1.4;
+  box-sizing:border-box
 }
-#input:focus{border-color:var(--vscode-focusBorder)}
-#input:disabled{opacity:.45;cursor:not-allowed}
+#input-highlight{
+  background:var(--vscode-input-background);
+  color:var(--vscode-input-foreground);
+  border-color:var(--vscode-input-border,var(--vscode-panel-border));
+  white-space:pre-wrap;word-wrap:break-word;overflow:hidden;
+  pointer-events:none
+}
+#input{
+  resize:none;outline:none;
+  background:transparent;color:transparent;
+  caret-color:var(--vscode-input-foreground)
+}
+#input::placeholder{color:var(--vscode-input-placeholderForeground,var(--vscode-descriptionForeground))}
+#input-wrap:focus-within #input-highlight{border-color:var(--vscode-focusBorder)}
+#input-wrap.disabled #input{cursor:not-allowed}
+.cmd-token{font-weight:700;color:var(--vscode-textLink-foreground)}
+.ghost-suffix{color:var(--vscode-descriptionForeground);opacity:.65}
 #send{
   height:36px;padding:0 14px;
   background:var(--vscode-button-background);
@@ -550,7 +595,10 @@ body{
     <div id="welcome-inner">
       <div id="welcome-title">${this._mark('icon-mark', 'fr-mark-welcome')}fuseraft</div>
       <div id="welcome-hint">What would you like to work on?</div>
-      <textarea id="welcome-input" rows="3" placeholder="Ask something or type a /command…" disabled></textarea>
+      <div id="welcome-input-wrap" class="disabled">
+        <div id="welcome-highlight" aria-hidden="true">&nbsp;</div>
+        <textarea id="welcome-input" rows="3" placeholder="Ask something or type a /command…" disabled></textarea>
+      </div>
       <button id="welcome-send" disabled>Send</button>
     </div>
   </div>
@@ -567,7 +615,10 @@ body{
         <path d="M4.5 3a2.5 2.5 0 0 1 5 0v9a1.5 1.5 0 0 1-3 0V5a.5.5 0 0 1 1 0v7a.5.5 0 0 0 1 0V3a1.5 1.5 0 1 0-3 0v9a2.5 2.5 0 0 0 5 0V5a.5.5 0 0 1 1 0v7a3.5 3.5 0 1 1-7 0z"/>
       </svg>
     </button>
-    <textarea id="input" rows="1" placeholder="Ask something or type a /command…" disabled></textarea>
+    <div id="input-wrap" class="disabled">
+      <div id="input-highlight" aria-hidden="true">&nbsp;</div>
+      <textarea id="input" rows="1" placeholder="Ask something or type a /command…" disabled></textarea>
+    </div>
     <button id="stop">Stop</button>
     <button id="send" disabled>Send</button>
   </div>
@@ -581,7 +632,11 @@ const $stop    = document.getElementById('stop');
 const $tip     = document.getElementById('tip');
 const $welcome      = document.getElementById('welcome');
 const $wInput       = document.getElementById('welcome-input');
+const $wInputWrap   = document.getElementById('welcome-input-wrap');
+const $wHighlight   = document.getElementById('welcome-highlight');
 const $wSend        = document.getElementById('welcome-send');
+const $inputWrap    = document.getElementById('input-wrap');
+const $inputHighlight = document.getElementById('input-highlight');
 const $modelSelect  = document.getElementById('model-select');
 const $thinkingBar   = document.getElementById('thinking-bar');
 const $thinkingLabel = document.getElementById('thinking-label');
@@ -591,6 +646,7 @@ const $attachRow     = document.getElementById('attach-row');
 let modelsLoaded     = false;
 let activeModel      = ''; // model actually running this session, set by the CLI's 'ready' event
 let attachedFiles    = []; // [{name, path}]
+let skillNames       = []; // $skill-name completion targets, populated by the 'skills' message
 
 // Marks the given model as selected in the dropdown, adding it as an option
 // first if the provider's model list didn't happen to include it (e.g. a
@@ -628,6 +684,150 @@ function renderAttachments(){
     $attachRow.appendChild(chip);
   }
 }
+
+/* ── slash/skill completion ──────────────────────────── */
+// Mirrors ReplLineReader's SlashCommands/SubCommands in fuseraft-cli — keep in sync.
+const SLASH_COMMANDS = [
+  '/adversarial','/assist','/clear','/compact','/context',
+  '/conversation','/delegate','/events','/execute','/exit','/explore',
+  '/fork','/help','/hitl','/history','/last','/locate',
+  '/max-tokens','/memory','/model','/models','/paste','/plan',
+  '/provider','/reasoning','/recover','/resume','/retry','/rewind',
+  '/run','/safe-mode','/save','/sessions','/snapshot','/switch',
+  '/system','/tools',
+];
+const SUB_COMMANDS = {
+  '/adversarial': ['off','on'],
+  '/fork':        ['switch'],
+  '/hitl':        ['off','on'],
+  '/max-tokens':  ['reset'],
+  '/memory':      ['delete','list','save','show'],
+  '/provider':    ['setup'],
+  '/safe-mode':   ['off','on'],
+  '/tools':       ['disable','enable','restrict','unrestrict'],
+};
+
+// Returns full completion strings for the given input, e.g. '/tool' -> ['/tools'],
+// or '/tools d' -> ['/tools disable']. Mirrors ReplLineReader's Tab-completion rules.
+function findCompletions(text){
+  if(text.startsWith('$') && !text.includes(' ')){
+    const partial = text.slice(1).toLowerCase();
+    return skillNames
+      .filter(n=>n.toLowerCase().startsWith(partial))
+      .sort((a,b)=>a.localeCompare(b))
+      .map(n=>'$'+n);
+  }
+  if(text.startsWith('/')){
+    const spaceIdx = text.indexOf(' ');
+    if(spaceIdx<0){
+      const t = text.toLowerCase();
+      return SLASH_COMMANDS.filter(c=>c.toLowerCase().startsWith(t));
+    }
+    const cmd  = text.slice(0,spaceIdx);
+    const rest = text.slice(spaceIdx+1);
+    const subs = SUB_COMMANDS[cmd.toLowerCase()];
+    if(!subs) return [];
+    const r = rest.toLowerCase();
+    return subs.filter(s=>s.toLowerCase().startsWith(r)).map(s=>cmd+' '+s);
+  }
+  return [];
+}
+
+// Bolds the leading /command (and its subcommand, if recognized) or $skill-name token.
+// Only a token that's an exact, recognized match gets bolded — free-text args never do.
+function highlightTokens(text){
+  const spaceIdx   = text.indexOf(' ');
+  const firstToken = spaceIdx<0 ? text : text.slice(0,spaceIdx);
+  if(text.startsWith('$')){
+    const name = firstToken.slice(1);
+    if(name && skillNames.some(n=>n.toLowerCase()===name.toLowerCase()))
+      return '<span class="cmd-token">'+esc(firstToken)+'</span>'+esc(text.slice(firstToken.length));
+    return esc(text);
+  }
+  if(text.startsWith('/')){
+    if(!SLASH_COMMANDS.some(c=>c.toLowerCase()===firstToken.toLowerCase())) return esc(text);
+    let out  = '<span class="cmd-token">'+esc(firstToken)+'</span>';
+    let rest = text.slice(firstToken.length);
+    const subs = SUB_COMMANDS[firstToken.toLowerCase()];
+    if(subs){
+      const m = rest.match(/^(\\s+)(\\S+)/);
+      if(m && subs.some(s=>s.toLowerCase()===m[2].toLowerCase())){
+        out  += esc(m[1])+'<span class="cmd-token">'+esc(m[2])+'</span>';
+        rest  = rest.slice(m[0].length);
+      }
+    }
+    return out + esc(rest);
+  }
+  return esc(text);
+}
+
+// Wires a textarea + its background highlight/ghost-text mirror div together: keeps the
+// mirror's box the same size as the textarea (whose own text is transparent — only the
+// mirror's text is actually visible), renders bold command tokens plus a dim "shadow"
+// completion after the caret, and makes Tab accept/cycle that completion the same way
+// ReplLineReader's terminal tab-completion does.
+function setupCommandInput(ta, wrap, mirror, maxHeight){
+  let tabActive = false, tabMatches = [], tabIndex = -1;
+
+  function resetTab(){ tabActive=false; tabMatches=[]; tabIndex=-1; }
+
+  function ghostSuffix(text){
+    if(ta.selectionStart!==ta.selectionEnd || ta.selectionEnd!==text.length) return '';
+    const matches = tabActive ? tabMatches : findCompletions(text);
+    if(!matches.length) return '';
+    const target = tabActive ? matches[tabIndex] : matches[0];
+    if(target.length<=text.length) return '';
+    if(target.slice(0,text.length).toLowerCase()!==text.toLowerCase()) return '';
+    return target.slice(text.length);
+  }
+
+  function render(){
+    const text  = ta.value;
+    let html    = highlightTokens(text);
+    const ghost = ghostSuffix(text);
+    if(ghost) html += '<span class="ghost-suffix">'+esc(ghost)+'</span>';
+    mirror.innerHTML = html || '&nbsp;';
+  }
+
+  function resize(){
+    ta.style.height = 'auto';
+    const h = Math.min(ta.scrollHeight, maxHeight);
+    ta.style.height   = h+'px';
+    wrap.style.height = h+'px';
+    mirror.style.height = h+'px';
+    mirror.scrollTop = ta.scrollTop;
+  }
+
+  function sync(){ resize(); render(); }
+
+  ta.addEventListener('input', ()=>{ resetTab(); sync(); });
+  ta.addEventListener('click', render);
+  ta.addEventListener('keyup', e=>{
+    if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Home','End'].includes(e.key)) render();
+  });
+  ta.addEventListener('scroll', ()=>{ mirror.scrollTop = ta.scrollTop; });
+  ta.addEventListener('keydown', e=>{
+    if(e.key!=='Tab') return;
+    const text    = ta.value;
+    const matches = tabActive ? tabMatches : findCompletions(text);
+    if(!matches.length) return; // nothing to complete — let Tab move focus as usual
+    e.preventDefault();
+    tabIndex   = (tabIndex+1) % matches.length;
+    tabMatches = matches;
+    tabActive  = true;
+    const completed = matches[tabIndex] + (matches.length===1 ? ' ' : '');
+    ta.value = completed;
+    ta.selectionStart = ta.selectionEnd = completed.length;
+    sync();
+  });
+
+  return { sync, resetTab };
+}
+
+const wCtl = setupCommandInput($wInput, $wInputWrap, $wHighlight, 200);
+const mCtl = setupCommandInput($input, $inputWrap, $inputHighlight, 120);
+wCtl.sync();
+mCtl.sync();
 
 let curBubble   = null;
 let curTools    = null;
@@ -800,6 +1000,7 @@ function resetThinkingLabel(){ $thinkingLabel.textContent = 'Thinking…'; }
 
 function setEnabled(on){
   $input.disabled = !on;
+  $inputWrap.classList.toggle('disabled', !on);
   $send.disabled  = !on;
   $send.style.display = (!on && isStreaming) ? 'none' : '';
   $stop.style.display = (!on && isStreaming) ? 'block' : 'none';
@@ -1122,6 +1323,7 @@ function dismissWelcome(){
   if($welcome.style.display==='none') return;
   $welcome.style.display='none';
   $footer.style.display='flex';
+  mCtl.sync();
 }
 
 function sendFromWelcome(){
@@ -1129,6 +1331,8 @@ function sendFromWelcome(){
   if(!text||isStreaming) return;
   dismissWelcome();
   $wInput.value='';
+  wCtl.resetTab();
+  wCtl.sync();
   addUser(text);
   isStreaming=true;
   usingInlineThinking = !text.startsWith('/');
@@ -1142,17 +1346,14 @@ $wSend.addEventListener('click',sendFromWelcome);
 $wInput.addEventListener('keydown',e=>{
   if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendFromWelcome();}
 });
-$wInput.addEventListener('input',()=>{
-  $wInput.style.height='auto';
-  $wInput.style.height=Math.min($wInput.scrollHeight,200)+'px';
-});
 
 /* ── send ────────────────────────────────────────────── */
 function send(){
   const text = $input.value.trim();
   if(!text || isStreaming) return;
   $input.value='';
-  $input.style.height='36px';
+  mCtl.resetTab();
+  mCtl.sync();
   addUser(text);
   isStreaming=true;
   usingInlineThinking = !text.startsWith('/');
@@ -1182,10 +1383,6 @@ $modelSelect.addEventListener('change',()=>{
 $input.addEventListener('keydown',e=>{
   if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();}
 });
-$input.addEventListener('input',()=>{
-  $input.style.height='auto';
-  $input.style.height=Math.min($input.scrollHeight,120)+'px';
-});
 
 /* ── event handler ───────────────────────────────────── */
 window.addEventListener('message',evt=>{
@@ -1195,9 +1392,16 @@ window.addEventListener('message',evt=>{
       document.getElementById('session-label').textContent=msg.sessionId?'· '+msg.sessionId:'';
       if(msg.model) selectModel(msg.model);
       $wInput.disabled=false;
+      $wInputWrap.classList.remove('disabled');
       $wSend.disabled=false;
       $wInput.focus();
       setEnabled(true);
+      break;
+
+    case 'skills':
+      skillNames = Array.isArray(msg.list) ? msg.list : [];
+      wCtl.sync();
+      mCtl.sync();
       break;
 
     case 'models':{
