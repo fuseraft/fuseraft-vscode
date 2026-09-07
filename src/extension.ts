@@ -29,6 +29,7 @@ export function activate(context: vscode.ExtensionContext): void {
     const objectiveProvider = new ObjectiveTreeProvider();
     const codeLensProvider = new FuseraftCodeLensProvider();
     const taskPanel = new TaskPanelProvider(context.extensionUri);
+    ReplPanelProvider.extensionUri = context.extensionUri;
 
     // Tree views
     vscode.window.createTreeView('fuseraft.sessions', {
@@ -948,7 +949,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
     // fuseraft.setup — first-run provider/model/API key wizard
     context.subscriptions.push(
-        vscode.commands.registerCommand('fuseraft.setup', () => runSetupWizard())
+        vscode.commands.registerCommand('fuseraft.setup', () => runSetupWizard(context.extensionUri))
     );
 
     context.subscriptions.push(

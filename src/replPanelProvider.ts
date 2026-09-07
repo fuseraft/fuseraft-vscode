@@ -9,6 +9,7 @@ interface ReplEvent {
 
 export class ReplPanelProvider {
     private static _current: ReplPanelProvider | undefined;
+    static extensionUri: vscode.Uri;
 
     static show(model: string, resumeId?: string, cwd?: string): void {
         if (ReplPanelProvider._current) {
@@ -33,6 +34,7 @@ export class ReplPanelProvider {
             vscode.ViewColumn.Beside,
             { enableScripts: true, retainContextWhenHidden: true }
         );
+        panel.iconPath = vscode.Uri.joinPath(ReplPanelProvider.extensionUri, 'media', 'icon.png');
         ReplPanelProvider._current = new ReplPanelProvider(panel, model, resumeId, cwd);
     }
 
@@ -42,6 +44,8 @@ export class ReplPanelProvider {
     private _alive = false;
     /** Session ID of the currently running session (set to resumeId when resuming). */
     private _sessionId: string | undefined;
+    /** Set once the CLI's own session_end event has been relayed, so the exit handler doesn't send a second one. */
+    private _sessionEndSent = false;
 
     private constructor(panel: vscode.WebviewPanel, model: string, resumeId?: string, cwd?: string) {
         this._panel    = panel;
@@ -129,6 +133,9 @@ export class ReplPanelProvider {
                             this._sessionId = evt.sessionId as string;
                             this._alive = true;
                         }
+                        if (evt.type === 'session_end') {
+                            this._sessionEndSent = true;
+                        }
                         this._panel.webview.postMessage(evt);
                     }
                 } catch {
@@ -139,6 +146,7 @@ export class ReplPanelProvider {
 
         this._proc.on('exit', () => {
             this._alive = false;
+            if (this._sessionEndSent) { return; }
             try { this._panel.webview.postMessage({ type: 'session_end' }); } catch { /* panel disposed */ }
         });
 
@@ -157,6 +165,21 @@ export class ReplPanelProvider {
 
     private _send(msg: object): void {
         this._proc?.stdin?.write(JSON.stringify(msg) + '\n');
+    }
+
+    private _mark(className: string, gradId: string): string {
+        return `<svg class="${className}" viewBox="0 0 1500 1500" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <defs><linearGradient id="${gradId}" x1="0%" y1="0%" x2="100%" y2="100%">
+    <stop offset="0%" stop-color="#c4452e"/><stop offset="100%" stop-color="#d98c4f"/>
+  </linearGradient></defs>
+  <rect width="1500" height="1500" fill="url(#${gradId})"/>
+  <rect x="675" y="150" width="150" height="1200" fill="#fff"/>
+  <rect x="1200" y="150" width="150" height="525" fill="#fff"/>
+  <rect x="150" y="825" width="150" height="525" fill="#fff"/>
+  <rect x="675" y="150" width="675" height="150" fill="#fff"/>
+  <rect x="150" y="1200" width="675" height="150" fill="#fff"/>
+  <rect x="300" y="675" width="900" height="150" fill="#fff"/>
+</svg>`;
     }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -183,6 +206,8 @@ body{
   flex-shrink:0
 }
 #header .session{opacity:.6}
+.icon-mark{width:14px;height:14px;border-radius:3px;overflow:hidden;flex-shrink:0}
+.brand{display:inline-flex;align-items:center;gap:6px}
 #model-select{
   font-family:var(--vscode-font-family);
   font-size:11px;font-weight:600;
@@ -216,8 +241,10 @@ body{
 #welcome-title{
   font-size:1.3em;font-weight:600;
   text-align:center;
-  color:var(--vscode-editor-foreground)
+  color:var(--vscode-editor-foreground);
+  display:flex;align-items:center;justify-content:center;gap:8px
 }
+#welcome-title .icon-mark{width:26px;height:26px;border-radius:6px}
 #welcome-hint{
   font-size:.92em;text-align:center;
   color:var(--vscode-descriptionForeground)
@@ -513,7 +540,7 @@ body{
 </head>
 <body>
 <div id="header">
-  <span>fuseraft REPL</span>
+  <span class="brand">${this._mark('icon-mark', 'fr-mark-header')}fuseraft REPL</span>
   <select id="model-select" disabled title="Switch model"></select>
   <span class="session" id="session-label"></span>
 </div>
@@ -521,7 +548,7 @@ body{
 <div id="messages">
   <div id="welcome">
     <div id="welcome-inner">
-      <div id="welcome-title">fuseraft</div>
+      <div id="welcome-title">${this._mark('icon-mark', 'fr-mark-welcome')}fuseraft</div>
       <div id="welcome-hint">What would you like to work on?</div>
       <textarea id="welcome-input" rows="3" placeholder="Ask something or type a /command…" disabled></textarea>
       <button id="welcome-send" disabled>Send</button>
@@ -607,8 +634,16 @@ let curTools    = null;
 let curText     = '';
 let curMsgDiv   = null;
 let isStreaming  = false;
-let curToolList     = [];
-let curToolExpanded = false;
+// True while the inline "thinking…" placeholder (in the message list) is covering the
+// wait — the bottom thinking-bar is redundant in that case and stays hidden to avoid
+// showing two "thinking" indicators at once.
+let usingInlineThinking = false;
+let curToolList  = [];
+// Mutable {expanded} holder for the tool row currently being built. Passed by
+// reference into _renderToolRow's overflow-pill closures so each finalised
+// message's pill keeps working against its own tool row/list forever, instead
+// of a shared global that later turns repurpose out from under it.
+let curToolState = { expanded: false };
 
 // Tool-detail expand state — at most one expanded at a time.
 let activeDetailBadge = null;
@@ -768,7 +803,7 @@ function setEnabled(on){
   $send.disabled  = !on;
   $send.style.display = (!on && isStreaming) ? 'none' : '';
   $stop.style.display = (!on && isStreaming) ? 'block' : 'none';
-  $thinkingBar.classList.toggle('active', !on && isStreaming);
+  $thinkingBar.classList.toggle('active', !on && isStreaming && !usingInlineThinking);
   $attachBtn.disabled = !on;
   if(modelsLoaded) $modelSelect.disabled = !on;
   if(on && $welcome.style.display==='none') $input.focus();
@@ -799,7 +834,7 @@ function startAssistant(){
 
   curText='';
   curToolList=[];
-  curToolExpanded=false;
+  curToolState={expanded:false};
   $msgs.appendChild(curMsgDiv);
   scrollBottom();
 }
@@ -834,28 +869,32 @@ function _makeBadge(name, args){
   return badge;
 }
 
-function _renderToolRow(){
-  if(!curTools) return;
+// toolsRow/toolList/state are captured explicitly (rather than read from the
+// current-message globals) so that each rendered pill's click handler keeps
+// operating on the tool row it was built for, even after that message is
+// finalised and the globals have moved on to a later turn.
+function _renderToolRow(toolsRow, toolList, state){
+  if(!toolsRow) return;
   collapseDetail();
-  curTools.innerHTML='';
-  const count = curToolList.length;
-  if(count <= TOOL_VISIBLE_MAX || curToolExpanded){
-    for(const {name, args} of curToolList){
-      curTools.appendChild(_makeBadge(name, args));
+  toolsRow.innerHTML='';
+  const count = toolList.length;
+  if(count <= TOOL_VISIBLE_MAX || state.expanded){
+    for(const {name, args} of toolList){
+      toolsRow.appendChild(_makeBadge(name, args));
     }
     if(count > TOOL_VISIBLE_MAX){
       const pill = document.createElement('span');
       pill.className='tool-badge tool-overflow';
       pill.textContent='▲ collapse';
-      pill.addEventListener('click', ()=>{ curToolExpanded=false; _renderToolRow(); scrollBottom(); });
-      curTools.appendChild(pill);
+      pill.addEventListener('click', ()=>{ state.expanded=false; _renderToolRow(toolsRow, toolList, state); scrollBottom(); });
+      toolsRow.appendChild(pill);
     }
   } else {
     const pill = document.createElement('span');
     pill.className='tool-badge tool-overflow';
     pill.textContent=count+' tool calls ▶';
-    pill.addEventListener('click', ()=>{ curToolExpanded=true; _renderToolRow(); scrollBottom(); });
-    curTools.appendChild(pill);
+    pill.addEventListener('click', ()=>{ state.expanded=true; _renderToolRow(toolsRow, toolList, state); scrollBottom(); });
+    toolsRow.appendChild(pill);
   }
 }
 
@@ -872,13 +911,13 @@ function addToolBadge(name, args){
       curMsgDiv.appendChild(curBubble);
       curText='';
       curToolList=[];
-      curToolExpanded=false;
+      curToolState={expanded:false};
     } else {
       startAssistant();
     }
   }
   curToolList.push({name, args});
-  _renderToolRow();
+  _renderToolRow(curTools, curToolList, curToolState);
   scrollBottom();
 }
 
@@ -977,7 +1016,7 @@ function finalise(){
     curMsgDiv.remove();
   }
   curBubble=null; curTools=null; curText=''; curMsgDiv=null;
-  curToolList=[]; curToolExpanded=false;
+  curToolList=[]; curToolState={expanded:false};
   isStreaming=false;
   resetThinkingLabel();
   setEnabled(true);
@@ -1092,9 +1131,10 @@ function sendFromWelcome(){
   $wInput.value='';
   addUser(text);
   isStreaming=true;
+  usingInlineThinking = !text.startsWith('/');
   if(text.trim()==='/exit') setThinkingLabel('Ending your session…');
   setEnabled(false);
-  if(!text.startsWith('/')) startThinking();
+  if(usingInlineThinking) startThinking();
   vscode.postMessage({type:'user_input',text});
 }
 
@@ -1115,9 +1155,10 @@ function send(){
   $input.style.height='36px';
   addUser(text);
   isStreaming=true;
+  usingInlineThinking = !text.startsWith('/');
   if(text.trim()==='/exit') setThinkingLabel('Ending your session…');
   setEnabled(false);
-  if(!text.startsWith('/')) startThinking();
+  if(usingInlineThinking) startThinking();
   let payload = text;
   if(attachedFiles.length){
     const list = attachedFiles.map((f,i)=>(i+1)+'. '+f.path).join('\\n');
@@ -1134,6 +1175,7 @@ $attachBtn.addEventListener('click',()=>{ vscode.postMessage({type:'pick_files'}
 $modelSelect.addEventListener('change',()=>{
   if(isStreaming) return;
   isStreaming=true;
+  usingInlineThinking = false;
   setEnabled(false);
   vscode.postMessage({type:'model_change',model:$modelSelect.value});
 });
@@ -1214,7 +1256,7 @@ window.addEventListener('message',evt=>{
         curMsgDiv.innerHTML='<div class="bubble"><em>(cancelled)</em></div>';
       }
       curBubble=null; curTools=null; curText=''; curMsgDiv=null;
-      curToolList=[]; curToolExpanded=false;
+      curToolList=[]; curToolState={expanded:false};
       isStreaming=false;
       resetThinkingLabel();
       setEnabled(true);
@@ -1232,7 +1274,7 @@ window.addEventListener('message',evt=>{
     case 'error':
       abandonPendingApproval();
       if(curMsgDiv){ curMsgDiv.remove(); curBubble=null; curTools=null; curText=''; curMsgDiv=null; }
-      curToolList=[]; curToolExpanded=false;
+      curToolList=[]; curToolState={expanded:false};
       addSystem('Error: '+(msg.text||'unknown error'));
       isStreaming=false;
       resetThinkingLabel();

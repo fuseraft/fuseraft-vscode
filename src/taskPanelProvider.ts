@@ -83,6 +83,10 @@ export class TaskPanelProvider implements vscode.WebviewViewProvider {
                 );
             } else if (msg.type === 'initConfig') {
                 vscode.commands.executeCommand('fuseraft.init');
+            } else if (msg.type === 'openRepl') {
+                vscode.commands.executeCommand('fuseraft.repl');
+            } else if (msg.type === 'resumeRepl') {
+                vscode.commands.executeCommand('fuseraft.replResume');
             }
         });
     }
@@ -414,9 +418,23 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
     outline-offset: 2px;
     border-radius: 3px;
 }
+
+.repl-launch {
+    display: flex;
+    gap: 6px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.2));
+}
+.repl-launch button.primary { font-size: 13px; padding: 7px 10px; }
+.repl-launch button.secondary { padding: 7px 9px; font-size: 13px; }
 </style>
 </head>
 <body>
+
+<div class="repl-launch">
+    <button class="primary" id="openReplBtn" title="Open an interactive REPL chat session beside your editor">💬  Open REPL</button>
+    <button class="secondary" id="resumeReplBtn" title="Resume a previous REPL session">↻</button>
+</div>
 
 <div class="section" id="taskSection">
     <label>Task</label>
@@ -486,6 +504,15 @@ const chipsEl     = document.getElementById('chips');
 const specChipEl  = document.getElementById('specChip');
 const specBar     = document.getElementById('specBar');
 const taskSection = document.getElementById('taskSection');
+const openReplBtn  = document.getElementById('openReplBtn');
+const resumeReplBtn = document.getElementById('resumeReplBtn');
+
+openReplBtn.addEventListener('click', function() {
+    vscode.postMessage({ type: 'openRepl' });
+});
+resumeReplBtn.addEventListener('click', function() {
+    vscode.postMessage({ type: 'resumeRepl' });
+});
 
 let selectedFiles = [];
 let specFile = null;

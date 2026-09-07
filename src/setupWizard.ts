@@ -161,7 +161,7 @@ async function readSavedConfig(): Promise<{ modelId: string; endpoint: string; p
 /** Singleton panel — reuse if already open. */
 let _setupPanel: vscode.WebviewPanel | undefined;
 
-export async function runSetupWizard(): Promise<void> {
+export async function runSetupWizard(extensionUri: vscode.Uri): Promise<void> {
     // If the panel is already open, just bring it to the front.
     if (_setupPanel) {
         _setupPanel.reveal();
@@ -185,6 +185,7 @@ export async function runSetupWizard(): Promise<void> {
         vscode.ViewColumn.One,
         { enableScripts: true }
     );
+    panel.iconPath = vscode.Uri.joinPath(extensionUri, 'media', 'icon.png');
 
     _setupPanel = panel;
     let cancelPoll: (() => void) | undefined;
@@ -421,7 +422,8 @@ function getSetupWebviewHtml(
         max-width: 620px;
         margin: 0 auto;
     }
-    h2 { margin-bottom: 16px; font-weight: 400; }
+    h2 { margin-bottom: 16px; font-weight: 400; display: flex; align-items: center; gap: 8px; }
+    h2 .icon-mark { width: 22px; height: 22px; border-radius: 5px; overflow: hidden; flex-shrink: 0; }
 
     /* ── Pre-flight ── */
     .preflight {
@@ -539,7 +541,7 @@ function getSetupWebviewHtml(
 </style>
 </head>
 <body>
-    <h2>fuseraft setup</h2>
+    <h2>${fuseraftMarkSvg('icon-mark', 'fr-mark-setup')}fuseraft setup</h2>
 
     ${preflightSection}
 
@@ -869,6 +871,22 @@ function getSetupWebviewHtml(
 /** Simple HTML entity escaping for injecting strings into HTML attributes. */
 function escHtml(s: string): string {
     return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/** Inline fuseraft brand mark (matches media/icon-source.svg) for use next to the wordmark in webview content. */
+function fuseraftMarkSvg(className: string, gradId: string): string {
+    return `<svg class="${className}" viewBox="0 0 1500 1500" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <defs><linearGradient id="${gradId}" x1="0%" y1="0%" x2="100%" y2="100%">
+    <stop offset="0%" stop-color="#c4452e"/><stop offset="100%" stop-color="#d98c4f"/>
+  </linearGradient></defs>
+  <rect width="1500" height="1500" fill="url(#${gradId})"/>
+  <rect x="675" y="150" width="150" height="1200" fill="#fff"/>
+  <rect x="1200" y="150" width="150" height="525" fill="#fff"/>
+  <rect x="150" y="825" width="150" height="525" fill="#fff"/>
+  <rect x="675" y="150" width="675" height="150" fill="#fff"/>
+  <rect x="150" y="1200" width="675" height="150" fill="#fff"/>
+  <rect x="300" y="675" width="900" height="150" fill="#fff"/>
+</svg>`;
 }
 
 async function writeUserConfig(modelId: string, endpoint: string, provider: string, apiKey: string): Promise<void> {
