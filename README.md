@@ -49,7 +49,6 @@ A dedicated fuseraft panel with seven views:
 - **CodeLens** — `▶ Run Task`, `✓ Validate`, and `⎇ Diagram` actions above the first line of any config file
 - **Session Transcript Viewer** — rich panel showing every agent turn, tool calls with ✓/✗ indicators, per-turn token usage, and session totals
 - **Right-click menus** — run, validate, or diagram config files; run task files directly from the Explorer
-- **YAML / JSON IntelliSense** — full JSON Schema for fuseraft config files (autocomplete, inline docs, validation)
 - **Status bar button** — always-visible `fuseraft` shortcut to run a task
 
 ### Command Palette
@@ -59,6 +58,7 @@ A dedicated fuseraft panel with seven views:
 | `fuseraft: Open REPL` | Interactive chat panel with streaming responses and tool call badges |
 | `fuseraft: Run Task` | Prompt for a task, pick a config, run in the integrated terminal |
 | `fuseraft: Run Task File with fuseraft` | Run a `.md` or `.txt` task file |
+| `fuseraft: Resume REPL Session` | Pick a saved REPL session and resume it in the chat panel |
 | `fuseraft: Initialize Config` | Wizard: template → model → provider → output path |
 | `fuseraft: Validate Config` | Validate a config file |
 | `fuseraft: Validate Config and Show Diagram` | Validate and print a Mermaid flowchart |
@@ -71,7 +71,14 @@ A dedicated fuseraft panel with seven views:
 | `fuseraft: Remove Skill` | Remove a skill |
 | `fuseraft: Create Objective` | Create a new objective for the current workspace |
 | `fuseraft: View Objective Status` | Show an objective's full status and task progress |
-| `fuseraft: Set Up Provider` | Configure your AI provider, model, and API key |
+| `fuseraft: Knowledge GC (Dry Run)` | Preview knowledge lifecycle cleanup (archived ADRs, decayed memories) without changing anything |
+| `fuseraft: Knowledge GC (Apply)` | Apply knowledge lifecycle cleanup to disk |
+| `fuseraft: Check Architecture Compliance` | Scan the workspace for architecture layer violations |
+| `fuseraft: Install CLI` | Run the fuseraft installer in the integrated terminal |
+| `fuseraft: Update CLI` | Update the fuseraft CLI to the latest release |
+| `fuseraft: Set Binary Path` | Pick or enter the path to the fuseraft binary |
+| `fuseraft: Set Home Directory` | Override the fuseraft home directory (`~/.fuseraft` by default) |
+| `fuseraft: Configure fuseraft` | Configure your AI provider, model, and API key |
 
 ## Requirements
 
@@ -83,6 +90,7 @@ A dedicated fuseraft panel with seven views:
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `fuseraft.binaryPath` | `fuseraft` | Path to the fuseraft binary |
+| `fuseraft.homeDir` | _(blank)_ | Override the fuseraft home directory (`~/.fuseraft` by default); matches the CLI's `FUSERAFT_HOME` |
 | `fuseraft.defaultConfigPath` | _(blank)_ | Default config path relative to workspace root |
 | `fuseraft.runFlags` | _(blank)_ | Extra flags appended to every `fuseraft run` invocation |
 | `fuseraft.openTerminalOnRun` | `true` | Focus the terminal when a task starts |
