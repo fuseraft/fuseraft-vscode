@@ -13,9 +13,9 @@ Run and manage [fuseraft](https://github.com/fuseraft/fuseraft-cli) without leav
 ![fuseraft REPL](media/fuseraft-repl.png)
 
 - **Model dropdown** — switch models live from the header; list is fetched from your provider via `fuseraft models`, history is preserved
-- **Streaming responses** with word-by-word token rendering
+- **Streaming responses** — one thought at a time live, each replacing the last as the next begins; the full response reveals in full, broken into bordered blocks, once it's done
 - **Tool call badges** — click to expand arguments, hover for a summary
-- **Markdown rendering** — headers, bold/italic, code blocks, tables, lists
+- **Markdown rendering** — headers, bold/italic, code blocks with a one-click copy button, tables, lists
 - **Stop button** — interrupt mid-stream and immediately redirect
 - **Slash commands** — `/plan`, `/execute`, `/compact`, `/tools`, `/sessions`, `/help`, and more
 - **Resumable sessions** — snapshots stored at `~/.fuseraft/repl-sessions/`
