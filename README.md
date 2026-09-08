@@ -4,6 +4,8 @@
 
 Run and manage [fuseraft](https://github.com/fuseraft/fuseraft-cli) without leaving your editor.
 
+[fuseraft.ai](https://fuseraft.ai) · [GitHub](https://github.com/fuseraft/fuseraft-cli)
+
 ## Features
 
 ### REPL Chat Panel
@@ -15,16 +17,16 @@ Run and manage [fuseraft](https://github.com/fuseraft/fuseraft-cli) without leav
 - **Model dropdown** — switch models live from the header; list is fetched from your provider via `fuseraft models`, history is preserved
 - **Streaming responses** — one thought at a time live, each replacing the last as the next begins; the full response reveals in full, broken into bordered blocks, once it's done
 - **Tool call badges** — click to expand arguments, hover for a summary
-- **Markdown rendering** — headers, bold/italic, code blocks with a one-click copy button, tables, lists
+- **Markdown rendering** — headers, bold/italic, links, images, blockquotes, horizontal rules, code blocks with a one-click copy button, tables, lists
 - **Stop button** — interrupt mid-stream and immediately redirect
 - **Slash commands** — `/plan`, `/execute`, `/compact`, `/tools`, `/sessions`, `/help`, and more
 - **Resumable sessions** — snapshots stored at `~/.fuseraft/repl-sessions/`
-- **File change summary** — files added, modified, or deleted appear below each response
+- **File change summary** — files added, modified, renamed, or deleted appear below each response
 - **Shift+Enter** for multi-line input; **Enter** to send
 
 ### Activity Bar Panel
 
-A dedicated fuseraft panel with four views:
+A dedicated fuseraft panel with seven views:
 
 **Run Task** — compose and launch tasks from a webview form:
 - Multi-line task textarea with **+ Files** (passed via `--context-file`) and **+ Spec** (injected into every agent's system prompt via `--spec`) attach buttons
@@ -35,6 +37,12 @@ A dedicated fuseraft panel with four views:
 **Configs** — discovers fuseraft YAML/JSON configs in your workspace. Click to open; **+** to run the Initialize Config wizard.
 
 **Context** — manages reference material in `.fuseraft/context/`. **+** to import files or folders; right-click to remove.
+
+**Memory** — lists entries from `~/.fuseraft/memory/repl`, grouped by type with each entry's description shown inline. Click to open the entry's markdown file; right-click to delete one entry or clear them all.
+
+**Skills** — lists skills discovered under the fuseraft home's `skills/` directory. Click to open `SKILL.md`; **+** to add a skill, right-click to remove one.
+
+**Objectives** — lists objectives (`.fuseraft/knowledge/objectives/OBJ-*.yaml`) in the current workspace, with status and task-completion percentage shown inline. **+** to create one; right-click for the full status detail.
 
 ### Other Features
 
@@ -58,6 +66,11 @@ A dedicated fuseraft panel with four views:
 | `fuseraft: View Session Transcript` | Open a formatted transcript for a session |
 | `fuseraft: Add Context` | Import a file or folder into the context store |
 | `fuseraft: Remove Context Item` | Remove a context item |
+| `fuseraft: Delete Memory` | Delete a memory entry |
+| `fuseraft: Add Skill` | Add a skill to the fuseraft home's `skills/` directory |
+| `fuseraft: Remove Skill` | Remove a skill |
+| `fuseraft: Create Objective` | Create a new objective for the current workspace |
+| `fuseraft: View Objective Status` | Show an objective's full status and task progress |
 | `fuseraft: Set Up Provider` | Configure your AI provider, model, and API key |
 
 ## Requirements
