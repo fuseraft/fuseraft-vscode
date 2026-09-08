@@ -380,6 +380,12 @@ body{
 .copy-btn:hover{background:var(--vscode-toolbar-hoverBackground,rgba(128,128,128,.2));color:var(--vscode-editor-foreground)}
 .copy-btn svg{width:12px;height:12px;pointer-events:none}
 .copy-btn.copied{color:var(--vscode-terminal-ansiGreen,#89d185)}
+.bubble pre .code-copy-btn{
+  position:absolute;top:6px;right:6px;
+  opacity:0;transition:opacity .12s;
+  background:var(--vscode-editorWidget-background,rgba(128,128,128,.25))
+}
+.bubble pre:hover .code-copy-btn,.bubble pre .code-copy-btn.copied{opacity:1}
 .tool-row{display:flex;flex-wrap:wrap;gap:3px;padding-bottom:2px}
 .tool-badge{
   padding:1px 6px;border-radius:3px;font-size:10px;
@@ -420,6 +426,14 @@ body{
 .bubble p{margin:4px 0}
 .bubble p:first-child{margin-top:0}
 .bubble p:last-child{margin-bottom:0}
+.bubble .cot-block{
+  border:1px solid var(--vscode-panel-border);
+  border-radius:6px;padding:6px 10px;margin:6px 0
+}
+.bubble .cot-block:first-child{margin-top:0}
+.bubble .cot-block:last-child{margin-bottom:0}
+.bubble .cot-block>*:first-child{margin-top:0}
+.bubble .cot-block>*:last-child{margin-bottom:0}
 .bubble h1,.bubble h2,.bubble h3,.bubble h4,.bubble h5,.bubble h6{margin:8px 0 4px;font-weight:600}
 .bubble h1{font-size:1.2em}
 .bubble h2{font-size:1.1em}
@@ -439,7 +453,7 @@ body{
 .bubble pre code{background:none;padding:0;font-size:.88em;display:block}
 .bubble pre[data-lang]::before{
   content:attr(data-lang);
-  position:absolute;top:4px;right:8px;
+  position:absolute;top:6px;right:30px;
   font-size:10px;opacity:.45;
   font-family:var(--vscode-font-family)
 }
@@ -892,6 +906,28 @@ function makeActionsRow(getText){
   return row;
 }
 
+// Code-fence copy buttons are baked into mdToHtml's output as static markup
+// (re-rendered on every streamed token), so a single delegated listener
+// handles clicks rather than rebinding one per button on every render.
+$msgs.addEventListener('click', e=>{
+  const btn = e.target.closest('.code-copy-btn');
+  if(!btn) return;
+  e.stopPropagation();
+  const code = btn.nextElementSibling;
+  const text = code ? code.textContent : '';
+  if(!text) return;
+  navigator.clipboard.writeText(text).then(()=>{
+    btn.innerHTML = ICON_CHECK;
+    btn.classList.add('copied');
+    btn.title = 'Copied!';
+    setTimeout(()=>{
+      btn.innerHTML = ICON_COPY;
+      btn.classList.remove('copied');
+      btn.title = 'Copy code';
+    },1200);
+  });
+});
+
 function buildList(text){
   const lines=text.replace(/\\n$/,'').split('\\n');
   const root={children:[]};
@@ -940,7 +976,8 @@ function mdToHtml(raw){
   // extract fenced code blocks
   let s = raw.replace(/\`\`\`(\\w*)\\n?([\\s\\S]*?)\`\`\`/g,(_,lang,code)=>{
     const attr=lang?' data-lang="'+esc(lang)+'"':'';
-    return stash('<pre'+attr+'><code>'+esc(code.replace(/\\n$/,''))+'</code></pre>');
+    const btn='<button type="button" class="code-copy-btn" title="Copy code">'+ICON_COPY+'</button>';
+    return stash('<pre'+attr+'>'+btn+'<code>'+esc(code.replace(/\\n$/,''))+'</code></pre>');
   });
   s = esc(s);
   // inline code
@@ -1059,10 +1096,44 @@ function startThinking(){
   scrollBottom();
 }
 
+// Everything since the last blank-line boundary — the paragraph/block
+// currently being written. A blank line inside an unterminated code fence
+// doesn't count as a boundary, so a snippet with blank lines inside it
+// stays intact until its closing \`\`\`.
+function currentChunk(text){
+  const fenceCount = (text.match(/\`\`\`/g)||[]).length;
+  const from = fenceCount % 2 === 1 ? text.lastIndexOf('\`\`\`') : text.length;
+  const boundary = text.lastIndexOf('\\n\\n', from);
+  return boundary === -1 ? text : text.slice(boundary+2);
+}
+
+// Splits full text into the same blank-line-delimited blocks currentChunk
+// steps through live, re-merging any split that lands inside an open code
+// fence — used to box up each block in the finalised bubble.
+function splitBlocks(text){
+  const parts = text.split(/\\n{2,}/).filter(p=>p.trim()!=='');
+  const blocks = [];
+  let i = 0;
+  while(i < parts.length){
+    let block = parts[i];
+    while((block.match(/\`\`\`/g)||[]).length % 2 === 1 && i+1 < parts.length){
+      i++;
+      block += '\\n\\n' + parts[i];
+    }
+    blocks.push(block);
+    i++;
+  }
+  return blocks;
+}
+
 function appendToken(text){
   if(!curBubble) startAssistant();
   curText += text;
-  curBubble.innerHTML = mdToHtml(curText) + '<span class="cursor"></span>';
+  // Render only the in-progress block live, so the bubble shows one
+  // thought/paragraph at a time instead of the whole response piling up
+  // while streaming; finalise() reveals the full accumulated curText once
+  // the turn ends.
+  curBubble.innerHTML = mdToHtml(currentChunk(curText)) + '<span class="cursor"></span>';
   scrollBottom();
 }
 
@@ -1214,13 +1285,17 @@ function finalise(){
   if(curBubble){
     const rendered = mdToHtml(curText);
     const text = curText;
-    curBubble.innerHTML = rendered || '';
     if(!rendered && (!curTools || !curTools.children.length)){
       curMsgDiv?.remove();
     } else if(curText.trim().endsWith(':')){
+      curBubble.innerHTML = rendered || '';
       _collapseIntoCot(curMsgDiv, curBubble, curTools);
       curMsgDiv.appendChild(makeActionsRow(()=>text));
     } else {
+      // Box each streamed block separately so the breaks between them —
+      // where one chain-of-thought bubble replaced another while live —
+      // stay visible after the message is done.
+      curBubble.innerHTML = splitBlocks(text).map(b=>'<div class="cot-block">'+mdToHtml(b)+'</div>').join('');
       curBubble.classList.add('finalised');
       curMsgDiv.appendChild(makeActionsRow(()=>text));
     }
