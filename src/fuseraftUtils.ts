@@ -148,6 +148,35 @@ export interface ProviderConfig {
     modelId: string;
 }
 
+export interface ProviderFields {
+    modelId: string;
+    endpoint: string;
+    provider: string;
+    apiKeyEnvVar: string;
+}
+
+/**
+ * Extracts provider connection fields from a parsed ~/.fuseraft/config object.
+ * Supports both the current sectioned shape (`{ provider: { modelId, endpoint, type,
+ * apiKeyEnvVar } }`) and the pre-sectioning flat shape (`{ modelId, endpoint, provider,
+ * apiKeyEnvVar }` at the root) that fuseraft-cli migrates to the sectioned shape the
+ * next time any `fuseraft` command runs. Reading both here means the extension keeps
+ * working correctly regardless of whether the CLI has migrated the file yet.
+ */
+export function parseProviderSection(cfg: unknown): ProviderFields {
+    const root = (cfg && typeof cfg === 'object') ? cfg as Record<string, unknown> : {};
+    const section = (root.provider && typeof root.provider === 'object')
+        ? root.provider as Record<string, unknown>
+        : null;
+    const str = (v: unknown): string => typeof v === 'string' ? v.trim() : '';
+    return {
+        modelId:      str(section ? section.modelId      : root.modelId),
+        endpoint:     str(section ? section.endpoint     : root.endpoint),
+        provider:     str(section ? section.type         : root.provider),
+        apiKeyEnvVar: str(section ? section.apiKeyEnvVar : root.apiKeyEnvVar),
+    };
+}
+
 /**
  * Read provider connection fields from ~/.fuseraft/config.
  * Returns null when the file is absent, unreadable, or lacks an endpoint.
@@ -157,16 +186,53 @@ export function readProviderConfig(): ProviderConfig | null {
     try {
         if (!fs.existsSync(configPath)) { return null; }
         const cfg = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-        if (!cfg.modelId || !cfg.endpoint) { return null; }
+        const { modelId, endpoint, provider } = parseProviderSection(cfg);
+        if (!modelId || !endpoint) { return null; }
         return {
-            endpoint: String(cfg.endpoint).trim(),
-            apiKey:   typeof cfg.apiKey === 'string' ? cfg.apiKey.trim() : '',
-            provider: typeof cfg.provider === 'string' ? cfg.provider.trim() : '',
-            modelId:  String(cfg.modelId).trim(),
+            endpoint,
+            apiKey: typeof (cfg as Record<string, unknown>).apiKey === 'string'
+                ? ((cfg as Record<string, unknown>).apiKey as string).trim()
+                : '',
+            provider,
+            modelId,
         };
     } catch {
         return null;
     }
+}
+
+/**
+ * Sets the modelId/endpoint/provider-type fields via `fuseraft settings set`, one call
+ * per field, run sequentially against the same file. Delegating the write to the CLI
+ * (rather than hand-writing the JSON here, as this used to do) means the extension never
+ * has to track fuseraft-cli's on-disk schema — every other section the file already has
+ * (sampling, repl, mcpServers, telemetry, skillCuration) is left untouched by `settings
+ * set`, instead of being wiped out by a naive full-file overwrite.
+ * Returns true only if every field was set successfully.
+ */
+export async function writeProviderConfigViaCli(modelId: string, endpoint: string, provider: string): Promise<boolean> {
+    const fields: Array<[string, string]> = [
+        ['provider.modelId', modelId],
+        ['provider.endpoint', endpoint],
+        ['provider.type', provider],
+    ];
+    for (const [key, value] of fields) {
+        // Sequential, not Promise.all — each call is its own read-modify-write of the
+        // same file, so running them concurrently would race.
+        const ok = await runSettingsSet(key, value);
+        if (!ok) { return false; }
+    }
+    return true;
+}
+
+function runSettingsSet(key: string, value: string): Promise<boolean> {
+    return new Promise(resolve => {
+        const binary = getBinary();
+        const env: NodeJS.ProcessEnv = { ...process.env, ...getFuseraftHomeEnvOverride() };
+        execFile(binary, ['settings', 'set', key, value], { env, timeout: 5000 }, (err) => {
+            resolve(!err);
+        });
+    });
 }
 
 /**

@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as http from 'http';
 import * as https from 'https';
 import * as path from 'path';
-import { checkCli, invalidateCliCache, runInstaller, runUpdate, pollForInstalledBinary, storeApiKeyToCliKeychain, getApiKeyFromCliKeychain, fetchProviderModels, getFuseraftHome } from './fuseraftUtils';
+import { checkCli, invalidateCliCache, runInstaller, runUpdate, pollForInstalledBinary, storeApiKeyToCliKeychain, getApiKeyFromCliKeychain, fetchProviderModels, getFuseraftHome, parseProviderSection, writeProviderConfigViaCli } from './fuseraftUtils';
 
 /** Re-resolved on every call (not cached) so it reflects live changes to fuseraft.homeDir. */
 function getConfigDir(): string { return getFuseraftHome(); }
@@ -80,7 +80,7 @@ export function isConfigured(): boolean {
     if (!fs.existsSync(getConfigPath())) { return false; }
     try {
         const cfg = JSON.parse(fs.readFileSync(getConfigPath(), 'utf8'));
-        return typeof cfg.modelId === 'string' && cfg.modelId.trim().length > 0;
+        return parseProviderSection(cfg).modelId.length > 0;
     } catch {
         return false;
     }
@@ -117,8 +117,9 @@ async function readSavedConfig(): Promise<{ modelId: string; endpoint: string; p
     if (!fs.existsSync(getConfigPath())) { return empty; }
     try {
         const cfg = JSON.parse(fs.readFileSync(getConfigPath(), 'utf8'));
-        let provider = cfg.provider || 'anthropic';
-        const savedEndpoint: string = cfg.endpoint || '';
+        const parsed = parseProviderSection(cfg);
+        let provider = parsed.provider || 'anthropic';
+        const savedEndpoint: string = parsed.endpoint;
 
         // When the user chose "Custom / Self-hosted" we convert the UI value
         // 'custom' → 'openai' before writing (so the CLI recognises the protocol),
@@ -146,7 +147,7 @@ async function readSavedConfig(): Promise<{ modelId: string; endpoint: string; p
             : false;
 
         return {
-            modelId:         cfg.modelId || '',
+            modelId:         parsed.modelId,
             endpoint:        savedEndpoint,
             provider,
             apiKey:          cfg.apiKey  || '',   // only the plaintext key; keychain key is not exposed
@@ -890,15 +891,20 @@ function fuseraftMarkSvg(className: string, gradId: string): string {
 }
 
 async function writeUserConfig(modelId: string, endpoint: string, provider: string, apiKey: string): Promise<void> {
-    fs.mkdirSync(getConfigDir(), { recursive: true });
-    const onDisk: Record<string, string> = { modelId, endpoint, provider };
+    // Delegates to `fuseraft settings set` (see writeProviderConfigViaCli) rather than
+    // writing the file directly — a direct write here used to overwrite the whole file
+    // with just {modelId, endpoint, provider}, silently destroying every other section
+    // (sampling, repl, mcpServers, telemetry, skillCuration) once those existed.
+    const saved = await writeProviderConfigViaCli(modelId, endpoint, provider);
+    if (!saved) {
+        throw new Error('Failed to save provider settings via the fuseraft CLI (`fuseraft settings set`). Make sure the CLI is installed and up to date, then try again.');
+    }
     if (apiKey) {
         const stored = await storeApiKeyToCliKeychain(apiKey);
         if (!stored) {
             throw new Error('Failed to store the API key in the OS keychain. Your key was not saved.');
         }
     }
-    fs.writeFileSync(getConfigPath(), JSON.stringify(onDisk, null, 2), 'utf8');
 }
 
 async function testConnection(
