@@ -1341,14 +1341,14 @@ function addWarning(text){
 /* ── HITL shell-command approval ─────────────────────── */
 let curApprovalDiv = null;
 
-function addApproval(command){
+function addApproval(title, body){
   const d = document.createElement('div');
   d.className='msg system';
   const bubble = document.createElement('div');
   bubble.className='bubble approval-bubble';
   bubble.innerHTML =
-    '<div class="approval-title">⏸ Shell command requested</div>' +
-    '<pre class="approval-cmd">'+esc(command||'')+'</pre>';
+    '<div class="approval-title">⏸ '+esc(title||'Action requested')+'</div>' +
+    '<pre class="approval-cmd">'+esc(body||'')+'</pre>';
   const actions = document.createElement('div');
   actions.className='approval-actions';
   const allowBtn = document.createElement('button');
@@ -1535,7 +1535,11 @@ window.addEventListener('message',evt=>{
       break;
 
     case 'approval_request':
-      addApproval(msg.command||'');
+      if (msg.kind === 'tool_action') {
+        addApproval((msg.plugin||'Tool')+' action requested', (msg.action||'')+'  '+(msg.detail||''));
+      } else {
+        addApproval('Shell command requested', msg.command||'');
+      }
       break;
 
     case 'message_end':
