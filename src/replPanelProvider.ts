@@ -1113,16 +1113,27 @@ function currentChunk(text){
 
 // Splits full text into the same blank-line-delimited blocks currentChunk
 // steps through live, re-merging any split that lands inside an open code
-// fence — used to box up each block in the finalised bubble.
+// fence or an unclosed bold (**) span — used to box up each block in the
+// finalised bubble. Fence content is stripped before counting **, so a
+// pointer-heavy code sample (e.g. int **argv) can't look like an open bold
+// span. A fence-triggered merge keeps the blank line (the code's original
+// spacing must survive); a bold-triggered merge joins with no separator,
+// since that blank line was itself an injected break (e.g. a round-boundary
+// paragraph break landing mid-token — see ReplTurn.cs's isRoundBoundary),
+// not an intentional paragraph the model wrote.
 function splitBlocks(text){
   const parts = text.split(/\\n{2,}/).filter(p=>p.trim()!=='');
   const blocks = [];
   let i = 0;
   while(i < parts.length){
     let block = parts[i];
-    while((block.match(/\`\`\`/g)||[]).length % 2 === 1 && i+1 < parts.length){
+    while(i+1 < parts.length){
+      const openFence = (block.match(/\`\`\`/g)||[]).length % 2 === 1;
+      const strippedForBold = block.replace(/\`\`\`[\\s\\S]*?\`\`\`/g,'');
+      const openBold = (strippedForBold.match(/\\*\\*/g)||[]).length % 2 === 1;
+      if(!openFence && !openBold) break;
       i++;
-      block += '\\n\\n' + parts[i];
+      block += (openFence ? '\\n\\n' : '') + parts[i];
     }
     blocks.push(block);
     i++;
