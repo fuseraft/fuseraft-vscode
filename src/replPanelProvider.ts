@@ -330,24 +330,9 @@ body{
   border:1px solid var(--vscode-panel-border);
   border-radius:4px;padding:4px 8px;max-width:100%
 }
-.approval-bubble{
-  max-width:92%;
-  background:var(--vscode-inputValidation-warningBackground,rgba(226,192,141,.12));
-  border:1px solid var(--vscode-inputValidation-warningBorder,var(--vscode-editorWarning-foreground,#e2c08d));
-  border-radius:8px;padding:10px 12px
-}
-.approval-title{
-  font-size:11px;font-weight:600;
-  color:var(--vscode-editorWarning-foreground,#e2c08d);
-  margin-bottom:6px
-}
-.approval-cmd{
-  font-family:var(--vscode-editor-font-family,monospace);font-size:11px;
-  background:var(--vscode-textCodeBlock-background,rgba(128,128,128,.15));
-  border-radius:4px;padding:6px 8px;margin:0 0 8px;
-  white-space:pre-wrap;word-break:break-all
-}
-.approval-actions{display:flex;gap:8px}
+/* Anchored above the composer (sibling of #thinking-bar), not part of the
+   scrolling #messages flow — see #approval-bar below for why. */
+.approval-actions{display:flex;gap:8px;flex-shrink:0}
 .approval-btn{
   height:28px;padding:0 14px;border:none;border-radius:6px;cursor:pointer;
   font-size:var(--vscode-font-size);font-weight:600
@@ -362,9 +347,27 @@ body{
   color:var(--vscode-button-secondaryForeground,var(--vscode-editor-foreground))
 }
 .approval-deny:hover{background:var(--vscode-button-secondaryHoverBackground,rgba(128,128,128,.3))}
-.approval-status{
-  margin-top:8px;font-size:11px;font-style:italic;
-  color:var(--vscode-descriptionForeground)
+#approval-bar{
+  display:none;flex-shrink:0;
+  align-items:center;gap:14px;
+  padding:10px 14px;
+  border-top:2px solid var(--vscode-inputValidation-warningBorder,var(--vscode-editorWarning-foreground,#e2c08d));
+  background:var(--vscode-inputValidation-warningBackground,rgba(226,192,141,.12));
+  animation:fadein .15s ease
+}
+#approval-bar.active{display:flex}
+#approval-info{flex:1;min-width:0}
+#approval-title{
+  font-size:11px;font-weight:600;
+  color:var(--vscode-editorWarning-foreground,#e2c08d);
+  margin-bottom:4px
+}
+#approval-detail{
+  font-family:var(--vscode-editor-font-family,monospace);font-size:11px;
+  background:var(--vscode-textCodeBlock-background,rgba(128,128,128,.15));
+  border-radius:4px;padding:6px 8px;margin:0;
+  white-space:pre-wrap;word-break:break-all;
+  max-height:70px;overflow-y:auto
 }
 .msg-actions{
   display:flex;align-items:center;height:16px;
@@ -620,6 +623,16 @@ body{
 <div id="thinking-bar">
   <span class="dots"><span></span><span></span><span></span></span>
   <span id="thinking-label">Thinking…</span>
+</div>
+<div id="approval-bar">
+  <div id="approval-info">
+    <div id="approval-title"></div>
+    <pre id="approval-detail"></pre>
+  </div>
+  <div class="approval-actions">
+    <button class="approval-btn approval-allow" id="approval-allow-btn">Allow</button>
+    <button class="approval-btn approval-deny" id="approval-deny-btn">Deny</button>
+  </div>
 </div>
 <div id="footer" style="display:none">
   <div id="attach-row"></div>
@@ -1349,61 +1362,57 @@ function addWarning(text){
   scrollBottom();
 }
 
-/* ── HITL shell-command approval ─────────────────────── */
-let curApprovalDiv = null;
+/* ── HITL approval bar ───────────────────────────────────────────────
+   Anchored above the composer (a sibling of #thinking-bar, outside the
+   scrolling #messages flow) instead of being inserted as a message: a
+   message-list bubble (a) sits centered via .msg.system's align-items,
+   reading like a modal dropped in the middle of the transcript, and
+   (b) never goes away once resolved, so a multi-tool-call turn leaves a
+   stack of dead cards shoving everything else down. The bar shows at
+   most one pending request, replacing itself in place; a one-line
+   entry still goes into the transcript once resolved, as an audit trail
+   without the interactive chrome. */
+const $approvalBar      = document.getElementById('approval-bar');
+const $approvalTitle    = document.getElementById('approval-title');
+const $approvalDetail   = document.getElementById('approval-detail');
+const $approvalAllowBtn = document.getElementById('approval-allow-btn');
+const $approvalDenyBtn  = document.getElementById('approval-deny-btn');
+let pendingApproval = false;
+let pendingApprovalLabel = '';
 
-function addApproval(title, body){
-  const d = document.createElement('div');
-  d.className='msg system';
-  const bubble = document.createElement('div');
-  bubble.className='bubble approval-bubble';
-  bubble.innerHTML =
-    '<div class="approval-title">⏸ '+esc(title||'Action requested')+'</div>' +
-    '<pre class="approval-cmd">'+esc(body||'')+'</pre>';
-  const actions = document.createElement('div');
-  actions.className='approval-actions';
-  const allowBtn = document.createElement('button');
-  allowBtn.className='approval-btn approval-allow';
-  allowBtn.textContent='Allow';
-  allowBtn.addEventListener('click',()=>respondApproval(true));
-  const denyBtn = document.createElement('button');
-  denyBtn.className='approval-btn approval-deny';
-  denyBtn.textContent='Deny';
-  denyBtn.addEventListener('click',()=>respondApproval(false));
-  actions.appendChild(allowBtn);
-  actions.appendChild(denyBtn);
-  bubble.appendChild(actions);
-  d.appendChild(bubble);
-  $msgs.appendChild(d);
-  curApprovalDiv = d;
-  setThinkingLabel('Waiting for approval…');
-  scrollBottom();
+function showApproval(title, detail){
+  pendingApprovalLabel = title || 'Action requested';
+  $approvalTitle.textContent = pendingApprovalLabel;
+  $approvalDetail.textContent = detail || '(no detail provided)';
+  $thinkingBar.classList.remove('active'); // avoid two bottom bars at once
+  $approvalBar.classList.add('active');
+  pendingApproval = true;
 }
 
 function respondApproval(approved){
-  if(!curApprovalDiv) return;
-  settleApproval(curApprovalDiv, approved);
-  curApprovalDiv = null;
+  if(!pendingApproval) return;
+  hideApproval(approved);
   vscode.postMessage({type:'approval_response', approved});
 }
 
-// Removes the Allow/Deny buttons and appends a resolved-status line. Split out from
-// respondApproval so an abandoned approval (session ended / turn cancelled while pending)
-// can also be visually resolved without pretending a response was sent to the CLI.
-function settleApproval(div, approved){
-  const actions = div.querySelector('.approval-actions');
-  if(actions) actions.remove();
-  const status = document.createElement('div');
-  status.className='approval-status';
-  status.textContent = approved===null ? 'Cancelled' : (approved ? 'Allowed' : 'Denied');
-  div.querySelector('.approval-bubble')?.appendChild(status);
+// Resolves an approval that never got a real response (session ended / turn
+// cancelled while pending) without pretending a reply was sent to the CLI.
+function abandonPendingApproval(){
+  if(!pendingApproval) return;
+  hideApproval(null);
 }
 
-function abandonPendingApproval(){
-  if(!curApprovalDiv) return;
-  settleApproval(curApprovalDiv, null);
-  curApprovalDiv = null;
+function hideApproval(approved){
+  const icon  = approved===null ? '⚠' : (approved ? '✓' : '✕');
+  const label = approved===null ? 'Cancelled' : (approved ? 'Allowed' : 'Denied');
+  addSystem(icon+' '+label+' — '+pendingApprovalLabel);
+  $approvalBar.classList.remove('active');
+  pendingApproval = false;
+  $thinkingBar.classList.toggle('active', isStreaming && !usingInlineThinking);
 }
+
+$approvalAllowBtn.addEventListener('click',()=>respondApproval(true));
+$approvalDenyBtn.addEventListener('click',()=>respondApproval(false));
 
 function addFileChanges(changes){
   if(!changes||!changes.length) return;
@@ -1547,9 +1556,9 @@ window.addEventListener('message',evt=>{
 
     case 'approval_request':
       if (msg.kind === 'tool_action') {
-        addApproval((msg.plugin||'Tool')+' action requested', (msg.action||'')+'  '+(msg.detail||''));
+        showApproval((msg.plugin||'Tool')+': '+(msg.action||'action'), msg.detail||'');
       } else {
-        addApproval('Shell command requested', msg.command||'');
+        showApproval('Run shell command', msg.command||'');
       }
       break;
 
