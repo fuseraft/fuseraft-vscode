@@ -330,6 +330,10 @@ body{
   border:1px solid var(--vscode-panel-border);
   border-radius:4px;padding:4px 8px;max-width:100%
 }
+/* Consecutive resolved-approval entries collapse into one block (see
+   addAuditLine) instead of piling up as separate gapped/padded bubbles. */
+.msg.system.audit-group .bubble{display:flex;flex-direction:column;gap:2px}
+.msg.system.audit-group .bubble>div{line-height:1.4}
 /* Anchored above the composer (sibling of #thinking-bar), not part of the
    scrolling #messages flow — see #approval-bar below for why. */
 .approval-actions{display:flex;gap:8px;flex-shrink:0}
@@ -1346,6 +1350,28 @@ function addSystem(text){
   scrollBottom();
 }
 
+// One-line audit entries (currently just resolved HITL approvals) merge into
+// the trailing group instead of each becoming its own gapped/padded .msg —
+// otherwise a multi-tool-call turn leaves a tall stack of near-identical
+// "✓ Allowed — ..." cards. Any other message type breaks the group.
+function addAuditLine(text){
+  const last=$msgs.lastElementChild;
+  let bubble;
+  if(last && last.classList.contains('audit-group')){
+    bubble=last.querySelector('.bubble');
+  } else {
+    const d=document.createElement('div');
+    d.className='msg system audit-group';
+    d.innerHTML='<div class="bubble"></div>';
+    $msgs.appendChild(d);
+    bubble=d.querySelector('.bubble');
+  }
+  const line=document.createElement('div');
+  line.textContent=text;
+  bubble.appendChild(line);
+  scrollBottom();
+}
+
 function addSystemHtml(html){
   const d=document.createElement('div');
   d.className='msg system';
@@ -1405,7 +1431,7 @@ function abandonPendingApproval(){
 function hideApproval(approved){
   const icon  = approved===null ? '⚠' : (approved ? '✓' : '✕');
   const label = approved===null ? 'Cancelled' : (approved ? 'Allowed' : 'Denied');
-  addSystem(icon+' '+label+' — '+pendingApprovalLabel);
+  addAuditLine(icon+' '+label+' — '+pendingApprovalLabel);
   $approvalBar.classList.remove('active');
   pendingApproval = false;
   $thinkingBar.classList.toggle('active', isStreaming && !usingInlineThinking);
