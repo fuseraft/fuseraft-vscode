@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as cp from 'child_process';
 import { getBinary, readApiKeyFromConfig, fetchModelsViaCli, getFuseraftHomeEnvOverride } from './fuseraftUtils';
 import { readSkills, getSkillsDir } from './skillsTreeProvider';
+import { showDiffPreview, closeDiffPreview } from './diffContentProvider';
 
 interface ReplEvent {
     type: string;
@@ -58,6 +59,7 @@ export class ReplPanelProvider {
                 this._send({ type: 'user_input', text: msg.text });
             } else if (msg.type === 'approval_response' && typeof msg.approved === 'boolean') {
                 this._send({ type: 'approval_response', approved: msg.approved });
+                void closeDiffPreview();
             } else if (msg.type === 'interrupt') {
                 if (process.platform === 'win32') {
                     // Windows has no equivalent of SIGINT for child processes; send the
@@ -137,6 +139,16 @@ export class ReplPanelProvider {
                         }
                         if (evt.type === 'session_end') {
                             this._sessionEndSent = true;
+                        }
+                        // write_file/patch_file approvals carry full before/after file content —
+                        // open it as a native diff editor tab (syntax-highlighted, side-by-side)
+                        // rather than trying to cram it into the webview's compact approval bar.
+                        if (evt.type === 'approval_request' && evt.kind === 'file_write') {
+                            const filePath    = typeof evt.path === 'string' ? evt.path : 'file';
+                            const oldContent  = typeof evt.oldContent === 'string' ? evt.oldContent : '';
+                            const newContent  = typeof evt.newContent === 'string' ? evt.newContent : '';
+                            const actionLabel = typeof evt.action === 'string' ? evt.action : 'write';
+                            showDiffPreview(filePath, oldContent, newContent, actionLabel);
                         }
                         this._panel.webview.postMessage(evt);
                     }
@@ -1581,7 +1593,9 @@ window.addEventListener('message',evt=>{
       break;
 
     case 'approval_request':
-      if (msg.kind === 'tool_action') {
+      if (msg.kind === 'file_write') {
+        showApproval((msg.action||'write')+': '+(msg.path||''), 'Diff opened in the editor — review it, then Allow/Deny here.');
+      } else if (msg.kind === 'tool_action') {
         showApproval((msg.plugin||'Tool')+': '+(msg.action||'action'), msg.detail||'');
       } else {
         showApproval('Run shell command', msg.command||'');

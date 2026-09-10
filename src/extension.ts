@@ -11,6 +11,7 @@ import { FuseraftCodeLensProvider, isFuseraftConfig } from './codeLensProvider';
 import { TaskPanelProvider } from './taskPanelProvider';
 import { SessionViewPanel } from './sessionViewPanel';
 import { ReplPanelProvider } from './replPanelProvider';
+import { registerDiffContentProvider } from './diffContentProvider';
 import {
     getBinary, getRunFlags, findFuseraftConfigs, pickConfig,
     promptForTask, buildRunCommand, buildInitCommand, runInTerminal,
@@ -30,6 +31,7 @@ export function activate(context: vscode.ExtensionContext): void {
     const codeLensProvider = new FuseraftCodeLensProvider();
     const taskPanel = new TaskPanelProvider(context.extensionUri);
     ReplPanelProvider.extensionUri = context.extensionUri;
+    registerDiffContentProvider(context);
 
     // Tree views
     vscode.window.createTreeView('fuseraft.sessions', {
