@@ -176,8 +176,7 @@ export async function runSetupWizard(extensionUri: vscode.Uri): Promise<void> {
     let liveModels: string[] | null = null;
     if (saved.endpoint) {
         const apiKey = saved.apiKey || await getApiKeyFromCliKeychain();
-        const isOllama = saved.provider === 'ollama';
-        liveModels = await fetchProviderModels(saved.endpoint, apiKey, isOllama);
+        liveModels = await fetchProviderModels(saved.endpoint, apiKey, saved.provider);
     }
 
     const panel = vscode.window.createWebviewPanel(
@@ -253,9 +252,8 @@ export async function runSetupWizard(extensionUri: vscode.Uri): Promise<void> {
         }
 
         if (msg.action === 'fetchModels') {
-            const isOllama = (msg.provider as string) === 'ollama';
             const apiKey = (msg.apiKey as string) || await getApiKeyFromCliKeychain();
-            const models = await fetchProviderModels(msg.endpoint as string, apiKey, isOllama);
+            const models = await fetchProviderModels(msg.endpoint as string, apiKey, msg.provider as string);
             if (models) { liveModels = models; }
             panel.webview.postMessage({ type: 'modelsLoaded', models: models ?? [] });
             return;

@@ -237,31 +237,38 @@ function runSettingsSet(key: string, value: string): Promise<boolean> {
 
 /**
  * Fetch available model IDs from the provider's models endpoint.
- * Uses GET {endpoint}/models for OpenAI-compatible providers, or
- * GET {endpoint}/api/tags for Ollama.
+ * Uses GET {endpoint}/models with Bearer auth for OpenAI-compatible providers,
+ * GET {endpoint}/api/tags for Ollama, or GET {endpoint}/v1/models with
+ * x-api-key/anthropic-version headers for the native Anthropic provider (its
+ * base endpoint has no bare /models route and doesn't take Bearer auth).
  * Returns a sorted array of model ID strings, or null on any error.
  */
 export function fetchProviderModels(
     endpoint: string,
     apiKey: string,
-    isOllama: boolean,
+    provider: 'ollama' | 'anthropic' | string,
     timeoutMs = 8000
 ): Promise<string[] | null> {
     return new Promise(resolve => {
+        const isOllama = provider === 'ollama';
+        const isAnthropic = provider === 'anthropic';
         const base = endpoint.replace(/\/$/, '');
-        const urlStr = isOllama ? `${base}/api/tags` : `${base}/models`;
+        const urlStr = isOllama ? `${base}/api/tags` : isAnthropic ? `${base}/v1/models` : `${base}/models`;
 
         let parsed: URL;
         try { parsed = new URL(urlStr); }
         catch { resolve(null); return; }
 
         const lib = parsed.protocol === 'https:' ? https : http;
+        const headers: Record<string, string> = isAnthropic
+            ? { ...(apiKey ? { 'x-api-key': apiKey } : {}), 'anthropic-version': '2023-06-01' }
+            : (apiKey ? { Authorization: `Bearer ${apiKey}` } : {});
         const options: https.RequestOptions = {
             hostname: parsed.hostname,
             port:     parsed.port ? parseInt(parsed.port) : (parsed.protocol === 'https:' ? 443 : 80),
             path:     parsed.pathname + parsed.search,
             method:   'GET',
-            headers:  apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
+            headers,
         };
 
         const req = lib.request(options, res => {

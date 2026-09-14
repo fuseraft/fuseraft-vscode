@@ -2,7 +2,7 @@
 
 ![fuseraft banner](media/fuseraft-banner.png)
 
-Run and manage [fuseraft](https://github.com/fuseraft/fuseraft-cli) without leaving your editor.
+Chat with [fuseraft](https://github.com/fuseraft/fuseraft-cli) agents in an interactive REPL panel, right in your editor — plus task runs, sessions, and config tools.
 
 [fuseraft.ai](https://fuseraft.ai) · [GitHub](https://github.com/fuseraft/fuseraft-cli)
 
