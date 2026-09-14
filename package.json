@@ -2,7 +2,7 @@
   "name": "fuseraft",
   "displayName": "fuseraft",
   "description": "Chat with fuseraft agents in an interactive REPL panel, right in VS Code",
-  "version": "0.1.46",
+  "version": "0.1.47",
   "publisher": "fuseraft",
   "license": "MIT",
   "repository": {
