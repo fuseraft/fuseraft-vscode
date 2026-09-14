@@ -399,6 +399,10 @@ body{
 .copy-btn:hover{background:var(--vscode-toolbar-hoverBackground,rgba(128,128,128,.2));color:var(--vscode-editor-foreground)}
 .copy-btn svg{width:12px;height:12px;pointer-events:none}
 .copy-btn.copied{color:var(--vscode-terminal-ansiGreen,#89d185)}
+.cache-badge{
+  margin-left:6px;font-size:10px;color:var(--vscode-descriptionForeground);
+  white-space:nowrap
+}
 .bubble pre .code-copy-btn{
   position:absolute;top:6px;right:6px;
   opacity:0;transition:opacity .12s;
@@ -932,10 +936,21 @@ function makeCopyBtn(getText){
   return btn;
 }
 
-function makeActionsRow(getText){
+function makeActionsRow(getText,tokenInfo){
   const row=document.createElement('div');
   row.className='msg-actions';
   row.appendChild(makeCopyBtn(getText));
+  if(tokenInfo && (tokenInfo.input||tokenInfo.output||tokenInfo.cached)){
+    const parts=[];
+    if(tokenInfo.input)  parts.push(tokenInfo.input.toLocaleString()+' in');
+    if(tokenInfo.output) parts.push(tokenInfo.output.toLocaleString()+' out');
+    if(tokenInfo.cached) parts.push('⚡ '+tokenInfo.cached.toLocaleString()+' cached');
+    const badge=document.createElement('span');
+    badge.className='cache-badge';
+    badge.textContent=parts.join(' · ');
+    badge.title='Token usage for this turn';
+    row.appendChild(badge);
+  }
   return row;
 }
 
@@ -1325,7 +1340,7 @@ function _collapseIntoCot(msgDiv, bubble, toolsRow){
   });
 }
 
-function finalise(){
+function finalise(tokenInfo){
   if(curBubble){
     const rendered = mdToHtml(curText);
     const text = curText;
@@ -1334,14 +1349,14 @@ function finalise(){
     } else if(curText.trim().endsWith(':')){
       curBubble.innerHTML = rendered || '';
       _collapseIntoCot(curMsgDiv, curBubble, curTools);
-      curMsgDiv.appendChild(makeActionsRow(()=>text));
+      curMsgDiv.appendChild(makeActionsRow(()=>text,tokenInfo));
     } else {
       // Box each streamed block separately so the breaks between them —
       // where one chain-of-thought bubble replaced another while live —
       // stay visible after the message is done.
       curBubble.innerHTML = splitBlocks(text).map(b=>'<div class="cot-block">'+mdToHtml(b)+'</div>').join('');
       curBubble.classList.add('finalised');
-      curMsgDiv.appendChild(makeActionsRow(()=>text));
+      curMsgDiv.appendChild(makeActionsRow(()=>text,tokenInfo));
     }
   } else if(curMsgDiv){
     curMsgDiv.remove();
@@ -1603,7 +1618,11 @@ window.addEventListener('message',evt=>{
       break;
 
     case 'message_end':
-      finalise();
+      finalise({
+        input:  typeof msg.inputTokens==='number'       ? msg.inputTokens       : undefined,
+        output: typeof msg.outputTokens==='number'      ? msg.outputTokens      : undefined,
+        cached: typeof msg.cachedInputTokens==='number' ? msg.cachedInputTokens : undefined,
+      });
       break;
 
     case 'cancelled':
