@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as cp from 'child_process';
+import * as fs from 'fs';
 import { getBinary, readApiKeyFromConfig, fetchModelsViaCli, getFuseraftHomeEnvOverride } from './fuseraftUtils';
 import { readSkills, getSkillsDir } from './skillsTreeProvider';
 import { showDiffPreview, closeDiffPreview } from './diffContentProvider';
@@ -104,6 +105,19 @@ export class ReplPanelProvider {
         const args = ['repl', '--vscode', '--no-banner'];
         if (model) { args.push('--model', model); }
         if (resumeId) { args.push('--resume', resumeId); }
+
+        // The REPL is sandboxed to its launch directory (cwd = the first workspace folder), so any
+        // additional folders in a multi-root workspace would otherwise need a per-access approval.
+        // Pass them as --include roots. The CLI aborts startup if an --include path is missing,
+        // so only pass folders that exist locally; it skips any already inside the sandbox root.
+        if (cwd) {
+            for (const folder of vscode.workspace.workspaceFolders ?? []) {
+                const root = folder.uri.fsPath;
+                if (folder.uri.scheme === 'file' && root !== cwd && fs.existsSync(root)) {
+                    args.push('--include', root);
+                }
+            }
+        }
 
         // Inherit the full environment. Inject FUSERAFT_API_KEY from the saved
         // config only when the variable is not already present — an explicitly
@@ -748,7 +762,7 @@ const SUB_COMMANDS = {
   '/fork':         ['switch'],
   '/hitl':         ['off','on'],
   '/max-tokens':   ['reset'],
-  '/mcp':          ['add','remove'],
+  '/mcp':          ['add','login','logout','remove'],
   '/memory':       ['delete','list','save','show'],
   '/provider':     ['setup'],
   '/safe-mode':    ['off','on'],
