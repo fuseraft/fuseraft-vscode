@@ -1421,6 +1421,53 @@ function addSystemHtml(html){
   scrollBottom();
 }
 
+/* ── replayed history ────────────────────────────────────────────────
+   A resumed/switched session (or /replay) arrives as one 'replay' event of
+   finished turns. They are built as complete static messages rather than
+   driven through the streaming cur* state, which belongs to whatever live
+   turn might be in flight. */
+function addAssistantHistorical(text, tools){
+  const d=document.createElement('div');
+  d.className='msg assistant';
+  const row=document.createElement('div');
+  row.className='tool-row';
+  d.appendChild(row);
+  const bubble=document.createElement('div');
+  bubble.className='bubble';
+  d.appendChild(bubble);
+  if(tools.length) _renderToolRow(row, tools, {expanded:false});
+  if(!text){
+    bubble.remove();
+  } else if(text.trim().endsWith(':')){
+    bubble.innerHTML=mdToHtml(text);
+    _collapseIntoCot(d, bubble, row);
+    d.appendChild(makeActionsRow(()=>text));
+  } else {
+    bubble.innerHTML=splitBlocks(text).map(b=>'<div class="cot-block">'+mdToHtml(b)+'</div>').join('');
+    bubble.classList.add('finalised');
+    d.appendChild(makeActionsRow(()=>text));
+  }
+  $msgs.appendChild(d);
+}
+
+function renderReplay(msg){
+  const turns=Array.isArray(msg.turns)?msg.turns:[];
+  if(!turns.length) return;
+  dismissWelcome();
+  const total=typeof msg.total==='number'?msg.total:turns.length;
+  const scope=turns.length===total
+    ? total+' turn'+(total===1?'':'s')
+    : 'last '+turns.length+' of '+total+' turns';
+  addSystem('Previous turns — '+scope+(msg.compacted?' · earlier context was compacted':''));
+  for(const t of turns){
+    addUser(t.user||'');
+    const tools=(Array.isArray(t.toolCalls)?t.toolCalls:[]).map(c=>({name:c.name||'tool', args:c.args||null}));
+    if(t.assistant || tools.length) addAssistantHistorical(t.assistant||'', tools);
+    else addSystem('(no response recorded — the turn was interrupted)');
+  }
+  addSystem('End of previous turns');
+}
+
 function addWarning(text){
   const d=document.createElement('div');
   d.className='msg warning';
@@ -1660,6 +1707,10 @@ window.addEventListener('message',evt=>{
 
     case 'text':
       addSystemHtml(mdToHtml(msg.text||''));
+      break;
+
+    case 'replay':
+      renderReplay(msg);
       break;
 
     case 'error':
