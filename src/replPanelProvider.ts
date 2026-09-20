@@ -55,9 +55,15 @@ export class ReplPanelProvider {
         this._sessionId = resumeId;   // refined to actual sessionId once CLI emits 'ready'
         panel.webview.html = this._html();
 
-        panel.webview.onDidReceiveMessage((msg: { type: string; text?: string; model?: string; approved?: boolean }) => {
+        panel.webview.onDidReceiveMessage((msg: { type: string; text?: string; model?: string; approved?: boolean; images?: { name: string; data: string }[] }) => {
             if (msg.type === 'user_input' && msg.text !== undefined) {
-                this._send({ type: 'user_input', text: msg.text });
+                // Pasted screenshots ride along as base64 (data URLs); the CLI re-validates the bytes itself.
+                const images = Array.isArray(msg.images)
+                    ? msg.images.filter(i => i && typeof i.data === 'string' && typeof i.name === 'string')
+                    : [];
+                this._send(images.length > 0
+                    ? { type: 'user_input', text: msg.text, images }
+                    : { type: 'user_input', text: msg.text });
             } else if (msg.type === 'approval_response' && typeof msg.approved === 'boolean') {
                 this._send({ type: 'approval_response', approved: msg.approved });
                 void closeDiffPreview();
@@ -707,6 +713,9 @@ const $attachRow     = document.getElementById('attach-row');
 let modelsLoaded     = false;
 let activeModel      = ''; // model actually running this session, set by the CLI's 'ready' event
 let attachedFiles    = []; // [{name, path}]
+let pastedImages     = []; // [{name, data}] — screenshots pasted from the clipboard, sent as base64 data URLs
+let pastedImageCount = 0;
+const MAX_PASTED_IMAGES = 8; // mirrors the CLI's per-message cap
 let skillNames       = []; // $skill-name completion targets, populated by the 'skills' message
 
 // Marks the given model as selected in the dropdown, adding it as an option
@@ -723,10 +732,32 @@ function selectModel(model){
   $modelSelect.appendChild(opt);
 }
 
+function isImagePath(p){
+  const l=String(p).toLowerCase();
+  return ['.png','.jpg','.jpeg','.gif','.webp'].some(x=>l.endsWith(x));
+}
+
 function renderAttachments(){
   $attachRow.innerHTML='';
-  if(!attachedFiles.length){ $attachRow.classList.remove('has-files'); return; }
+  if(!attachedFiles.length && !pastedImages.length){ $attachRow.classList.remove('has-files'); return; }
   $attachRow.classList.add('has-files');
+  pastedImages.forEach((img,idx)=>{
+    const chip=document.createElement('span');
+    chip.className='attach-chip';
+    const label=document.createElement('span');
+    label.textContent='image: '+img.name;
+    const rm=document.createElement('span');
+    rm.className='attach-chip-remove';
+    rm.textContent='✕';
+    rm.title='Remove';
+    rm.addEventListener('click',()=>{
+      pastedImages.splice(idx,1);
+      renderAttachments();
+    });
+    chip.appendChild(label);
+    chip.appendChild(rm);
+    $attachRow.appendChild(chip);
+  });
   for(const {name,path} of attachedFiles){
     const chip=document.createElement('span');
     chip.className='attach-chip';
@@ -749,9 +780,9 @@ function renderAttachments(){
 /* ── slash/skill completion ──────────────────────────── */
 // Mirrors ReplLineReader's SlashCommands/SubCommands in fuseraft-cli — keep in sync.
 const SLASH_COMMANDS = [
-  '/adversarial','/assist','/clear','/compact','/context',
+  '/adversarial','/agent','/agents','/assist','/clear','/compact','/context',
   '/conversation','/delegate','/events','/execute','/exit','/explore',
-  '/fork','/help','/hitl','/history','/last','/locate',
+  '/fork','/goal','/help','/hitl','/history','/image','/last','/locate',
   '/max-tokens','/mcp','/memory','/model','/models','/paste','/plan',
   '/provider','/reasoning','/recover','/resume','/retry','/rewind',
   '/run','/safe-mode','/save','/seed','/sessions','/snapshot','/switch',
@@ -760,6 +791,7 @@ const SLASH_COMMANDS = [
 const SUB_COMMANDS = {
   '/adversarial':  ['off','on'],
   '/fork':         ['switch'],
+  '/goal':         ['resume'],
   '/hitl':         ['off','on'],
   '/max-tokens':   ['reset'],
   '/mcp':          ['add','login','logout','remove'],
@@ -1421,6 +1453,53 @@ function addSystemHtml(html){
   scrollBottom();
 }
 
+/* ── replayed history ────────────────────────────────────────────────
+   A resumed/switched session (or /replay) arrives as one 'replay' event of
+   finished turns. They are built as complete static messages rather than
+   driven through the streaming cur* state, which belongs to whatever live
+   turn might be in flight. */
+function addAssistantHistorical(text, tools){
+  const d=document.createElement('div');
+  d.className='msg assistant';
+  const row=document.createElement('div');
+  row.className='tool-row';
+  d.appendChild(row);
+  const bubble=document.createElement('div');
+  bubble.className='bubble';
+  d.appendChild(bubble);
+  if(tools.length) _renderToolRow(row, tools, {expanded:false});
+  if(!text){
+    bubble.remove();
+  } else if(text.trim().endsWith(':')){
+    bubble.innerHTML=mdToHtml(text);
+    _collapseIntoCot(d, bubble, row);
+    d.appendChild(makeActionsRow(()=>text));
+  } else {
+    bubble.innerHTML=splitBlocks(text).map(b=>'<div class="cot-block">'+mdToHtml(b)+'</div>').join('');
+    bubble.classList.add('finalised');
+    d.appendChild(makeActionsRow(()=>text));
+  }
+  $msgs.appendChild(d);
+}
+
+function renderReplay(msg){
+  const turns=Array.isArray(msg.turns)?msg.turns:[];
+  if(!turns.length) return;
+  dismissWelcome();
+  const total=typeof msg.total==='number'?msg.total:turns.length;
+  const scope=turns.length===total
+    ? total+' turn'+(total===1?'':'s')
+    : 'last '+turns.length+' of '+total+' turns';
+  addSystem('Previous turns — '+scope+(msg.compacted?' · earlier context was compacted':''));
+  for(const t of turns){
+    addUser(t.user||'');
+    const tools=(Array.isArray(t.toolCalls)?t.toolCalls:[]).map(c=>({name:c.name||'tool', args:c.args||null}));
+    if(t.assistant || tools.length) addAssistantHistorical(t.assistant||'', tools);
+    else addSystem('(no response recorded — the turn was interrupted)');
+  }
+  addSystem('End of previous turns');
+}
+
 function addWarning(text){
   const d=document.createElement('div');
   d.className='msg warning';
@@ -1525,13 +1604,44 @@ $wInput.addEventListener('keydown',e=>{
 });
 
 /* ── send ────────────────────────────────────────────── */
+/* ── pasted screenshots ──────────────────────────────── */
+// Returns true when the paste carried at least one image (the default paste is then suppressed).
+function addPastedImages(e){
+  const items=(e.clipboardData&&e.clipboardData.items)?Array.from(e.clipboardData.items):[];
+  const files=items.filter(it=>it.kind==='file'&&it.type&&it.type.indexOf('image/')===0)
+                   .map(it=>it.getAsFile()).filter(Boolean);
+  if(!files.length) return false;
+  e.preventDefault();
+  for(const f of files){
+    if(pastedImages.length>=MAX_PASTED_IMAGES) break;
+    const ext=(f.type.split('/')[1]||'png').replace('jpeg','jpg');
+    const name='pasted-'+(++pastedImageCount)+'.'+ext;
+    const reader=new FileReader();
+    reader.onload=()=>{
+      if(pastedImages.length>=MAX_PASTED_IMAGES) return;
+      pastedImages.push({name,data:String(reader.result)});
+      renderAttachments();
+    };
+    reader.readAsDataURL(f);
+  }
+  return true;
+}
+
+$input.addEventListener('paste',e=>{ addPastedImages(e); });
+// On the welcome screen there is no attachment row, so reveal the footer (where chips render) first.
+$wInput.addEventListener('paste',e=>{
+  if(addPastedImages(e)){ dismissWelcome(); $input.focus(); }
+});
+
 function send(){
   const text = $input.value.trim();
-  if(!text || isStreaming) return;
+  // A picture with no words is still a message — the CLI supplies a default prompt.
+  if((!text && !pastedImages.length) || isStreaming) return;
   $input.value='';
   mCtl.resetTab();
   mCtl.sync();
-  addUser(text);
+  const imgCount = pastedImages.length;
+  addUser(text + (imgCount ? (text?'\\n\\n':'') + '[+'+imgCount+' image'+(imgCount>1?'s':'')+']' : ''));
   isStreaming=true;
   usingInlineThinking = !text.startsWith('/');
   if(text.trim()==='/exit') setThinkingLabel('Ending your session…');
@@ -1539,12 +1649,16 @@ function send(){
   if(usingInlineThinking) startThinking();
   let payload = text;
   if(attachedFiles.length){
-    const list = attachedFiles.map((f,i)=>(i+1)+'. '+f.path).join('\\n');
+    // An image path is sent as @"path" so the CLI attaches the picture itself instead of just naming the file.
+    const list = attachedFiles.map((f,i)=>(i+1)+'. '+(isImagePath(f.path)?'@"'+f.path+'"':f.path)).join('\\n');
     payload = 'The user referenced the following files which may be of interest in this message:\\n'+list+'\\n\\n'+text;
     attachedFiles=[];
     renderAttachments();
   }
-  vscode.postMessage({type:'user_input',text:payload});
+  const images = pastedImages.map(i=>({name:i.name,data:i.data}));
+  pastedImages=[];
+  renderAttachments();
+  vscode.postMessage(images.length ? {type:'user_input',text:payload,images} : {type:'user_input',text:payload});
 }
 
 $send.addEventListener('click',send);
@@ -1660,6 +1774,10 @@ window.addEventListener('message',evt=>{
 
     case 'text':
       addSystemHtml(mdToHtml(msg.text||''));
+      break;
+
+    case 'replay':
+      renderReplay(msg);
       break;
 
     case 'error':
