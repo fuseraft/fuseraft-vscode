@@ -164,7 +164,7 @@
             "enum": [
               "FileSystem", "Shell", "Git", "Http", "Json", "Search",
               "Changes", "Scratchpad", "Chatroom", "Probe", "CodeExecution",
-              "SubAgent", "Demo"
+              "Subagent", "Demo"
             ]
           }
         },
@@ -242,13 +242,13 @@
           "description": "When true, persistent memories from ~/.fuseraft/memory/agents/{Name}/ are prepended to instructions at session start",
           "default": false
         },
-        "SubAgentModel": {
+        "SubagentModel": {
           "type": "string",
-          "description": "Model ID override for the sub-agent spawned by the SubAgent plugin"
+          "description": "Model ID override for the subagent spawned by the Subagent plugin"
         },
-        "SubAgentPlugins": {
+        "SubagentPlugins": {
           "type": "array",
-          "description": "Explicit plugin names for the sub-agent",
+          "description": "Explicit plugin names for the subagent",
           "items": { "type": "string" }
         },
         "RemoteAgent": {
