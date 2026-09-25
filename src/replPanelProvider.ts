@@ -791,7 +791,7 @@ const SLASH_COMMANDS = [
 const SUB_COMMANDS = {
   '/adversarial':  ['off','on'],
   '/fork':         ['switch'],
-  '/goal':         ['resume'],
+  '/goal':         ['drop','resume'],
   '/hitl':         ['off','on'],
   '/max-tokens':   ['reset'],
   '/mcp':          ['add','login','logout','remove'],
