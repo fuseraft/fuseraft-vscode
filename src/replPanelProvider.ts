@@ -55,7 +55,7 @@ export class ReplPanelProvider {
         this._sessionId = resumeId;   // refined to actual sessionId once CLI emits 'ready'
         panel.webview.html = this._html();
 
-        panel.webview.onDidReceiveMessage((msg: { type: string; text?: string; model?: string; approved?: boolean; images?: { name: string; data: string }[] }) => {
+        panel.webview.onDidReceiveMessage((msg: { type: string; text?: string; model?: string; approved?: boolean; answer?: string | null; images?: { name: string; data: string }[] }) => {
             if (msg.type === 'user_input' && msg.text !== undefined) {
                 // Pasted screenshots ride along as base64 (data URLs); the CLI re-validates the bytes itself.
                 const images = Array.isArray(msg.images)
@@ -67,6 +67,8 @@ export class ReplPanelProvider {
             } else if (msg.type === 'approval_response' && typeof msg.approved === 'boolean') {
                 this._send({ type: 'approval_response', approved: msg.approved });
                 void closeDiffPreview();
+            } else if (msg.type === 'question_response') {
+                this._send({ type: 'question_response', answer: typeof msg.answer === 'string' ? msg.answer : null });
             } else if (msg.type === 'interrupt') {
                 if (process.platform === 'win32') {
                     // Windows has no equivalent of SIGINT for child processes; send the
@@ -133,6 +135,8 @@ export class ReplPanelProvider {
         // reliable channel for the key.
         const configKey = readApiKeyFromConfig();
         const env: NodeJS.ProcessEnv = { ...process.env, ...getFuseraftHomeEnvOverride() };
+        // Tells the CLI this panel answers ask_user `question` events; a CLI that predates them ignores it.
+        env['FUSERAFT_VSCODE_QUESTIONS'] = '1';
         if (configKey && !env['FUSERAFT_API_KEY']) { env['FUSERAFT_API_KEY'] = configKey; }
 
         this._proc = cp.spawn(getBinary(), args, {
@@ -405,6 +409,28 @@ body{
   white-space:pre-wrap;word-break:break-all;
   max-height:70px;overflow-y:auto
 }
+/* ask_user question — same anchored slot as #approval-bar, one at a time. */
+#question-bar{
+  display:none;flex-shrink:0;flex-direction:column;gap:8px;
+  padding:10px 14px;
+  border-top:2px solid var(--vscode-focusBorder,#007fd4);
+  background:var(--vscode-editorWidget-background,rgba(128,128,128,.08));
+  animation:fadein .15s ease
+}
+#question-bar.active{display:flex}
+#question-title{font-weight:600}
+#question-options{display:flex;flex-wrap:wrap;gap:6px}
+.question-option{height:auto;min-height:28px;padding:4px 12px;font-weight:400;text-align:left}
+#question-other{display:flex;gap:8px}
+#question-other-input{
+  flex:1;min-width:0;height:28px;padding:0 8px;border-radius:6px;
+  font-family:inherit;font-size:var(--vscode-font-size);
+  color:var(--vscode-input-foreground);
+  background:var(--vscode-input-background);
+  border:1px solid var(--vscode-input-border,var(--vscode-panel-border));
+  outline:none
+}
+#question-other-input:focus{border-color:var(--vscode-focusBorder)}
 .msg-actions{
   display:flex;align-items:center;height:16px;
   opacity:0;transition:opacity .12s
@@ -672,6 +698,15 @@ body{
   <div class="approval-actions">
     <button class="approval-btn approval-allow" id="approval-allow-btn">Allow</button>
     <button class="approval-btn approval-deny" id="approval-deny-btn">Deny</button>
+  </div>
+</div>
+<div id="question-bar">
+  <div id="question-title"></div>
+  <div id="question-options"></div>
+  <div id="question-other">
+    <input id="question-other-input" type="text" placeholder="Or type your own answer…">
+    <button class="approval-btn approval-allow" id="question-other-btn">Send</button>
+    <button class="approval-btn approval-deny" id="question-skip-btn" title="Let the agent decide">Skip</button>
   </div>
 </div>
 <div id="footer" style="display:none">
@@ -1560,6 +1595,74 @@ function hideApproval(approved){
 $approvalAllowBtn.addEventListener('click',()=>respondApproval(true));
 $approvalDenyBtn.addEventListener('click',()=>respondApproval(false));
 
+/* ── ask_user question bar ───────────────────────────────────────────
+   The model's multiple-choice question, in the same anchored slot as the
+   approval bar. The first option is the model's recommendation, so it gets
+   the primary style. The CLI waits for exactly one question_response;
+   answer null means skipped. */
+const $questionBar      = document.getElementById('question-bar');
+const $questionTitle    = document.getElementById('question-title');
+const $questionOptions  = document.getElementById('question-options');
+const $questionOther    = document.getElementById('question-other');
+const $questionInput    = document.getElementById('question-other-input');
+const $questionOtherBtn = document.getElementById('question-other-btn');
+const $questionSkipBtn  = document.getElementById('question-skip-btn');
+let pendingQuestion = null;
+
+function showQuestion(msg){
+  pendingQuestion = msg.question || 'Question';
+  $questionTitle.textContent = pendingQuestion;
+  $questionOptions.innerHTML = '';
+  const options = Array.isArray(msg.options) ? msg.options.map(String) : [];
+  options.forEach((o,i)=>{
+    const b=document.createElement('button');
+    b.className='approval-btn question-option '+(i===0?'approval-allow':'approval-deny');
+    b.textContent=o;
+    b.addEventListener('click',()=>respondQuestion(o));
+    $questionOptions.appendChild(b);
+  });
+  const allowOther = msg.allowOther !== false;
+  $questionInput.style.display    = allowOther ? '' : 'none';
+  $questionOtherBtn.style.display = allowOther ? '' : 'none';
+  $questionInput.value = '';
+  $thinkingBar.classList.remove('active'); // avoid two bottom bars at once
+  $questionBar.classList.add('active');
+  const first = $questionOptions.querySelector('button');
+  if(first) first.focus();
+}
+
+function respondQuestion(answer){
+  if(pendingQuestion===null) return;
+  hideQuestion(answer===null ? '↷ Skipped' : '→ '+answer);
+  vscode.postMessage({type:'question_response', answer});
+}
+
+// Clears a question that never got a reply (turn cancelled / session ended).
+function abandonPendingQuestion(){
+  if(pendingQuestion===null) return;
+  hideQuestion('⚠ Cancelled');
+}
+
+function hideQuestion(outcome){
+  addAuditLine('? '+pendingQuestion+'  '+outcome);
+  $questionBar.classList.remove('active');
+  pendingQuestion = null;
+  $thinkingBar.classList.toggle('active', isStreaming && !usingInlineThinking);
+}
+
+function sendTypedAnswer(){
+  const typed = $questionInput.value.trim();
+  if(typed) respondQuestion(typed);
+}
+$questionOtherBtn.addEventListener('click',sendTypedAnswer);
+$questionSkipBtn.addEventListener('click',()=>respondQuestion(null));
+$questionInput.addEventListener('keydown',e=>{
+  if(e.key==='Enter'){ e.preventDefault(); sendTypedAnswer(); }
+});
+$questionBar.addEventListener('keydown',e=>{
+  if(e.key==='Escape'){ e.preventDefault(); respondQuestion(null); }
+});
+
 function addFileChanges(changes){
   if(!changes||!changes.length) return;
   const sigilLabel={'A':'added','M':'modified','D':'deleted','R':'renamed'};
@@ -1745,6 +1848,10 @@ window.addEventListener('message',evt=>{
       }
       break;
 
+    case 'question':
+      showQuestion(msg);
+      break;
+
     case 'message_end':
       finalise({
         input:  typeof msg.inputTokens==='number'       ? msg.inputTokens       : undefined,
@@ -1755,6 +1862,7 @@ window.addEventListener('message',evt=>{
 
     case 'cancelled':
       abandonPendingApproval();
+      abandonPendingQuestion();
       if(curBubble){
         curBubble.innerHTML=mdToHtml(curText)||'<em>(cancelled)</em>';
       } else if(curMsgDiv){
@@ -1782,6 +1890,7 @@ window.addEventListener('message',evt=>{
 
     case 'error':
       abandonPendingApproval();
+      abandonPendingQuestion();
       if(curMsgDiv){ curMsgDiv.remove(); curBubble=null; curTools=null; curText=''; curMsgDiv=null; }
       curToolList=[]; curToolState={expanded:false};
       addSystem('Error: '+(msg.text||'unknown error'));
@@ -1822,6 +1931,7 @@ window.addEventListener('message',evt=>{
 
     case 'session_end':
       abandonPendingApproval();
+      abandonPendingQuestion();
       addSystem('Session ended.');
       isStreaming=false;
       setEnabled(false);
