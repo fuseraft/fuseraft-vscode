@@ -9,7 +9,7 @@
     "type": "git",
     "url": "https://github.com/fuseraft/fuseraft-vscode"
   },
-  "homepage": "https://fuseraft.ai",
+  "homepage": "https://fuseraft.ai/fuseraft-cli/",
   "engines": {
     "vscode": "^1.85.0"
   },

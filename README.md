@@ -4,7 +4,7 @@
 
 Chat with [fuseraft](https://github.com/fuseraft/fuseraft-cli) agents in an interactive REPL panel, right in your editor — plus task runs, sessions, and config tools.
 
-[fuseraft.ai](https://fuseraft.ai) · [GitHub](https://github.com/fuseraft/fuseraft-cli)
+[Docs](https://fuseraft.ai/fuseraft-cli/) · [GitHub](https://github.com/fuseraft/fuseraft-cli)
 
 ## Features
 
