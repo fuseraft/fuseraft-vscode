@@ -1,49 +1,29 @@
 import * as vscode from 'vscode';
-import * as path from 'path';
 import * as fs from 'fs';
-import { SessionTreeProvider, SessionItem } from './sessionTreeProvider';
-import { ConfigTreeProvider, ConfigItem } from './configTreeProvider';
-import { ContextTreeProvider, ContextItemNode, getContextDir, readContextIndex } from './contextTreeProvider';
+import * as path from 'path';
+import { ReplSessionTreeProvider, ReplSessionItem } from './replSessionTreeProvider';
 import { MemoryTreeProvider, MemoryItemNode, readMemoryEntries } from './memoryTreeProvider';
 import { SkillsTreeProvider, SkillItemNode, readSkills, getSkillsDir } from './skillsTreeProvider';
-import { ObjectiveTreeProvider, ObjectiveItemNode, readObjectives, getObjectivesDir } from './objectiveTreeProvider';
-import { FuseraftCodeLensProvider, isFuseraftConfig } from './codeLensProvider';
-import { TaskPanelProvider } from './taskPanelProvider';
-import { SessionViewPanel } from './sessionViewPanel';
 import { ReplPanelProvider } from './replPanelProvider';
 import { registerDiffContentProvider } from './diffContentProvider';
 import {
-    getBinary, getRunFlags, findFuseraftConfigs, pickConfig,
-    promptForTask, buildRunCommand, buildInitCommand, runInTerminal,
-    runInstaller, runUpdate, getSessionsDir, checkCli, invalidateCliCache, disposeOutputChannel,
+    getBinary, runInTerminal, shellQuote,
+    runInstaller, runUpdate, checkCli, invalidateCliCache, disposeOutputChannel,
     readReplSessions, formatRelativeTime, ReplSessionInfo,
-    readProviderConfig, fetchModelsViaCli, getMemoryReplDir, getFuseraftHome,
+    getMemoryReplDir, getFuseraftHome, getReplSessionsDir,
 } from './fuseraftUtils';
 import { isConfigured, runSetupWizard } from './setupWizard';
 
 export function activate(context: vscode.ExtensionContext): void {
-    const sessionProvider = new SessionTreeProvider();
-    const configProvider = new ConfigTreeProvider();
-    const contextProvider = new ContextTreeProvider();
+    const chatProvider = new ReplSessionTreeProvider();
     const memoryProvider = new MemoryTreeProvider();
     const skillsProvider = new SkillsTreeProvider();
-    const objectiveProvider = new ObjectiveTreeProvider();
-    const codeLensProvider = new FuseraftCodeLensProvider();
-    const taskPanel = new TaskPanelProvider(context.extensionUri);
     ReplPanelProvider.extensionUri = context.extensionUri;
     registerDiffContentProvider(context);
 
     // Tree views
-    vscode.window.createTreeView('fuseraft.sessions', {
-        treeDataProvider: sessionProvider,
-        showCollapseAll: false,
-    });
-    vscode.window.createTreeView('fuseraft.configs', {
-        treeDataProvider: configProvider,
-        showCollapseAll: false,
-    });
-    vscode.window.createTreeView('fuseraft.context', {
-        treeDataProvider: contextProvider,
+    vscode.window.createTreeView('fuseraft.chats', {
+        treeDataProvider: chatProvider,
         showCollapseAll: false,
     });
     vscode.window.createTreeView('fuseraft.memory', {
@@ -54,33 +34,12 @@ export function activate(context: vscode.ExtensionContext): void {
         treeDataProvider: skillsProvider,
         showCollapseAll: false,
     });
-    vscode.window.createTreeView('fuseraft.objectives', {
-        treeDataProvider: objectiveProvider,
-        showCollapseAll: false,
-    });
-    // Task panel webview (sidebar)
-    context.subscriptions.push(
-        vscode.window.registerWebviewViewProvider(TaskPanelProvider.viewType, taskPanel, {
-            webviewOptions: { retainContextWhenHidden: true },
-        })
-    );
-
-    // CodeLens for YAML/JSON config files
-    context.subscriptions.push(
-        vscode.languages.registerCodeLensProvider(
-            [
-                { language: 'yaml', scheme: 'file' },
-                { language: 'json', scheme: 'file' },
-            ],
-            codeLensProvider
-        )
-    );
 
     // Status bar
     const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 10);
-    statusBar.text = '$(circuit-board) fuseraft';
-    statusBar.tooltip = 'fuseraft: Run Task';
-    statusBar.command = 'fuseraft.run';
+    statusBar.text = '$(comment-discussion) fuseraft';
+    statusBar.tooltip = 'fuseraft: Open REPL';
+    statusBar.command = 'fuseraft.repl';
     statusBar.show();
     context.subscriptions.push(statusBar);
 
@@ -131,494 +90,81 @@ export function activate(context: vscode.ExtensionContext): void {
     context.subscriptions.push(
         vscode.workspace.onDidChangeConfiguration(e => {
             if (e.affectsConfiguration('fuseraft.homeDir')) {
-                sessionProvider.resetWatcher();
+                chatProvider.resetWatcher();
                 memoryProvider.resetWatcher();
                 skillsProvider.resetWatcher();
             }
         })
     );
 
-    // Track context key for editor/context menu — seed immediately and on every tab change
-    const setConfigContext = (editor: vscode.TextEditor | undefined) => {
-        vscode.commands.executeCommand(
-            'setContext',
-            'fuseraft.isFuseraftConfig',
-            editor ? isFuseraftConfig(editor.document.getText()) : false
-        );
-    };
-    setConfigContext(vscode.window.activeTextEditor);
-    context.subscriptions.push(
-        vscode.window.onDidChangeActiveTextEditor(setConfigContext),
-        vscode.workspace.onDidChangeTextDocument(e => {
-            if (e.document === vscode.window.activeTextEditor?.document) {
-                setConfigContext(vscode.window.activeTextEditor);
-            }
-        })
-    );
-
     // ---- Commands ----
 
-    // fuseraft.run — prompt for task, pick config, run
+    // fuseraft.repl — bring the live chat into view, or start one with the configured model
     context.subscriptions.push(
-        vscode.commands.registerCommand('fuseraft.run', async () => {
-            const task = await promptForTask();
-            if (!task?.trim()) { return; }
-
-            const configs = await findFuseraftConfigs();
-            const config = await pickConfig(configs);
-
-            const cmd = buildRunCommand(getBinary(), task, config?.fsPath, getRunFlags());
-            runInTerminal(cmd);
+        vscode.commands.registerCommand('fuseraft.repl', () => {
+            ReplPanelProvider.show('', undefined, workspaceRoot());
         })
     );
 
-    // fuseraft.runFromConfig — run using a specific config (from tree, codelens, or explorer)
+    // fuseraft.replNew — start a fresh chat, replacing a live one (which stays resumable)
     context.subscriptions.push(
-        vscode.commands.registerCommand('fuseraft.runFromConfig', async (arg?: ConfigItem | string | vscode.Uri) => {
-            let configPath: string | undefined;
-
-            if (typeof arg === 'string') {
-                configPath = arg;
-            } else if (arg instanceof vscode.Uri) {
-                configPath = arg.fsPath;
-            } else if (arg instanceof ConfigItem && arg.config.fsPath) {
-                configPath = arg.config.fsPath;
-            } else {
-                const configs = await findFuseraftConfigs();
-                const picked = await pickConfig(configs);
-                configPath = picked?.fsPath;
-            }
-
-            const task = await promptForTask();
-            if (!task?.trim()) { return; }
-
-            const cmd = buildRunCommand(getBinary(), task, configPath, getRunFlags());
-            runInTerminal(cmd);
+        vscode.commands.registerCommand('fuseraft.replNew', () => {
+            ReplPanelProvider.show('', undefined, workspaceRoot(), true);
         })
     );
 
-    // fuseraft.init — multi-step wizard: template → model → endpoint → output path → run
+    // fuseraft.replResume — resume the clicked chat, or pick one from every saved session
     context.subscriptions.push(
-        vscode.commands.registerCommand('fuseraft.init', async () => {
-            const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-
-            // Step 1: template
-            const TEMPLATES = [
-                { label: 'solo',       description: 'Single capable agent with investigation tooling and lossless compaction — the right starting point for simple tasks' },
-                { label: 'pipeline',   description: 'Planner → Developer → Tester → Reviewer as a directed graph with investigation tooling — no evidence contracts; use swe for production work' },
-                { label: 'swe',        description: 'Planner → PlannerCritic → Developer → Tester → Reviewer — full safeguards: evidence contracts, hypothesis tracking, periodic Verifier, lossless compaction' },
-                { label: 'greenfield', description: 'Planner → Developer → Tester → Reviewer — optimised for new projects: no PlannerCritic, no Verifier, greenfield-aware Planner, larger Developer context window' },
-                { label: 'brownfield', description: 'Archaeologist recons the codebase once → Planner → Developer → Reviewer as a graph; multi-target back-edges (REVISION REQUIRED → Developer, REPLAN REQUIRED → Planner)' },
-                { label: 'research',   description: 'Researcher gathers cited findings → Critic adversarially reviews for gaps → Writer synthesises the final document' },
-                { label: 'data',       description: 'DataEngineer fetches and structures data → Analyst computes findings → Reporter synthesises a final document' },
-                { label: 'devops',     description: 'OpsPlanner writes an ops plan with rollback_command → Executor runs steps → Verifier health-checks; can trigger rollback' },
-                { label: 'debate',     description: 'Proposer argues a position → Challenger critiques adversarially → Moderator synthesises a structured final verdict' },
-                { label: 'audit',      description: 'Auditor scans for security / quality / compliance issues → Prioritizer triages by severity → Developer fixes → Verifier confirms' },
-                { label: 'magentic',   description: 'AI-managed team: a manager LLM plans and coordinates 5 specialist workers dynamically; user approves the plan before execution' },
-                { label: '$(terminal) Interactive wizard', description: 'Run the full fuseraft init wizard in the terminal' },
-            ];
-
-            const templatePick = await vscode.window.showQuickPick(TEMPLATES, {
-                title: 'fuseraft init  (1 / 4)  — Template',
-                placeHolder: 'Select a template',
-                matchOnDescription: true,
-            });
-            if (!templatePick) { return; }
-
-            if (templatePick.label.startsWith('$(terminal)')) {
-                runInTerminal(`${getBinary()} init`, 'fuseraft init');
+        vscode.commands.registerCommand('fuseraft.replResume', async (arg?: ReplSessionItem) => {
+            if (arg?.session?.sessionId) {
+                ReplPanelProvider.show(arg.session.modelId, arg.session.sessionId, workspaceRoot());
                 return;
             }
-
-            const template = templatePick.label;
-
-            // Step 2: model — same pattern as fuseraft.repl: try `fuseraft models`
-            // (works once an API key is configured) and fall back to a
-            // pre-defined list when the CLI call fails or returns nothing.
-            const fallbackModels = [
-                'claude-sonnet-4-6',
-                'claude-opus-4-8',
-                'claude-haiku-4-5',
-                'gpt-4o',
-                'gpt-4o-mini',
-                'grok-4',
-                'grok-4-1-fast-reasoning',
-                'gemini-2.5-flash',
-                'mistral-medium-latest',
-                'deepseek-chat',
-            ];
-            const cliModels = await fetchModelsViaCli(workspaceRoot);
-            const models = cliModels?.list ?? fallbackModels;
-            const currentModel = cliModels?.current ?? readProviderConfig()?.modelId ?? '';
-
-            const savedModelItem = currentModel
-                ? [{ label: `$(settings-gear) Use configured model (${currentModel})`, description: 'from your provider setup', modelFlag: '' }]
-                : [{ label: '$(settings-gear) Auto-detect from API keys', description: 'uses ~/.fuseraft/config or env vars', modelFlag: '' }];
-
-            const modelPick = await vscode.window.showQuickPick(
-                [
-                    ...savedModelItem,
-                    ...models.map(m => ({ label: m, description: m === currentModel ? 'current' : '', modelFlag: m })),
-                    { label: '$(edit) Enter model ID…', description: '', modelFlag: '' },
-                ],
-                {
-                    title: 'fuseraft init  (2 / 4)  — Model',
-                    placeHolder: 'Pick a model or use auto-detection',
-                }
-            );
-            if (!modelPick) { return; }
-
-            let modelFlag = modelPick.modelFlag;
-            if (modelPick.label === '$(edit) Enter model ID…') {
-                const custom = await vscode.window.showInputBox({
-                    title: 'Model ID',
-                    placeHolder: 'e.g. claude-sonnet-4-6',
-                    ignoreFocusOut: true,
-                });
-                if (custom === undefined) { return; }
-                modelFlag = custom.trim();
-            }
-
-            // Step 3: endpoint (optional)
-            const endpointPick = await vscode.window.showQuickPick(
-                [
-                    { label: '$(settings-gear) Use saved endpoint', description: 'from ~/.fuseraft/config', endpoint: '' },
-                    { label: 'https://api.anthropic.com',            description: 'Anthropic',   endpoint: 'https://api.anthropic.com' },
-                    { label: 'https://api.openai.com/v1',            description: 'OpenAI',      endpoint: 'https://api.openai.com/v1' },
-                    { label: 'https://api.x.ai/v1',                  description: 'xAI',         endpoint: 'https://api.x.ai/v1' },
-                    { label: 'https://generativelanguage.googleapis.com', description: 'Google', endpoint: 'https://generativelanguage.googleapis.com' },
-                    { label: 'https://api.mistral.ai/v1',            description: 'Mistral',     endpoint: 'https://api.mistral.ai/v1' },
-                    { label: 'https://api.deepseek.com/v1',          description: 'DeepSeek',    endpoint: 'https://api.deepseek.com/v1' },
-                    { label: '$(edit) Enter endpoint URL…',          description: '',            endpoint: '' },
-                ],
-                {
-                    title: 'fuseraft init  (3 / 4)  — Provider Endpoint',
-                    placeHolder: 'Pick a provider endpoint or use saved default',
-                }
-            );
-            if (!endpointPick) { return; }
-
-            let endpointFlag = (endpointPick as { endpoint: string }).endpoint;
-            if (endpointPick.label === '$(edit) Enter endpoint URL…') {
-                const custom = await vscode.window.showInputBox({
-                    title: 'Provider endpoint URL',
-                    placeHolder: 'e.g. https://chat.mycompany.com/openai/',
-                    ignoreFocusOut: true,
-                });
-                if (custom === undefined) { return; }
-                endpointFlag = custom.trim();
-            }
-
-            // Step 4: output path
-            const outputPath = await vscode.window.showInputBox({
-                title: 'fuseraft init  (4 / 4)  — Output Path',
-                prompt: 'Config file path (relative to workspace root, or absolute)',
-                value: '.fuseraft/config/orchestration.yaml',
-                ignoreFocusOut: true,
-            });
-            if (!outputPath) { return; }
-
-            const fullPath = path.isAbsolute(outputPath)
-                ? outputPath
-                : path.join(workspaceRoot ?? '.', outputPath);
-
-            // Build command (uses platform-aware quoting)
-            const cmd = buildInitCommand(getBinary(), fullPath, template, modelFlag || undefined, endpointFlag || undefined);
-            runInTerminal(cmd, 'fuseraft init');
-
-            // Open the generated file once it appears on disk (poll up to 15 s)
-            openWhenReady(fullPath, configProvider);
-        })
-    );
-
-    // fuseraft.runTaskFile — run fuseraft with a task file (-f flag)
-    context.subscriptions.push(
-        vscode.commands.registerCommand('fuseraft.runTaskFile', async (arg?: vscode.Uri) => {
-            const taskFilePath = arg?.fsPath ?? vscode.window.activeTextEditor?.document.uri.fsPath;
-            if (!taskFilePath) { return; }
-
-            const configs = await findFuseraftConfigs();
-            const config = await pickConfig(configs);
-
-            const configFlag = config ? ` -c '${config.fsPath}'` : '';
-            const flags = getRunFlags() ? ` ${getRunFlags()}` : '';
-            runInTerminal(`${getBinary()} run --vscode${configFlag}${flags} -f '${taskFilePath}'`);
-        })
-    );
-
-    // fuseraft.validate — validate a config file
-    context.subscriptions.push(
-        vscode.commands.registerCommand('fuseraft.validate', async (arg?: ConfigItem | string | vscode.Uri) => {
-            const configPath = await resolveConfigPath(arg);
-            if (!configPath) { return; }
-            runInTerminal(`${getBinary()} validate '${configPath}'`, 'fuseraft validate', true);
-        })
-    );
-
-    // fuseraft.validateDiagram — validate + show Mermaid diagram
-    context.subscriptions.push(
-        vscode.commands.registerCommand('fuseraft.validateDiagram', async (arg?: ConfigItem | string | vscode.Uri) => {
-            const configPath = await resolveConfigPath(arg);
-            if (!configPath) { return; }
-            runInTerminal(`${getBinary()} validate '${configPath}' --diagram`, 'fuseraft validate', true);
-        })
-    );
-
-    // fuseraft.repl — open interactive REPL in a webview chat panel
-    context.subscriptions.push(
-        vscode.commands.registerCommand('fuseraft.repl', async () => {
-            const fallbackModels = [
-                'claude-sonnet-4-6',
-                'claude-opus-4-8',
-                'claude-haiku-4-5',
-                'gpt-4o',
-                'gpt-4o-mini',
-                'grok-4',
-                'grok-4-1-fast-reasoning',
-                'gemini-2.5-flash',
-                'mistral-medium-latest',
-                'deepseek-chat',
-            ];
-
-            const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-            const cliModels = await fetchModelsViaCli(workspaceRoot);
-            const models = cliModels?.list ?? fallbackModels;
-            const currentModel = cliModels?.current ?? readProviderConfig()?.modelId ?? '';
-
-            const replSessions = readReplSessions();
-            const resumeEntry = replSessions.length > 0
-                ? [{ label: '$(history) Resume a previous session…', description: `${replSessions.length} saved session${replSessions.length === 1 ? '' : 's'}`, isResume: true }]
-                : [];
-
-            const picked = await vscode.window.showQuickPick(
-                [
-                    ...resumeEntry,
-                    { label: '$(settings-gear) Use configured default', description: 'from ~/.fuseraft/config', isResume: false },
-                    ...models.map(m => ({ label: m, description: m === currentModel ? 'current' : '', isResume: false })),
-                    { label: '$(edit) Enter model ID…', description: '', isResume: false },
-                ],
-                { title: 'fuseraft REPL', placeHolder: 'Start a new session or resume a previous one' }
-            );
-            if (!picked) { return; }
-
-            if ((picked as { isResume?: boolean }).isResume) {
-                await pickAndResumeReplSession(replSessions, workspaceRoot);
-                return;
-            }
-
-            let model = '';
-            if (picked.label === '$(edit) Enter model ID…') {
-                const modelId = await vscode.window.showInputBox({
-                    title: 'Model ID',
-                    placeHolder: 'e.g. claude-sonnet-4-6',
-                    ignoreFocusOut: true,
-                });
-                if (!modelId) { return; }
-                model = modelId;
-            } else if (!picked.label.startsWith('$(')) {
-                model = picked.label;
-            }
-
-            ReplPanelProvider.show(model, undefined, workspaceRoot);
-        })
-    );
-
-    // fuseraft.replResume — jump straight to the session picker
-    context.subscriptions.push(
-        vscode.commands.registerCommand('fuseraft.replResume', async () => {
             const sessions = readReplSessions();
             if (sessions.length === 0) {
                 vscode.window.showInformationMessage('No saved REPL sessions found.');
                 return;
             }
-            const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-            await pickAndResumeReplSession(sessions, workspaceRoot);
+            await pickAndResumeReplSession(sessions, workspaceRoot());
         })
     );
 
-    // fuseraft.viewSession — open session transcript in a webview panel
+    // fuseraft.replDelete — delete a saved chat's snapshot
     context.subscriptions.push(
-        vscode.commands.registerCommand('fuseraft.viewSession', (arg?: SessionItem) => {
-            if (arg?.session?.sessionId) {
-                SessionViewPanel.show(arg.session);
-            }
-        })
-    );
-
-    // fuseraft.resumeSession — resume an incomplete session
-    context.subscriptions.push(
-        vscode.commands.registerCommand('fuseraft.resumeSession', async (arg?: SessionItem) => {
-            let sessionId: string | undefined;
-
-            if (arg?.session?.sessionId) {
-                sessionId = arg.session.sessionId;
-            } else {
-                // Pick from incomplete sessions
-                const { readSessions } = await import('./fuseraftUtils');
-                const sessions = readSessions().filter(s => !s.isComplete);
-                if (sessions.length === 0) {
-                    vscode.window.showInformationMessage('No incomplete sessions to resume.');
-                    return;
-                }
-                const items = sessions.map(s => ({
-                    label: s.sessionId,
-                    description: s.task.split('\n')[0].slice(0, 80),
-                    sessionId: s.sessionId,
-                }));
-                const picked = await vscode.window.showQuickPick(items, {
-                    title: 'Resume Session',
-                    placeHolder: 'Pick a session to resume',
-                });
-                sessionId = picked?.sessionId;
-            }
-
-            if (!sessionId) { return; }
-            runInTerminal(`${getBinary()} run --vscode --resume ${sessionId}`, 'fuseraft');
-        })
-    );
-
-    // fuseraft.deleteSession — delete a session
-    context.subscriptions.push(
-        vscode.commands.registerCommand('fuseraft.deleteSession', async (arg?: SessionItem) => {
+        vscode.commands.registerCommand('fuseraft.replDelete', async (arg?: ReplSessionItem) => {
             if (!arg?.session?.sessionId) { return; }
             const { session } = arg;
-            const preview = session.task.split('\n')[0].slice(0, 60);
-
+            if (ReplPanelProvider.liveSessionId === session.sessionId) {
+                vscode.window.showWarningMessage('That chat is still open. Close its panel before deleting it.');
+                return;
+            }
+            const preview = session.firstUserMessage.split('\n')[0].slice(0, 60);
             const confirm = await vscode.window.showWarningMessage(
-                `Delete session ${session.sessionId}?\n"${preview}"`,
+                `Delete chat ${session.sessionId}?${preview ? `\n"${preview}"` : ''}`,
                 { modal: true },
                 'Delete'
             );
             if (confirm !== 'Delete') { return; }
 
-            runInTerminal(
-                `${getBinary()} sessions --delete ${session.sessionId}`,
-                'fuseraft sessions',
-                true
-            );
-            setTimeout(() => sessionProvider.refresh(), 1500);
-        })
-    );
-
-    // fuseraft.openSessionConfig — open the config associated with a session
-    context.subscriptions.push(
-        vscode.commands.registerCommand('fuseraft.openSessionConfig', async (arg?: SessionItem) => {
-            if (!arg?.session?.configPath) { return; }
-            const configPath = arg.session.configPath;
-            if (!fs.existsSync(configPath)) {
-                vscode.window.showWarningMessage(`Config not found: ${configPath}`);
-                return;
+            try {
+                fs.unlinkSync(path.join(getReplSessionsDir(), `repl-${session.sessionId}.json`));
+            } catch (err: unknown) {
+                vscode.window.showErrorMessage(`Could not delete chat: ${err instanceof Error ? err.message : String(err)}`);
             }
-            vscode.window.showTextDocument(vscode.Uri.file(configPath));
+            chatProvider.refresh();
         })
     );
 
-    // fuseraft.openConfig — open a config file from the configs tree
+    // fuseraft.refreshChats
     context.subscriptions.push(
-        vscode.commands.registerCommand('fuseraft.openConfig', async (arg?: ConfigItem) => {
-            if (!arg?.config?.fsPath) { return; }
-            vscode.window.showTextDocument(vscode.Uri.file(arg.config.fsPath));
+        vscode.commands.registerCommand('fuseraft.refreshChats', () => {
+            chatProvider.refresh();
         })
     );
 
-    // fuseraft.refreshSessions
+    // Workspace folders changing re-scopes which chats belong here.
     context.subscriptions.push(
-        vscode.commands.registerCommand('fuseraft.refreshSessions', () => {
-            sessionProvider.refresh();
-        })
-    );
-
-    // fuseraft.refreshConfigs
-    context.subscriptions.push(
-        vscode.commands.registerCommand('fuseraft.refreshConfigs', () => {
-            configProvider.refresh();
-        })
-    );
-
-    // fuseraft.refreshContext
-    context.subscriptions.push(
-        vscode.commands.registerCommand('fuseraft.refreshContext', () => {
-            contextProvider.refresh();
-        })
-    );
-
-    // fuseraft.contextAdd — pick file/folder, optional name + description, run context add
-    context.subscriptions.push(
-        vscode.commands.registerCommand('fuseraft.contextAdd', async () => {
-            const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-            if (!workspaceRoot) {
-                vscode.window.showWarningMessage('Open a workspace folder to manage context.');
-                return;
-            }
-
-            const uris = await vscode.window.showOpenDialog({
-                canSelectMany: false,
-                canSelectFiles: true,
-                canSelectFolders: true,
-                title: 'Select file or folder to add to context',
-            });
-            if (!uris?.[0]) { return; }
-
-            const sourcePath = uris[0].fsPath;
-            const defaultName = path.basename(sourcePath, path.extname(sourcePath));
-
-            const name = await vscode.window.showInputBox({
-                title: 'Context item name',
-                prompt: 'Short alias used to reference this item (leave blank to use filename)',
-                value: defaultName,
-                ignoreFocusOut: true,
-            });
-            if (name === undefined) { return; }
-
-            const description = await vscode.window.showInputBox({
-                title: 'Description (optional)',
-                prompt: 'Human-readable description appended to agent prompts',
-                placeHolder: 'e.g. Product specifications',
-                ignoreFocusOut: true,
-            });
-            if (description === undefined) { return; }
-
-            const binary = getBinary();
-            const nameFlag = name.trim() ? ` --name '${name.trim()}'` : '';
-            const descFlag = description.trim() ? ` --description '${description.trim()}'` : '';
-            runInTerminal(
-                `${binary} context add '${sourcePath}'${nameFlag}${descFlag} --dir '${workspaceRoot}'`,
-                'fuseraft context'
-            );
-            setTimeout(() => contextProvider.refresh(), 2000);
-        })
-    );
-
-    // fuseraft.contextRemove — remove a context item by name
-    context.subscriptions.push(
-        vscode.commands.registerCommand('fuseraft.contextRemove', async (arg?: ContextItemNode) => {
-            const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-            if (!workspaceRoot) { return; }
-
-            let name: string | undefined;
-            if (arg?.entry?.name) {
-                name = arg.entry.name;
-            } else {
-                const entries = readContextIndex();
-                if (entries.length === 0) {
-                    vscode.window.showInformationMessage('No context items to remove.');
-                    return;
-                }
-                const picked = await vscode.window.showQuickPick(
-                    entries.map(e => ({ label: e.name, description: e.description ?? e.sourcePath })),
-                    { title: 'Remove Context Item', placeHolder: 'Select an item to remove' }
-                );
-                if (!picked) { return; }
-                name = picked.label;
-            }
-
-            const binary = getBinary();
-            runInTerminal(
-                `${binary} context remove '${name}' --dir '${workspaceRoot}'`,
-                'fuseraft context'
-            );
-            setTimeout(() => contextProvider.refresh(), 1500);
-        })
+        vscode.workspace.onDidChangeWorkspaceFolders(() => chatProvider.refresh())
     );
 
     // fuseraft.refreshMemory
@@ -648,7 +194,7 @@ export function activate(context: vscode.ExtensionContext): void {
                 name = picked.label;
             }
 
-            runInTerminal(`${getBinary()} memory delete '${name}'`, 'fuseraft memory', true);
+            runInTerminal(`${getBinary()} memory delete ${shellQuote(name)}`, 'fuseraft memory', true);
             setTimeout(() => memoryProvider.refresh(), 1500);
         })
     );
@@ -674,34 +220,6 @@ export function activate(context: vscode.ExtensionContext): void {
         })
     );
 
-    // fuseraft.knowledgeGc — dry-run the knowledge lifecycle policies and show the report
-    context.subscriptions.push(
-        vscode.commands.registerCommand('fuseraft.knowledgeGc', () => {
-            runInTerminal(`${getBinary()} knowledge gc`, 'fuseraft knowledge', true);
-        })
-    );
-
-    // fuseraft.knowledgeGcApply — commit knowledge lifecycle changes to disk
-    context.subscriptions.push(
-        vscode.commands.registerCommand('fuseraft.knowledgeGcApply', async () => {
-            const confirm = await vscode.window.showWarningMessage(
-                'Apply knowledge GC? This archives superseded ADRs, demotes/prunes repository memories, and decays provenance claims.',
-                { modal: true },
-                'Apply'
-            );
-            if (confirm !== 'Apply') { return; }
-
-            runInTerminal(`${getBinary()} knowledge gc --apply`, 'fuseraft knowledge', true);
-        })
-    );
-
-    // fuseraft.archCheck — scan for architecture layer violations and show the report
-    context.subscriptions.push(
-        vscode.commands.registerCommand('fuseraft.archCheck', () => {
-            runInTerminal(`${getBinary()} arch check`, 'fuseraft arch', true);
-        })
-    );
-
     // fuseraft.refreshSkills
     context.subscriptions.push(
         vscode.commands.registerCommand('fuseraft.refreshSkills', () => {
@@ -721,7 +239,7 @@ export function activate(context: vscode.ExtensionContext): void {
             });
             if (!uris?.[0]) { return; }
 
-            runInTerminal(`${getBinary()} skills add '${uris[0].fsPath}'`, 'fuseraft skills', true);
+            runInTerminal(`${getBinary()} skills add ${shellQuote(uris[0].fsPath)}`, 'fuseraft skills', true);
             setTimeout(() => skillsProvider.refresh(), 1500);
         })
     );
@@ -746,83 +264,8 @@ export function activate(context: vscode.ExtensionContext): void {
                 slug = picked.label;
             }
 
-            runInTerminal(`${getBinary()} skills remove '${slug}'`, 'fuseraft skills', true);
+            runInTerminal(`${getBinary()} skills remove ${shellQuote(slug)}`, 'fuseraft skills', true);
             setTimeout(() => skillsProvider.refresh(), 1500);
-        })
-    );
-
-    // fuseraft.refreshObjectives
-    context.subscriptions.push(
-        vscode.commands.registerCommand('fuseraft.refreshObjectives', () => {
-            objectiveProvider.refresh();
-        })
-    );
-
-    // fuseraft.objectiveCreate — prompt for title/description/tasks, run objective create
-    context.subscriptions.push(
-        vscode.commands.registerCommand('fuseraft.objectiveCreate', async () => {
-            const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-            if (!workspaceRoot) {
-                vscode.window.showWarningMessage('Open a workspace folder to manage objectives.');
-                return;
-            }
-
-            const title = await vscode.window.showInputBox({
-                title: 'Objective title',
-                prompt: 'Short title for this long-horizon objective',
-                placeHolder: 'e.g. Ship the knowledge layer',
-                ignoreFocusOut: true,
-            });
-            if (!title?.trim()) { return; }
-
-            const description = await vscode.window.showInputBox({
-                title: 'Description (optional)',
-                prompt: 'What this objective achieves and why it matters',
-                ignoreFocusOut: true,
-            });
-            if (description === undefined) { return; }
-
-            const tasks = await vscode.window.showInputBox({
-                title: 'Initial tasks (optional)',
-                prompt: 'Comma-separated list of remaining tasks',
-                placeHolder: 'e.g. Design, Implement, Test',
-                ignoreFocusOut: true,
-            });
-            if (tasks === undefined) { return; }
-
-            const binary = getBinary();
-            const descFlag  = description.trim() ? ` --description '${description.trim()}'` : '';
-            const tasksFlag = tasks.trim() ? ` --tasks '${tasks.trim()}'` : '';
-            runInTerminal(
-                `${binary} objective create --title '${title.trim()}'${descFlag}${tasksFlag}`,
-                'fuseraft objective'
-            );
-            setTimeout(() => objectiveProvider.refresh(), 2000);
-        })
-    );
-
-    // fuseraft.objectiveStatus — show detailed status/progress for an objective
-    context.subscriptions.push(
-        vscode.commands.registerCommand('fuseraft.objectiveStatus', async (arg?: ObjectiveItemNode) => {
-            let id: string | undefined;
-            if (arg?.objective?.id) {
-                id = arg.objective.id;
-            } else {
-                const dir = getObjectivesDir();
-                const objectives = dir ? readObjectives(dir) : [];
-                if (objectives.length === 0) {
-                    vscode.window.showInformationMessage('No objectives found.');
-                    return;
-                }
-                const picked = await vscode.window.showQuickPick(
-                    objectives.map(o => ({ label: o.id, description: `${o.title} (${o.status})` })),
-                    { title: 'View Objective Status', placeHolder: 'Select an objective' }
-                );
-                if (!picked) { return; }
-                id = picked.label;
-            }
-
-            runInTerminal(`${getBinary()} objective status '${id}'`, 'fuseraft objective', true);
         })
     );
 
@@ -954,10 +397,11 @@ export function activate(context: vscode.ExtensionContext): void {
         vscode.commands.registerCommand('fuseraft.setup', () => runSetupWizard(context.extensionUri))
     );
 
-    context.subscriptions.push(
-        sessionProvider, configProvider, contextProvider, memoryProvider,
-        skillsProvider, objectiveProvider
-    );
+    context.subscriptions.push(chatProvider, memoryProvider, skillsProvider);
+}
+
+function workspaceRoot(): string | undefined {
+    return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 }
 
 async function pickAndResumeReplSession(sessions: ReplSessionInfo[], cwd?: string): Promise<void> {
@@ -983,36 +427,6 @@ async function pickAndResumeReplSession(sessions: ReplSessionInfo[], cwd?: strin
     if (!picked) { return; }
 
     ReplPanelProvider.show(picked.modelId, picked.sessionId, cwd);
-}
-
-async function resolveConfigPath(arg?: ConfigItem | string | vscode.Uri): Promise<string | undefined> {
-    if (typeof arg === 'string') { return arg; }
-    if (arg instanceof vscode.Uri) { return arg.fsPath; }
-    if (arg instanceof ConfigItem && arg.config.fsPath) { return arg.config.fsPath; }
-
-    // Try active editor first
-    const editor = vscode.window.activeTextEditor;
-    if (editor && isFuseraftConfig(editor.document.getText())) {
-        return editor.document.uri.fsPath;
-    }
-
-    const configs = await findFuseraftConfigs();
-    const picked = await pickConfig(configs);
-    return picked?.fsPath;
-}
-
-function openWhenReady(filePath: string, configProvider: ConfigTreeProvider, timeoutMs = 15_000): void {
-    const start = Date.now();
-    const interval = setInterval(() => {
-        if (fs.existsSync(filePath)) {
-            clearInterval(interval);
-            configProvider.refresh();
-            vscode.window.showTextDocument(vscode.Uri.file(filePath));
-        } else if (Date.now() - start > timeoutMs) {
-            clearInterval(interval);
-            configProvider.refresh();
-        }
-    }, 500);
 }
 
 export function deactivate(): void {

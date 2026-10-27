@@ -20,9 +20,9 @@
   "keywords": [
     "ai",
     "agents",
-    "orchestration",
-    "fuseraft",
-    "multi-agent"
+    "repl",
+    "chat",
+    "fuseraft"
   ],
   "activationEvents": [
     "onStartupFinished"
@@ -32,110 +32,32 @@
   "contributes": {
     "commands": [
       {
-        "command": "fuseraft.run",
-        "title": "Run Task",
-        "category": "fuseraft",
-        "icon": "$(play)"
-      },
-      {
-        "command": "fuseraft.runFromConfig",
-        "title": "Run Task with This Config",
-        "category": "fuseraft",
-        "icon": "$(play)"
-      },
-      {
-        "command": "fuseraft.runTaskFile",
-        "title": "Run Task File with fuseraft",
-        "category": "fuseraft",
-        "icon": "$(play)"
-      },
-      {
-        "command": "fuseraft.init",
-        "title": "Initialize Config",
-        "category": "fuseraft",
-        "icon": "$(new-file)"
-      },
-      {
-        "command": "fuseraft.validate",
-        "title": "Validate Config",
-        "category": "fuseraft",
-        "icon": "$(check)"
-      },
-      {
-        "command": "fuseraft.validateDiagram",
-        "title": "Validate Config and Show Diagram",
-        "category": "fuseraft",
-        "icon": "$(type-hierarchy)"
-      },
-      {
         "command": "fuseraft.repl",
         "title": "Open REPL",
         "category": "fuseraft",
         "icon": "$(terminal)"
       },
       {
-        "command": "fuseraft.resumeSession",
-        "title": "Resume Session",
-        "category": "fuseraft",
-        "icon": "$(debug-continue)"
-      },
-      {
         "command": "fuseraft.replResume",
-        "title": "Resume REPL Session",
+        "title": "Resume Chat",
         "category": "fuseraft",
         "icon": "$(history)"
       },
       {
-        "command": "fuseraft.deleteSession",
-        "title": "Delete Session",
-        "category": "fuseraft",
-        "icon": "$(trash)"
-      },
-      {
-        "command": "fuseraft.openSessionConfig",
-        "title": "Open Session Config",
-        "category": "fuseraft",
-        "icon": "$(go-to-file)"
-      },
-      {
-        "command": "fuseraft.refreshSessions",
-        "title": "Refresh Sessions",
-        "category": "fuseraft",
-        "icon": "$(refresh)"
-      },
-      {
-        "command": "fuseraft.refreshConfigs",
-        "title": "Refresh Configs",
-        "category": "fuseraft",
-        "icon": "$(refresh)"
-      },
-      {
-        "command": "fuseraft.openConfig",
-        "title": "Open Config",
-        "category": "fuseraft",
-        "icon": "$(go-to-file)"
-      },
-      {
-        "command": "fuseraft.viewSession",
-        "title": "View Session Transcript",
-        "category": "fuseraft",
-        "icon": "$(open-preview)"
-      },
-      {
-        "command": "fuseraft.contextAdd",
-        "title": "Add Context",
+        "command": "fuseraft.replNew",
+        "title": "New Chat",
         "category": "fuseraft",
         "icon": "$(add)"
       },
       {
-        "command": "fuseraft.contextRemove",
-        "title": "Remove Context Item",
+        "command": "fuseraft.replDelete",
+        "title": "Delete Chat",
         "category": "fuseraft",
         "icon": "$(trash)"
       },
       {
-        "command": "fuseraft.refreshContext",
-        "title": "Refresh Context",
+        "command": "fuseraft.refreshChats",
+        "title": "Refresh Chats",
         "category": "fuseraft",
         "icon": "$(refresh)"
       },
@@ -158,24 +80,6 @@
         "icon": "$(clear-all)"
       },
       {
-        "command": "fuseraft.knowledgeGc",
-        "title": "Knowledge GC (Dry Run)",
-        "category": "fuseraft",
-        "icon": "$(beaker)"
-      },
-      {
-        "command": "fuseraft.knowledgeGcApply",
-        "title": "Knowledge GC (Apply)",
-        "category": "fuseraft",
-        "icon": "$(archive)"
-      },
-      {
-        "command": "fuseraft.archCheck",
-        "title": "Check Architecture Compliance",
-        "category": "fuseraft",
-        "icon": "$(shield)"
-      },
-      {
         "command": "fuseraft.refreshSkills",
         "title": "Refresh Skills",
         "category": "fuseraft",
@@ -192,24 +96,6 @@
         "title": "Remove Skill",
         "category": "fuseraft",
         "icon": "$(trash)"
-      },
-      {
-        "command": "fuseraft.refreshObjectives",
-        "title": "Refresh Objectives",
-        "category": "fuseraft",
-        "icon": "$(refresh)"
-      },
-      {
-        "command": "fuseraft.objectiveCreate",
-        "title": "Create Objective",
-        "category": "fuseraft",
-        "icon": "$(add)"
-      },
-      {
-        "command": "fuseraft.objectiveStatus",
-        "title": "View Objective Status",
-        "category": "fuseraft",
-        "icon": "$(open-preview)"
       },
       {
         "command": "fuseraft.install",
@@ -254,27 +140,9 @@
     "views": {
       "fuseraft": [
         {
-          "id": "fuseraft.taskPanel",
-          "name": "Run Task",
-          "type": "webview"
-        },
-        {
-          "id": "fuseraft.sessions",
-          "name": "Sessions",
-          "icon": "$(history)",
-          "initiallyCollapsed": true
-        },
-        {
-          "id": "fuseraft.configs",
-          "name": "Configs",
-          "icon": "$(settings-gear)",
-          "initiallyCollapsed": true
-        },
-        {
-          "id": "fuseraft.context",
-          "name": "Context",
-          "icon": "$(book)",
-          "initiallyCollapsed": true
+          "id": "fuseraft.chats",
+          "name": "Chats",
+          "icon": "$(comment-discussion)"
         },
         {
           "id": "fuseraft.memory",
@@ -287,19 +155,13 @@
           "name": "Skills",
           "icon": "$(tools)",
           "initiallyCollapsed": true
-        },
-        {
-          "id": "fuseraft.objectives",
-          "name": "Objectives",
-          "icon": "$(checklist)",
-          "initiallyCollapsed": true
         }
       ]
     },
     "viewsWelcome": [
       {
-        "view": "fuseraft.context",
-        "contents": "No context items.\n\n[Add Context](command:fuseraft.contextAdd)\n\nContext lets agents reference your files, docs, and specs during a session."
+        "view": "fuseraft.chats",
+        "contents": "No chats in this workspace yet.\n\n[New Chat](command:fuseraft.replNew)\n\nEach chat is saved as you go, so you can pick it back up here later."
       },
       {
         "view": "fuseraft.memory",
@@ -308,58 +170,29 @@
       {
         "view": "fuseraft.skills",
         "contents": "No skills installed.\n\n[Add Skill](command:fuseraft.skillsAdd)\n\nSkills are reusable instructions agents can load on demand during a session."
-      },
-      {
-        "view": "fuseraft.objectives",
-        "contents": "No objectives yet.\n\n[Create Objective](command:fuseraft.objectiveCreate)\n\nObjectives track long-horizon goals across multiple sessions."
       }
     ],
     "menus": {
       "view/title": [
         {
-          "command": "fuseraft.repl",
-          "when": "view == fuseraft.taskPanel",
-          "group": "navigation"
+          "command": "fuseraft.replNew",
+          "when": "view == fuseraft.chats",
+          "group": "navigation@1"
+        },
+        {
+          "command": "fuseraft.refreshChats",
+          "when": "view == fuseraft.chats",
+          "group": "navigation@2"
         },
         {
           "command": "fuseraft.update",
-          "when": "view == fuseraft.taskPanel",
-          "group": "navigation"
+          "when": "view == fuseraft.chats",
+          "group": "overflow@1"
         },
         {
           "command": "fuseraft.setup",
-          "when": "view == fuseraft.taskPanel",
-          "group": "navigation"
-        },
-        {
-          "command": "fuseraft.run",
-          "when": "view == fuseraft.sessions",
-          "group": "navigation"
-        },
-        {
-          "command": "fuseraft.refreshSessions",
-          "when": "view == fuseraft.sessions",
-          "group": "navigation"
-        },
-        {
-          "command": "fuseraft.init",
-          "when": "view == fuseraft.configs",
-          "group": "navigation"
-        },
-        {
-          "command": "fuseraft.refreshConfigs",
-          "when": "view == fuseraft.configs",
-          "group": "navigation"
-        },
-        {
-          "command": "fuseraft.contextAdd",
-          "when": "view == fuseraft.context",
-          "group": "navigation"
-        },
-        {
-          "command": "fuseraft.refreshContext",
-          "when": "view == fuseraft.context",
-          "group": "navigation"
+          "when": "view == fuseraft.chats",
+          "group": "overflow@2"
         },
         {
           "command": "fuseraft.refreshMemory",
@@ -375,83 +208,28 @@
           "command": "fuseraft.refreshSkills",
           "when": "view == fuseraft.skills",
           "group": "navigation"
-        },
-        {
-          "command": "fuseraft.objectiveCreate",
-          "when": "view == fuseraft.objectives",
-          "group": "navigation"
-        },
-        {
-          "command": "fuseraft.refreshObjectives",
-          "when": "view == fuseraft.objectives",
-          "group": "navigation"
         }
       ],
       "view/item/context": [
         {
-          "command": "fuseraft.resumeSession",
-          "when": "view == fuseraft.sessions && viewItem == session-incomplete",
-          "group": "inline"
+          "command": "fuseraft.replResume",
+          "when": "view == fuseraft.chats && viewItem == replSession",
+          "group": "inline@1"
         },
         {
-          "command": "fuseraft.resumeSession",
-          "when": "view == fuseraft.sessions && viewItem == session-incomplete",
-          "group": "1_session"
+          "command": "fuseraft.replDelete",
+          "when": "view == fuseraft.chats && viewItem == replSession",
+          "group": "inline@2"
         },
         {
-          "command": "fuseraft.viewSession",
-          "when": "view == fuseraft.sessions && (viewItem == session-incomplete || viewItem == session-complete)",
-          "group": "inline"
+          "command": "fuseraft.replResume",
+          "when": "view == fuseraft.chats && viewItem == replSession",
+          "group": "1_chat"
         },
         {
-          "command": "fuseraft.viewSession",
-          "when": "view == fuseraft.sessions && (viewItem == session-incomplete || viewItem == session-complete)",
-          "group": "1_session"
-        },
-        {
-          "command": "fuseraft.openSessionConfig",
-          "when": "view == fuseraft.sessions && (viewItem == session-incomplete || viewItem == session-complete)",
-          "group": "1_session"
-        },
-        {
-          "command": "fuseraft.deleteSession",
-          "when": "view == fuseraft.sessions && (viewItem == session-incomplete || viewItem == session-complete)",
+          "command": "fuseraft.replDelete",
+          "when": "view == fuseraft.chats && viewItem == replSession",
           "group": "2_danger"
-        },
-        {
-          "command": "fuseraft.runFromConfig",
-          "when": "view == fuseraft.configs && viewItem == config",
-          "group": "inline"
-        },
-        {
-          "command": "fuseraft.runFromConfig",
-          "when": "view == fuseraft.configs && viewItem == config",
-          "group": "1_config"
-        },
-        {
-          "command": "fuseraft.validate",
-          "when": "view == fuseraft.configs && viewItem == config",
-          "group": "1_config"
-        },
-        {
-          "command": "fuseraft.validateDiagram",
-          "when": "view == fuseraft.configs && viewItem == config",
-          "group": "1_config"
-        },
-        {
-          "command": "fuseraft.openConfig",
-          "when": "view == fuseraft.configs && viewItem == config",
-          "group": "1_config"
-        },
-        {
-          "command": "fuseraft.contextRemove",
-          "when": "view == fuseraft.context && viewItem == contextItem",
-          "group": "inline"
-        },
-        {
-          "command": "fuseraft.contextRemove",
-          "when": "view == fuseraft.context && viewItem == contextItem",
-          "group": "1_context"
         },
         {
           "command": "fuseraft.memoryDelete",
@@ -472,67 +250,12 @@
           "command": "fuseraft.skillsRemove",
           "when": "view == fuseraft.skills && viewItem == skillItem",
           "group": "1_skill"
-        },
-        {
-          "command": "fuseraft.objectiveStatus",
-          "when": "view == fuseraft.objectives && viewItem == objectiveItem",
-          "group": "inline"
-        },
-        {
-          "command": "fuseraft.objectiveStatus",
-          "when": "view == fuseraft.objectives && viewItem == objectiveItem",
-          "group": "1_objective"
         }
       ],
-      "editor/context": [
+      "commandPalette": [
         {
-          "command": "fuseraft.runFromConfig",
-          "when": "fuseraft.isFuseraftConfig",
-          "group": "fuseraft@1"
-        },
-        {
-          "command": "fuseraft.validate",
-          "when": "fuseraft.isFuseraftConfig",
-          "group": "fuseraft@2"
-        },
-        {
-          "command": "fuseraft.validateDiagram",
-          "when": "fuseraft.isFuseraftConfig",
-          "group": "fuseraft@3"
-        },
-        {
-          "command": "fuseraft.runTaskFile",
-          "when": "resourceExtname =~ /\\.(md|txt)/",
-          "group": "fuseraft@1"
-        }
-      ],
-      "explorer/context": [
-        {
-          "command": "fuseraft.runFromConfig",
-          "when": "resourceExtname =~ /\\.(yaml|yml|json)/ && resourceFilename =~ /orchestration|fuseraft/",
-          "group": "fuseraft@1"
-        },
-        {
-          "command": "fuseraft.validate",
-          "when": "resourceExtname =~ /\\.(yaml|yml|json)/ && resourceFilename =~ /orchestration|fuseraft/",
-          "group": "fuseraft@2"
-        },
-        {
-          "command": "fuseraft.validateDiagram",
-          "when": "resourceExtname =~ /\\.(yaml|yml|json)/ && resourceFilename =~ /orchestration|fuseraft/",
-          "group": "fuseraft@3"
-        },
-        {
-          "command": "fuseraft.runTaskFile",
-          "when": "resourceExtname =~ /\\.(md|txt)/",
-          "group": "fuseraft@1"
-        }
-      ],
-      "editor/title/context": [
-        {
-          "command": "fuseraft.runTaskFile",
-          "when": "resourceExtname =~ /\\.(md|txt)/",
-          "group": "fuseraft@1"
+          "command": "fuseraft.replDelete",
+          "when": "false"
         }
       ]
     },
@@ -548,33 +271,9 @@
           "type": "string",
           "default": "",
           "description": "Override the fuseraft home directory (default: ~/.fuseraft). Matches the CLI's FUSERAFT_HOME environment variable — useful when the OS home directory isn't durable (roaming/ephemeral profiles, RDS/VDI). Leave blank to use the default, or an already-set FUSERAFT_HOME environment variable."
-        },
-        "fuseraft.defaultConfigPath": {
-          "type": "string",
-          "default": "",
-          "description": "Default config path relative to the workspace root (e.g. '.fuseraft/config/orchestration.yaml'). Leave blank to be prompted."
-        },
-        "fuseraft.runFlags": {
-          "type": "string",
-          "default": "",
-          "description": "Additional flags to pass to 'fuseraft run' (e.g. '--tools --verbose')."
-        },
-        "fuseraft.openTerminalOnRun": {
-          "type": "boolean",
-          "default": true,
-          "description": "Open and focus the integrated terminal when running a task."
         }
       }
-    },
-    "jsonValidation": [
-      {
-        "fileMatch": [
-          "**/orchestration.json",
-          "**/*.fuseraft.json"
-        ],
-        "url": "./schemas/fuseraft-config.schema.json"
-      }
-    ]
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",

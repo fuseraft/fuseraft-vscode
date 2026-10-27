@@ -14,10 +14,16 @@ export class ReplPanelProvider {
     private static _current: ReplPanelProvider | undefined;
     static extensionUri: vscode.Uri;
 
-    static show(model: string, resumeId?: string, cwd?: string): void {
+    static get liveSessionId(): string | undefined {
+        const cur = ReplPanelProvider._current;
+        return cur?._alive ? cur._sessionId : undefined;
+    }
+
+    /** `fresh` replaces a live chat instead of revealing it; the replaced chat stays resumable from its snapshot. */
+    static show(model: string, resumeId?: string, cwd?: string, fresh = false): void {
         if (ReplPanelProvider._current) {
             const cur = ReplPanelProvider._current;
-            if (!resumeId || cur._sessionId === resumeId) {
+            if (!fresh && (!resumeId || cur._sessionId === resumeId)) {
                 if (cur._alive) {
                     // Same live session — just bring it into view.
                     cur._panel.reveal(vscode.ViewColumn.Beside);
@@ -813,14 +819,15 @@ function renderAttachments(){
 }
 
 /* ── slash/skill completion ──────────────────────────── */
-// Mirrors ReplLineReader's SlashCommands/SubCommands in fuseraft-cli — keep in sync.
+// Mirrors ReplLineReader's SlashCommands/SubCommands in fuseraft-cli — keep in sync,
+// except /run, which hands off to multi-agent orchestration and isn't offered here.
 const SLASH_COMMANDS = [
   '/adversarial','/agent','/agents','/assist','/clear','/compact','/context',
   '/conversation','/delegate','/events','/execute','/exit','/explore',
   '/fork','/goal','/help','/hitl','/history','/image','/last','/locate',
   '/max-tokens','/mcp','/memory','/model','/models','/paste','/plan',
   '/provider','/reasoning','/recover','/resume','/retry','/rewind',
-  '/run','/safe-mode','/save','/seed','/sessions','/snapshot','/switch',
+  '/safe-mode','/save','/seed','/sessions','/snapshot','/switch',
   '/system','/temperature','/tools','/top-p','/undo',
 ];
 const SUB_COMMANDS = {
