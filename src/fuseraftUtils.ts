@@ -291,7 +291,8 @@ export function fetchModelsViaCli(cwd?: string): Promise<{ list: string[]; curre
         execFile(getBinary(), ['models'], { env, ...(cwd ? { cwd } : {}) }, (_err, stdout) => {
             if (!stdout?.trim()) { resolve(null); return; }
             const lines = stdout.split('\n').map((l: string) => l.trim()).filter(Boolean);
-            const modelLines = lines.filter((l: string) => !l.startsWith('Available'));
+            // Model IDs never contain spaces, which drops the header and the trailing usage hint.
+            const modelLines = lines.filter((l: string) => !/\s/.test(l.replace(/\s*←\s*current\s*$/, '')));
             const list = modelLines.map((l: string) => l.replace(/\s*←\s*current\s*$/, '').trim()).filter(Boolean);
             const current = modelLines.find((l: string) => l.includes('← current'))
                 ?.replace(/\s*←\s*current\s*$/, '').trim() ?? '';
