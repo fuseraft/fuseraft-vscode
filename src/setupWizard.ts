@@ -343,14 +343,12 @@ export async function runSetupWizard(extensionUri: vscode.Uri): Promise<void> {
                 return;
             }
             panel.dispose();
-            // Offer to create an orchestration config immediately.
             const next = await vscode.window.showInformationMessage(
-                `fuseraft configured with ${msg.modelId}. Next, create an orchestration config to define your agent team.`,
-                'Create Config Now',
-                'Do It Later'
+                `fuseraft configured with ${msg.modelId}.`,
+                'Start a Chat'
             );
-            if (next === 'Create Config Now') {
-                vscode.commands.executeCommand('fuseraft.init');
+            if (next === 'Start a Chat') {
+                vscode.commands.executeCommand('fuseraft.replNew');
             }
         }
     });
@@ -546,7 +544,7 @@ function getSetupWebviewHtml(
 
     <div class="form-group">
         <label for="provider">AI Provider</label>
-        <div class="description">Select the default provider you want to use for agent orchestrations.</div>
+        <div class="description">Select the provider your chats use by default.</div>
         <select id="provider" ${disabledAttr}></select>
     </div>
 
