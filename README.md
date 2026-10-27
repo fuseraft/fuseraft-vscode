@@ -14,15 +14,24 @@ Chat with a [fuseraft](https://github.com/fuseraft/fuseraft-cli) agent in an int
 
 ![fuseraft REPL](media/fuseraft-repl.png)
 
+It works like the CLI's full-screen REPL:
+
+- **The turn as it happens** — the model's thinking streams in dimmed under `∴` and folds into one line once it moves on; each tool call is a line that turns ✓ or ✗ when its result comes back (a failure shows its first line), a subagent's calls are nested under it and tagged with its name, and each changed file shows as `✎ path +added -removed` (click to open it). Long turns keep the latest steps in view.
+- **Output viewer** — click a tool line for its arguments and output, or press **Ctrl+O** for the last 100 tool outputs, thoughts and shell outputs in full (←/→ to move, **Open in Editor** for a tab)
+- **Type while it works** — a message sent during a turn joins it (the model reads it after its current tool calls); a `/command`, `!command` or `$skill` waits as a chip above the prompt until the turn ends
+- **Status line** — model, turn, how full the context is (green, yellow as auto-compaction nears, red once past it), active modes such as `hitl`, and a timer while something runs
+- **Completions** — `/commands` and their subcommands, `$skills`, and `@paths` (one level down first, then files anywhere by name; git-ignored files and `.env` aren't offered). A mention attaches the file to your message.
+- **History** — ↑/↓ walk what you've sent, **Ctrl+R** searches it
+- **Approvals** — HITL prompts appear above the prompt; file writes open a real diff. Answer with **y**/**n** (or Esc to deny) when you're not typing.
+- **`!` shell escape** — `!git status` runs the command yourself (unsandboxed, never shown to the model) and streams its output into the panel
+- **Find** — **Ctrl+F** searches the conversation
+- **Notifications** — when a reply finishes or an approval or question waits while you're elsewhere (`fuseraft.notifications` turns them off)
 - **Model dropdown** — switch models live from the header; list is fetched from your provider via `fuseraft models`, history is preserved
-- **Streaming responses** — one thought at a time live, each replacing the last as the next begins; the full response reveals in full, broken into bordered blocks, once it's done
-- **Tool call badges** — click to expand arguments, hover for a summary
-- **Diff approvals** — with HITL on, file writes and patches open as a real diff before you approve them
-- **Markdown rendering** — headers, bold/italic, links, images, blockquotes, horizontal rules, code blocks with a one-click copy button, tables, lists
-- **Stop button** — interrupt mid-stream and immediately redirect
-- **Slash commands** — `/plan`, `/execute`, `/goal`, `/compact`, `/tools`, `/help`, and more
-- **File change summary** — files added, modified, renamed, or deleted appear below each response
-- **Shift+Enter** for multi-line input; **Enter** to send
+- **Markdown rendering** — headers, bold/italic, links, images, blockquotes, horizontal rules, code blocks with a one-click copy button, tables, lists; `/copy` puts the last reply on the clipboard
+- **Images** — paste a screenshot into the message box, or attach a file with the paperclip
+- **Stop** — the Stop button or **Ctrl+C** interrupts the turn; press again to kill commands it's stuck waiting on
+- **Resumable sessions** — snapshots stored at `~/.fuseraft/repl-sessions/`; resuming replays the last few turns
+- **Enter** sends; **Shift+Enter** or **Alt+Enter** for a new line; **PgUp/PgDn** scroll, **Ctrl+End** follows new output again
 
 ### Activity Bar Panel
 
@@ -56,7 +65,7 @@ Multi-agent orchestration (`fuseraft run`, `init`, `validate`, sessions) lives i
 
 ## Requirements
 
-- [fuseraft CLI](https://github.com/fuseraft/fuseraft-cli) installed and on your `PATH`
+- [fuseraft CLI](https://github.com/fuseraft/fuseraft-cli) installed and on your `PATH` (thinking, tool results, the status line, typing during a turn and `!` need a CLI release from this version on; an older one still works, with less detail)
 - VS Code 1.85 or later
 
 ## Extension Settings
@@ -65,6 +74,7 @@ Multi-agent orchestration (`fuseraft run`, `init`, `validate`, sessions) lives i
 |---------|---------|-------------|
 | `fuseraft.binaryPath` | `fuseraft` | Path to the fuseraft binary |
 | `fuseraft.homeDir` | _(blank)_ | Override the fuseraft home directory (`~/.fuseraft` by default); matches the CLI's `FUSERAFT_HOME` |
+| `fuseraft.notifications` | `true` | Notify when a reply finishes, or an approval or question waits, while you're away from the panel |
 
 ## Development
 
