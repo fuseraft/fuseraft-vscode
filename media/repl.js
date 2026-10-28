@@ -190,12 +190,15 @@ function setupCommandInput(ta, wrap, mirror, maxHeight){
     let html    = highlightTokens(text);
     const ghost = ghostSuffix(text);
     if(ghost) html += '<span class="ghost-suffix">'+esc(ghost)+'</span>';
+    // A trailing newline draws no line of its own in a div, so the mirror would end a line short of the textarea.
+    if(text.endsWith('\n')) html += ' ';
     mirror.innerHTML = html || '&nbsp;';
   }
 
   function resize(){
     ta.style.height = 'auto';
-    const h = Math.min(ta.scrollHeight, maxHeight);
+    // The height is border-box, so it has to include the borders scrollHeight leaves out, or the box always overflows.
+    const h = Math.min(ta.scrollHeight + ta.offsetHeight - ta.clientHeight, maxHeight);
     ta.style.height   = h+'px';
     wrap.style.height = h+'px';
     mirror.style.height = h+'px';
@@ -204,12 +207,28 @@ function setupCommandInput(ta, wrap, mirror, maxHeight){
 
   function sync(){ resize(); render(); }
 
+  // Whether the caret is on the first (up) or last visual line, where ↑/↓ belong to history rather
+  // than to moving between wrapped lines. Measured on the mirror's plain text, which wraps like the textarea.
+  function caretOnEdgeLine(up){
+    const text = ta.value, at = up ? ta.selectionStart : ta.selectionEnd;
+    if(up ? text.lastIndexOf('\n', at-1)>=0 : text.indexOf('\n', at)>=0) return false;
+    if(up ? at===0 : at===text.length) return true;
+    mirror.textContent = text;
+    const node = mirror.firstChild, range = document.createRange();
+    const topOf = i=>{ range.setStart(node, i); range.setEnd(node, i+1); const r = range.getClientRects(); return r.length ? r[0].top : NaN; };
+    const i = (at===text.length || text[at]==='\n') ? at-1 : at;
+    const onEdge = Math.abs(topOf(i) - topOf(up ? 0 : text.length-1)) < parseFloat(getComputedStyle(mirror).lineHeight)/2;
+    render();
+    return onEdge;
+  }
+
   ta.addEventListener('input', ()=>{ resetTab(); sync(); });
   ta.addEventListener('click', render);
   ta.addEventListener('keyup', e=>{
     if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Home','End'].includes(e.key)) render();
   });
   ta.addEventListener('scroll', ()=>{ mirror.scrollTop = ta.scrollTop; });
+  document.addEventListener('selectionchange', ()=>{ if(document.activeElement===ta) render(); });
   ta.addEventListener('keydown', e=>{
     if(e.key!=='Tab') return;
     const text    = ta.value;
@@ -225,7 +244,7 @@ function setupCommandInput(ta, wrap, mirror, maxHeight){
     sync();
   });
 
-  return { sync, resetTab };
+  return { sync, resetTab, caretOnEdgeLine };
 }
 
 const wCtl = setupCommandInput($wInput, $wInputWrap, $wHighlight, 200);
@@ -1147,7 +1166,8 @@ function sendFromWelcome(){
 
 $wSend.addEventListener('click',sendFromWelcome);
 $wInput.addEventListener('keydown',e=>{
-  if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();sendFromWelcome();}
+  if(e.key==='Enter'&&!e.shiftKey&&!e.altKey&&!e.isComposing){e.preventDefault();sendFromWelcome();}
+  else if(e.key==='Enter'&&e.altKey&&!e.isComposing){e.preventDefault();insertNewline($wInput);}
 });
 
 /* ── sending while a turn runs ───────────────────────────────────────────
@@ -1288,14 +1308,16 @@ $modelSelect.addEventListener('change',()=>{
 });
 $input.addEventListener('keydown',e=>{
   if(e.key==='Enter'&&!e.shiftKey&&!e.altKey&&!e.isComposing){e.preventDefault();send();}
-  else if(e.key==='Enter'&&e.altKey){
-    // Alt+Enter starts a new line, as in the full-screen REPL.
-    e.preventDefault();
-    const at=$input.selectionStart;
-    $input.setRangeText('\n', at, $input.selectionEnd, 'end');
-    mCtl.sync();
-  }
+  // Alt+Enter starts a new line, as in the full-screen REPL.
+  else if(e.key==='Enter'&&e.altKey&&!e.isComposing){e.preventDefault();insertNewline($input);}
 });
+
+// setRangeText fires no input event, so raise one: completion, history and suggestions all key off it.
+function editInput(ta, text, start, end){
+  ta.setRangeText(text, start, end, 'end');
+  ta.dispatchEvent(new Event('input'));
+}
+function insertNewline(ta){ editInput(ta, '\n', ta.selectionStart, ta.selectionEnd); }
 
 /* ── event handler ───────────────────────────────────── */
 window.addEventListener('message',evt=>{
@@ -1682,6 +1704,8 @@ function setInput(text){
   $input.selectionStart = $input.selectionEnd = text.length;
   mCtl.resetTab();
   mCtl.sync();
+  // Setting the value doesn't scroll the caret into view, and it's at the end.
+  $input.scrollTop = $input.scrollHeight;
 }
 function historyStep(d){
   if(!inputHistory.length) return false;
@@ -1863,7 +1887,7 @@ for(const ta of [$input, $wInput]){
   ta.addEventListener('blur', ()=>setTimeout(hideSuggest, 100));
   // Runs before the prompt's own handlers (Enter to send, Tab to complete), so an open list gets the keys first.
   ta.addEventListener('keydown', e=>{
-    if(!suggestOpen() || sgTa !== ta) return;
+    if(e.isComposing || !suggestOpen() || sgTa !== ta) return;
     const stop = ()=>{ e.preventDefault(); e.stopImmediatePropagation(); };
     if(e.key==='ArrowDown'){ stop(); moveSuggest(1); }
     else if(e.key==='ArrowUp'){ stop(); moveSuggest(-1); }
@@ -1875,22 +1899,21 @@ for(const ta of [$input, $wInput]){
 // History and line editing in the main prompt.
 $input.addEventListener('keydown', e=>{
   const stop = ()=>{ e.preventDefault(); e.stopImmediatePropagation(); };
-  if(suggestOpen()) return;
-  if(e.key==='ArrowUp' && !e.shiftKey && !e.altKey && !$input.value.slice(0,$input.selectionStart).includes('\n')){
-    if(historyStep(-1)) stop();
-    return;
-  }
-  if(e.key==='ArrowDown' && !e.shiftKey && !e.altKey && historyAt!==-1 && !$input.value.slice($input.selectionEnd).includes('\n')){
-    if(historyStep(1)) stop();
-    return;
-  }
-  if(e.key==='r' && e.ctrlKey && !e.shiftKey){ stop(); openHistorySearch(); return; }
+  if(e.isComposing) return;
+  if(e.key==='r' && e.ctrlKey && !e.shiftKey){ stop(); hideSuggest(); openHistorySearch(); return; }
   if(e.key==='u' && e.ctrlKey && !e.shiftKey){
     stop();
     const at = $input.selectionStart;
-    const lineStart = $input.value.lastIndexOf('\n', at-1) + 1;
-    $input.setRangeText('', lineStart, at, 'end');
-    mCtl.sync();
+    editInput($input, '', $input.value.lastIndexOf('\n', at-1) + 1, at);
+    return;
+  }
+  if(suggestOpen()) return;
+  if(e.key==='ArrowUp' && !e.shiftKey && !e.altKey && mCtl.caretOnEdgeLine(true)){
+    if(historyStep(-1)) stop();
+    return;
+  }
+  if(e.key==='ArrowDown' && !e.shiftKey && !e.altKey && historyAt!==-1 && mCtl.caretOnEdgeLine(false)){
+    if(historyStep(1)) stop();
     return;
   }
 }, true);
@@ -1916,7 +1939,8 @@ document.addEventListener('keydown', e=>{
     if(viewerOpen()){ e.preventDefault(); closeViewer(); return; }
     if(pendingApproval){ e.preventDefault(); respondApproval(false); return; }
   }
-  if(ctrl && e.key==='End'){ e.preventDefault(); scrollBottom(true); return; }
+  // In a text field Ctrl+End still moves the caret to the end as well.
+  if(ctrl && e.key==='End'){ if(!typingInField(e.target)) e.preventDefault(); scrollBottom(true); return; }
   if(ctrl && e.key==='Home' && !typingInField(e.target)){ e.preventDefault(); $msgs.scrollTop = 0; following=false; return; }
   if(e.key==='PageUp' || e.key==='PageDown'){
     if(typingInField(e.target) && e.target !== $input) return;
