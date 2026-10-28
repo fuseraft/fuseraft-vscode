@@ -2,15 +2,19 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { ReplSessionInfo, readReplSessions, formatRelativeTime, getReplSessionsDir } from './fuseraftUtils';
+import { ReplPanelProvider } from './replPanelProvider';
 
 export class ReplSessionTreeProvider implements vscode.TreeDataProvider<ReplSessionItem> {
     private _onDidChangeTreeData = new vscode.EventEmitter<ReplSessionItem | undefined | void>();
     readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
     private watcher: fs.FSWatcher | undefined;
+    private readonly titleListener: vscode.Disposable;
 
     constructor() {
         this.watchSessionsDir();
+        // A chat renamed mid-reply only reaches its snapshot when the reply ends.
+        this.titleListener = ReplPanelProvider.onDidChangeLiveTitle(() => this.refresh());
     }
 
     refresh(): void {
@@ -19,6 +23,7 @@ export class ReplSessionTreeProvider implements vscode.TreeDataProvider<ReplSess
 
     dispose(): void {
         this.watcher?.close();
+        this.titleListener.dispose();
     }
 
     /** Re-arms the watcher against the current sessions dir (e.g. after fuseraft.homeDir changes) and refreshes. */
@@ -50,8 +55,14 @@ export class ReplSessionTreeProvider implements vscode.TreeDataProvider<ReplSess
         // An empty list lets the viewsWelcome content show instead.
         return filterReplSessionsToWorkspace(readReplSessions())
             .filter(s => s.turnIndex > 0 || s.firstUserMessage)
-            .map(s => new ReplSessionItem(s));
+            .map(s => new ReplSessionItem(withLiveTitle(s)));
     }
+}
+
+function withLiveTitle(session: ReplSessionInfo): ReplSessionInfo {
+    const live = ReplPanelProvider.liveTitle;
+    if (live === undefined || ReplPanelProvider.liveSessionId !== session.sessionId) { return session; }
+    return { ...session, title: live.title ?? undefined, autoTitle: live.autoTitle ?? session.autoTitle };
 }
 
 /** Sessions started inside one of the open workspace folders; every session when no folder is open. */
@@ -89,7 +100,10 @@ export class ReplSessionItem extends vscode.TreeItem {
     }
 }
 
-function sessionTitle(session: ReplSessionInfo): string {
+/** The chat's title: the user's, else the generated one, else its first message. */
+export function sessionTitle(session: ReplSessionInfo): string {
+    if (session.title) { return session.title; }
+    if (session.autoTitle) { return session.autoTitle; }
     const first = session.firstUserMessage.replace(/\s+/g, ' ').trim();
     if (!first) { return session.sessionId || '(empty chat)'; }
     return first.length > 60 ? first.slice(0, 59) + '…' : first;

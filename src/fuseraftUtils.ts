@@ -328,7 +328,22 @@ export interface ReplSessionInfo {
     lastUpdatedAt: string;
     /** Plain-text preview of the first user message in the session. */
     firstUserMessage: string;
+    /** The name the user gave the chat with /title, if any. */
+    title?: string;
+    /** A name the CLI generated from the first exchange; shown when there's no title. */
+    autoTitle?: string;
     cwd: string;
+}
+
+/**
+ * Set or (with an empty title) remove a saved chat's Title in its snapshot. Only for chats no
+ * CLI has open — a running one rewrites its snapshot every turn; send it /title instead.
+ */
+export function writeReplSessionTitle(sessionId: string, title: string): void {
+    const file = path.join(getReplSessionsDir(), `repl-${sessionId}.json`);
+    const d = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (title) { d.Title = title; } else { delete d.Title; }
+    fs.writeFileSync(file, JSON.stringify(d, null, 2));
 }
 
 /**
@@ -363,6 +378,8 @@ export function readReplSessions(): ReplSessionInfo[] {
                     startedAt:        d.StartedAt     ?? '',
                     lastUpdatedAt:    d.LastUpdatedAt ?? '',
                     firstUserMessage: firstMsg,
+                    title:            typeof d.Title === 'string' && d.Title.trim() ? d.Title : undefined,
+                    autoTitle:        typeof d.AutoTitle === 'string' && d.AutoTitle.trim() ? d.AutoTitle : undefined,
                     cwd:              d.Cwd ?? '',
                 });
             } catch {

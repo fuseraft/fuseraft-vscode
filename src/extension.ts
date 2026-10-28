@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import { ReplSessionTreeProvider, ReplSessionItem } from './replSessionTreeProvider';
+import { ReplSessionTreeProvider, ReplSessionItem, sessionTitle } from './replSessionTreeProvider';
 import { MemoryTreeProvider, MemoryItemNode, readMemoryEntries } from './memoryTreeProvider';
 import { SkillsTreeProvider, SkillItemNode, readSkills, getSkillsDir } from './skillsTreeProvider';
 import { ReplPanelProvider } from './replPanelProvider';
@@ -10,7 +10,7 @@ import {
     getBinary, runInTerminal, shellQuote,
     runInstaller, runUpdate, checkCli, invalidateCliCache, disposeOutputChannel,
     readReplSessions, formatRelativeTime, ReplSessionInfo,
-    getMemoryReplDir, getFuseraftHome, getReplSessionsDir,
+    getMemoryReplDir, getFuseraftHome, getReplSessionsDir, writeReplSessionTitle,
 } from './fuseraftUtils';
 import { isConfigured, runSetupWizard } from './setupWizard';
 
@@ -22,7 +22,7 @@ export function activate(context: vscode.ExtensionContext): void {
     registerDiffContentProvider(context);
 
     // Tree views
-    vscode.window.createTreeView('fuseraft.chats', {
+    const chatView = vscode.window.createTreeView('fuseraft.chats', {
         treeDataProvider: chatProvider,
         showCollapseAll: false,
     });
@@ -138,7 +138,7 @@ export function activate(context: vscode.ExtensionContext): void {
                 vscode.window.showWarningMessage('That chat is still open. Close its panel before deleting it.');
                 return;
             }
-            const preview = session.firstUserMessage.split('\n')[0].slice(0, 60);
+            const preview = session.firstUserMessage ? sessionTitle(session) : '';
             const confirm = await vscode.window.showWarningMessage(
                 `Delete chat ${session.sessionId}?${preview ? `\n"${preview}"` : ''}`,
                 { modal: true },
@@ -154,6 +154,48 @@ export function activate(context: vscode.ExtensionContext): void {
             chatProvider.refresh();
         })
     );
+
+    // fuseraft.replRename — name a chat; an empty name goes back to its first message
+    context.subscriptions.push(
+        // F2 in the chat panel passes 'live': rename the chat that's open there.
+        vscode.commands.registerCommand('fuseraft.replRename', async (arg?: ReplSessionItem | 'live') => {
+            const session = arg === 'live' ? liveSessionInfo() : (arg ?? chatView.selection[0])?.session;
+            if (!session?.sessionId) { return; }
+            const input = await vscode.window.showInputBox({
+                title:       'Rename Chat',
+                value:       session.title ?? session.autoTitle ?? '',
+                placeHolder: sessionTitle({ ...session, title: undefined }),
+                prompt:      session.autoTitle
+                    ? 'Leave empty to go back to the generated title.'
+                    : 'Leave empty to go back to the chat\'s first message.',
+            });
+            if (input === undefined) { return; }
+            const title = input.replace(/\s+/g, ' ').trim();
+            // Accepting the generated title as it is isn't a rename.
+            if (!session.title && title === session.autoTitle) { return; }
+
+            // A live chat's CLI rewrites its snapshot every turn, so it has to make the change itself.
+            if (ReplPanelProvider.liveSessionId === session.sessionId) {
+                ReplPanelProvider.setLiveTitle(title);
+                return;
+            }
+            try {
+                writeReplSessionTitle(session.sessionId, title);
+            } catch (err: unknown) {
+                vscode.window.showErrorMessage(`Could not rename chat: ${err instanceof Error ? err.message : String(err)}`);
+            }
+            chatProvider.refresh();
+        })
+    );
+
+    function liveSessionInfo(): ReplSessionInfo | undefined {
+        const id = ReplPanelProvider.liveSessionId;
+        if (!id) { return undefined; }
+        const saved = readReplSessions().find(s => s.sessionId === id);
+        const live = ReplPanelProvider.liveTitle;
+        const base = saved ?? { sessionId: id, modelId: '', turnIndex: 0, startedAt: '', lastUpdatedAt: '', firstUserMessage: '', cwd: '' };
+        return live ? { ...base, title: live.title ?? undefined, autoTitle: live.autoTitle ?? base.autoTitle } : base;
+    }
 
     // fuseraft.refreshChats
     context.subscriptions.push(
@@ -406,7 +448,7 @@ function workspaceRoot(): string | undefined {
 
 async function pickAndResumeReplSession(sessions: ReplSessionInfo[], cwd?: string): Promise<void> {
     const items = sessions.map(s => {
-        const preview = s.firstUserMessage.replace(/\n/g, ' ').slice(0, 72);
+        const preview = s.firstUserMessage || s.title ? sessionTitle(s) : '';
         const turns   = `${s.turnIndex} turn${s.turnIndex === 1 ? '' : 's'}`;
         const ago     = formatRelativeTime(s.lastUpdatedAt);
         return {
