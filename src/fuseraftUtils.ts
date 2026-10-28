@@ -330,6 +330,8 @@ export interface ReplSessionInfo {
     firstUserMessage: string;
     /** The name the user gave the chat with /title, if any. */
     title?: string;
+    /** A name the CLI generated from the first exchange; shown when there's no title. */
+    autoTitle?: string;
     cwd: string;
 }
 
@@ -377,6 +379,7 @@ export function readReplSessions(): ReplSessionInfo[] {
                     lastUpdatedAt:    d.LastUpdatedAt ?? '',
                     firstUserMessage: firstMsg,
                     title:            typeof d.Title === 'string' && d.Title.trim() ? d.Title : undefined,
+                    autoTitle:        typeof d.AutoTitle === 'string' && d.AutoTitle.trim() ? d.AutoTitle : undefined,
                     cwd:              d.Cwd ?? '',
                 });
             } catch {

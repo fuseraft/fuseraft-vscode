@@ -37,7 +37,9 @@ It works like the CLI's full-screen REPL:
 
 A dedicated fuseraft panel with three views:
 
-**Chats** — your saved REPL sessions for the current workspace, newest first. Click one to resume it (the last few turns are replayed); **+** starts a new chat; right-click to delete. Sessions are saved after every turn to the fuseraft home's `repl-sessions/` directory.
+**Chats** — your saved REPL sessions for the current workspace, newest first. Click one to resume it (the last few turns are replayed); **+** starts a new chat; right-click to rename or delete. Sessions are saved after every turn to the fuseraft home's `repl-sessions/` directory.
+
+Each chat is named from its first prompt and reply once that reply arrives (turn this off with `fuseraft settings set repl.autoTitle false`). To rename one, press **F2** on it in the list or in its open panel, or type `/title <name>` in the chat; even mid-reply, it applies at once. An empty name goes back to the generated one.
 
 **Memory** — lists entries from `~/.fuseraft/memory/repl`, grouped by type with each entry's description shown inline. Click to open the entry's markdown file; right-click to delete one entry or clear them all.
 

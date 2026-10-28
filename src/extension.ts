@@ -157,18 +157,22 @@ export function activate(context: vscode.ExtensionContext): void {
 
     // fuseraft.replRename — name a chat; an empty name goes back to its first message
     context.subscriptions.push(
-        vscode.commands.registerCommand('fuseraft.replRename', async (arg?: ReplSessionItem) => {
-            const item = arg ?? chatView.selection[0];
-            if (!item?.session?.sessionId) { return; }
-            const { session } = item;
+        // F2 in the chat panel passes 'live': rename the chat that's open there.
+        vscode.commands.registerCommand('fuseraft.replRename', async (arg?: ReplSessionItem | 'live') => {
+            const session = arg === 'live' ? liveSessionInfo() : (arg ?? chatView.selection[0])?.session;
+            if (!session?.sessionId) { return; }
             const input = await vscode.window.showInputBox({
                 title:       'Rename Chat',
-                value:       session.title ?? '',
+                value:       session.title ?? session.autoTitle ?? '',
                 placeHolder: sessionTitle({ ...session, title: undefined }),
-                prompt:      'Leave empty to go back to the chat\'s first message.',
+                prompt:      session.autoTitle
+                    ? 'Leave empty to go back to the generated title.'
+                    : 'Leave empty to go back to the chat\'s first message.',
             });
             if (input === undefined) { return; }
             const title = input.replace(/\s+/g, ' ').trim();
+            // Accepting the generated title as it is isn't a rename.
+            if (!session.title && title === session.autoTitle) { return; }
 
             // A live chat's CLI rewrites its snapshot every turn, so it has to make the change itself.
             if (ReplPanelProvider.liveSessionId === session.sessionId) {
@@ -183,6 +187,15 @@ export function activate(context: vscode.ExtensionContext): void {
             chatProvider.refresh();
         })
     );
+
+    function liveSessionInfo(): ReplSessionInfo | undefined {
+        const id = ReplPanelProvider.liveSessionId;
+        if (!id) { return undefined; }
+        const saved = readReplSessions().find(s => s.sessionId === id);
+        const live = ReplPanelProvider.liveTitle;
+        const base = saved ?? { sessionId: id, modelId: '', turnIndex: 0, startedAt: '', lastUpdatedAt: '', firstUserMessage: '', cwd: '' };
+        return live ? { ...base, title: live.title ?? undefined, autoTitle: live.autoTitle ?? base.autoTitle } : base;
+    }
 
     // fuseraft.refreshChats
     context.subscriptions.push(

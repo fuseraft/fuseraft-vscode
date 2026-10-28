@@ -483,7 +483,7 @@ function setEnabled(on){
   $inputWrap.classList.toggle('disabled', closed);
   $send.disabled  = closed;
   $stop.style.display = busy ? 'block' : 'none';
-  $input.placeholder = busy ? 'Add to the running turn, or queue a /command…' : 'Ask something or type a /command…';
+  $input.placeholder = busy ? 'Add to the running turn, or send a /command…' : 'Ask something or type a /command…';
   $thinkingBar.classList.toggle('active', busy && !usingInlineThinking && !pendingApproval && pendingQuestion===null);
   $attachBtn.disabled = closed;
   if(modelsLoaded) $modelSelect.disabled = closed || busy;
@@ -852,6 +852,7 @@ function _collapseIntoCot(msgDiv, bubble, toolsRow){
 }
 
 function finalise(tokenInfo){
+  splitMark = null;
   foldThinking();
   settleRunningTools('cancelled');
   if(curBubble){
@@ -1185,6 +1186,29 @@ function runsMidTurn(text){
   return midTurnCommands.some(c => c === t || (!c.includes(' ') && c === word));
 }
 let applied = [];           // bubbles for those, awaiting the REPL's answer
+// Where the reply stood when one of those was sent mid-reply. The reply carries on above the command until its
+// paragraph ends (or its next tool call), then continues below it, so the transcript reads in order without
+// breaking a sentence.
+let splitMark = null;
+
+function placeMidTurnCommand(bubble){
+  if(!curMsgDiv) return;
+  if(curMsgDiv.querySelector('.thinking')) $msgs.insertBefore(bubble, curMsgDiv);
+  else if(!curText.trim()) splitAssistant();
+  else splitMark = curText.length;
+}
+
+function moveReplyBelowCommand(){
+  if(splitMark===null) return;
+  let i = curText.indexOf('\n\n', splitMark);
+  while(i !== -1 && (curText.slice(0, i).match(/```/g)||[]).length % 2 === 1) i = curText.indexOf('\n\n', i + 2);
+  if(i === -1) return;
+  const rest = curText.slice(i + 2);
+  curText = curText.slice(0, i);
+  splitMark = null;
+  splitAssistant();
+  if(rest){ ensureAssistant(); appendToken(rest); }
+}
 let sessionId = '', chatTitle = null;
 function showSessionLabel(){
   const label = chatTitle || sessionId;
@@ -1286,7 +1310,9 @@ function send(){
   const runsNow = isStreaming && !imgCount && !attachedFiles.length && !text.includes('\n')
     && runsMidTurn(text);
   if(runsNow){
-    applied.push(addUser(display, '…'));
+    const b = addUser(display, '…');
+    applied.push(b);
+    placeMidTurnCommand(b);
     vscode.postMessage({type:'user_input', text});
     return;
   }
@@ -1345,7 +1371,7 @@ window.addEventListener('message',evt=>{
   switch(msg.type){
     case 'ready':
       sessionId = msg.sessionId || '';
-      chatTitle = msg.title || null;
+      chatTitle = msg.title || msg.autoTitle || null;
       midTurnCommands = Array.isArray(msg.midTurnCommands) ? msg.midTurnCommands.map(c=>String(c).toLowerCase()) : [];
       showSessionLabel();
       if(msg.model) selectModel(msg.model);
@@ -1358,7 +1384,7 @@ window.addEventListener('message',evt=>{
       break;
 
     case 'title':{
-      chatTitle = msg.title || null;
+      chatTitle = msg.title || msg.autoTitle || null;
       showSessionLabel();
       break;
     }
@@ -1395,6 +1421,7 @@ window.addEventListener('message',evt=>{
       foldThinking();
       ensureAssistant();
       appendToken(msg.text||'');
+      moveReplyBelowCommand();
       break;
 
     case 'thinking':
@@ -1402,6 +1429,7 @@ window.addEventListener('message',evt=>{
       break;
 
     case 'tool_call':
+      if(splitMark!==null){ splitMark = null; splitAssistant(); }
       addToolCall(msg);
       break;
 
@@ -1491,6 +1519,7 @@ window.addEventListener('message',evt=>{
       break;
 
     case 'cancelled':
+      splitMark = null;
       abandonPendingApproval();
       abandonPendingQuestion();
       foldThinking();

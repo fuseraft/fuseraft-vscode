@@ -21,10 +21,10 @@ export class ReplPanelProvider {
         return cur?._alive ? cur._sessionId : undefined;
     }
 
-    /** The live chat's title as its CLI last reported it (null: none), ahead of the snapshot that saves it; undefined when unknown. */
-    static get liveTitle(): string | null | undefined {
+    /** The live chat's titles as its CLI last reported them (null: none), ahead of the snapshot that saves them; undefined when unknown. */
+    static get liveTitle(): { title: string | null; autoTitle: string | null } | undefined {
         const cur = ReplPanelProvider._current;
-        return cur?._alive ? cur._title : undefined;
+        return cur?._alive && cur._title !== undefined ? { title: cur._title, autoTitle: cur._autoTitle } : undefined;
     }
 
     private static readonly _onDidChangeLiveTitle = new vscode.EventEmitter<void>();
@@ -77,6 +77,7 @@ export class ReplPanelProvider {
     /** Set once the CLI's own session_end event has been relayed, so the exit handler doesn't send a second one. */
     private _sessionEndSent = false;
     private _title: string | null | undefined;
+    private _autoTitle: string | null = null;
     private readonly _cwd: string | undefined;
     private _files: FileIndex | undefined;
     /** When the user last sent something; a reply or question after a while away gets a notification. */
@@ -212,7 +213,8 @@ export class ReplPanelProvider {
                         }
                         if (evt.type === 'ready' || evt.type === 'title') {
                             this._title = typeof evt.title === 'string' ? evt.title : null;
-                            this._setTabTitle(this._title ?? undefined);
+                            this._autoTitle = typeof evt.autoTitle === 'string' ? evt.autoTitle : null;
+                            this._setTabTitle(this._title ?? this._autoTitle ?? undefined);
                             if (evt.type === 'title') { ReplPanelProvider._onDidChangeLiveTitle.fire(); }
                         }
                         if (evt.type === 'session_end') {
