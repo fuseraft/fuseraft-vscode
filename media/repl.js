@@ -1177,6 +1177,19 @@ $wInput.addEventListener('keydown',e=>{
    with attachments waits here until the REPL is ready for it. */
 const queued = [];          // messages waiting for the turn to end, in order
 let interjected = [];       // user bubbles sent into the running turn, awaiting their fate
+let midTurnCommands = [];   // /commands the REPL runs at once instead of after the turn (from its ready event)
+// A one-word entry takes any argument; a longer one is the whole command (e.g. "/hitl on").
+function runsMidTurn(text){
+  const t = text.trim().replace(/\s+/g, ' ').toLowerCase();
+  const word = t.split(' ')[0];
+  return midTurnCommands.some(c => c === t || (!c.includes(' ') && c === word));
+}
+let applied = [];           // bubbles for those, awaiting the REPL's answer
+let sessionId = '', chatTitle = null;
+function showSessionLabel(){
+  const label = chatTitle || sessionId;
+  document.getElementById('session-label').textContent = label ? '· '+label : '';
+}
 
 function dispatch(m){
   if(m.text.startsWith('!')){
@@ -1270,6 +1283,13 @@ function send(){
   rememberInput(text);
   const imgCount = pastedImages.length;
   const display = text + (imgCount ? (text?'\n\n':'') + '[+'+imgCount+' image'+(imgCount>1?'s':'')+']' : '');
+  const runsNow = isStreaming && !imgCount && !attachedFiles.length && !text.includes('\n')
+    && runsMidTurn(text);
+  if(runsNow){
+    applied.push(addUser(display, '…'));
+    vscode.postMessage({type:'user_input', text});
+    return;
+  }
   const joinsTurn = isStreaming && text && !/^[\/!$]/.test(text) && !imgCount && !attachedFiles.length;
   if(joinsTurn){
     interjected.push(addUser(display, '↪ sent to the running turn'));
@@ -1324,7 +1344,10 @@ window.addEventListener('message',evt=>{
   const msg=evt.data;
   switch(msg.type){
     case 'ready':
-      document.getElementById('session-label').textContent=msg.sessionId?'· '+msg.sessionId:'';
+      sessionId = msg.sessionId || '';
+      chatTitle = msg.title || null;
+      midTurnCommands = Array.isArray(msg.midTurnCommands) ? msg.midTurnCommands.map(c=>String(c).toLowerCase()) : [];
+      showSessionLabel();
       if(msg.model) selectModel(msg.model);
       $wInput.disabled=false;
       $wInputWrap.classList.remove('disabled');
@@ -1333,6 +1356,18 @@ window.addEventListener('message',evt=>{
       sessionReady=true;
       setEnabled(!isStreaming);
       break;
+
+    case 'title':{
+      chatTitle = msg.title || null;
+      showSessionLabel();
+      break;
+    }
+
+    case 'applied':{
+      const b = applied.shift();
+      if(b) setNote(b, msg.message || 'done');
+      break;
+    }
 
     case 'skills':
       skillNames = Array.isArray(msg.list) ? msg.list : [];

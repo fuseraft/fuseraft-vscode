@@ -50,6 +50,12 @@
         "icon": "$(add)"
       },
       {
+        "command": "fuseraft.replRename",
+        "title": "Rename Chat",
+        "category": "fuseraft",
+        "icon": "$(edit)"
+      },
+      {
         "command": "fuseraft.replDelete",
         "title": "Delete Chat",
         "category": "fuseraft",
@@ -227,6 +233,11 @@
           "group": "1_chat"
         },
         {
+          "command": "fuseraft.replRename",
+          "when": "view == fuseraft.chats && viewItem == replSession",
+          "group": "1_chat@2"
+        },
+        {
           "command": "fuseraft.replDelete",
           "when": "view == fuseraft.chats && viewItem == replSession",
           "group": "2_danger"
@@ -256,9 +267,20 @@
         {
           "command": "fuseraft.replDelete",
           "when": "false"
+        },
+        {
+          "command": "fuseraft.replRename",
+          "when": "false"
         }
       ]
     },
+    "keybindings": [
+      {
+        "command": "fuseraft.replRename",
+        "key": "f2",
+        "when": "focusedView == fuseraft.chats"
+      }
+    ],
     "configuration": {
       "title": "fuseraft",
       "properties": {

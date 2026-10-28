@@ -21,6 +21,20 @@ export class ReplPanelProvider {
         return cur?._alive ? cur._sessionId : undefined;
     }
 
+    /** The live chat's title as its CLI last reported it (null: none), ahead of the snapshot that saves it; undefined when unknown. */
+    static get liveTitle(): string | null | undefined {
+        const cur = ReplPanelProvider._current;
+        return cur?._alive ? cur._title : undefined;
+    }
+
+    private static readonly _onDidChangeLiveTitle = new vscode.EventEmitter<void>();
+    static readonly onDidChangeLiveTitle = ReplPanelProvider._onDidChangeLiveTitle.event;
+
+    /** Renames the open chat through its CLI; an empty title clears it. */
+    static setLiveTitle(title: string): void {
+        ReplPanelProvider._current?._send({ type: 'user_input', text: title ? `/title ${title}` : '/title --clear' });
+    }
+
     /** `fresh` replaces a live chat instead of revealing it; the replaced chat stays resumable from its snapshot. */
     static show(model: string, resumeId?: string, cwd?: string, fresh = false): void {
         if (ReplPanelProvider._current) {
@@ -62,6 +76,7 @@ export class ReplPanelProvider {
     private _sessionId: string | undefined;
     /** Set once the CLI's own session_end event has been relayed, so the exit handler doesn't send a second one. */
     private _sessionEndSent = false;
+    private _title: string | null | undefined;
     private readonly _cwd: string | undefined;
     private _files: FileIndex | undefined;
     /** When the user last sent something; a reply or question after a while away gets a notification. */
@@ -195,6 +210,11 @@ export class ReplPanelProvider {
                             this._sessionId = evt.sessionId as string;
                             this._alive = true;
                         }
+                        if (evt.type === 'ready' || evt.type === 'title') {
+                            this._title = typeof evt.title === 'string' ? evt.title : null;
+                            this._setTabTitle(this._title ?? undefined);
+                            if (evt.type === 'title') { ReplPanelProvider._onDidChangeLiveTitle.fire(); }
+                        }
                         if (evt.type === 'session_end') {
                             this._sessionEndSent = true;
                         }
@@ -273,6 +293,11 @@ export class ReplPanelProvider {
             const names = readSkills(getSkillsDir()).map(s => s.name);
             this._panel.webview.postMessage({ type: 'skills', list: names });
         } catch { /* skills dir missing/unreadable — webview just gets no skill completions */ }
+    }
+
+    private _setTabTitle(title: string | undefined): void {
+        this._panel.title = title ? `fuseraft · ${title}`
+            : this._sessionId ? `fuseraft REPL · ${this._sessionId}` : 'fuseraft REPL';
     }
 
     private _send(msg: object): void {
