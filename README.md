@@ -2,81 +2,83 @@
 
 ![fuseraft banner](media/fuseraft-banner.png)
 
-Chat with a [fuseraft](https://github.com/fuseraft/fuseraft-cli) agent in an interactive REPL panel, right in your editor.
+Chat with a [fuseraft](https://github.com/fuseraft/fuseraft-cli) agent in a panel beside your editor. It reads and edits your code, runs commands with your approval, and remembers what it learns across chats.
 
 [Docs](https://fuseraft.ai/fuseraft-cli/) · [GitHub](https://github.com/fuseraft/fuseraft-cli)
 
-## Features
-
-### REPL Chat Panel
-
-`fuseraft: Open REPL` (or the `fuseraft` status bar button) opens an interactive chat panel beside your editor, using the model from your provider setup.
-
 ![fuseraft REPL](media/fuseraft-repl.png)
 
-It works like the CLI's full-screen REPL:
+## Getting started
 
-- **The turn as it happens** — the model's thinking streams in dimmed under `∴` and folds into one line once it moves on; each tool call is a line that turns ✓ or ✗ when its result comes back (a failure shows its first line), a subagent's calls are nested under it and tagged with its name, and each changed file shows as `✎ path +added -removed` (click to open it). Long turns keep the latest steps in view.
-- **Output viewer** — click a tool line for its arguments and output, or press **Ctrl+O** for the last 100 tool outputs, thoughts and shell outputs in full (←/→ to move, **Open in Editor** for a tab)
-- **Type while it works** — a message sent during a turn joins it (the model reads it after its current tool calls); a `/command`, `!command` or `$skill` waits as a chip above the prompt until the turn ends
-- **Status line** — model, turn, how full the context is (green, yellow as auto-compaction nears, red once past it), active modes such as `hitl`, and a timer while something runs
-- **Completions** — `/commands` and their subcommands, `$skills`, and `@paths` (one level down first, then files anywhere by name; git-ignored files and `.env` aren't offered). A mention attaches the file to your message.
-- **History** — ↑/↓ walk what you've sent, **Ctrl+R** searches it
-- **Approvals** — HITL prompts appear above the prompt; file writes open a real diff. Answer with **y**/**n** (or Esc to deny) when you're not typing.
-- **`!` shell escape** — `!git status` runs the command yourself (unsandboxed, never shown to the model) and streams its output into the panel
-- **Find** — **Ctrl+F** searches the conversation
-- **Notifications** — when a reply finishes or an approval or question waits while you're elsewhere (`fuseraft.notifications` turns them off)
-- **Model dropdown** — switch models live from the header; list is fetched from your provider via `fuseraft models`, history is preserved
-- **Markdown rendering** — headers, bold/italic, links, images, blockquotes, horizontal rules, code blocks with a one-click copy button, tables, lists; `/copy` puts the last reply on the clipboard
-- **Images** — paste a screenshot into the message box, or attach a file with the paperclip
-- **Stop** — the Stop button or **Ctrl+C** interrupts the turn; press again to kill commands it's stuck waiting on
-- **Resumable sessions** — snapshots stored at `~/.fuseraft/repl-sessions/`; resuming replays the last few turns
-- **Enter** sends; **Shift+Enter** or **Alt+Enter** for a new line; **PgUp/PgDn** scroll, **Ctrl+End** follows new output again
+1. **Install this extension.**
+2. **Install the fuseraft CLI.** The extension runs on it. If it isn't on your `PATH`, a notification offers to install it: **Install** runs the official installer in a terminal (`curl … | bash` on Linux and macOS, PowerShell on Windows), then **Check again** picks it up. If it's installed somewhere else, use **Set Binary Path**.
+3. **Pick a provider.** Once the CLI is found, the setup wizard opens. Choose a provider (Anthropic, OpenAI, xAI, Google, Mistral, DeepSeek, Ollama, or a custom endpoint), enter your API key, pick a model, and **Test** the connection. **Save** stores the key in your OS keychain, not in a file. Run **fuseraft: Configure fuseraft** to change any of it later.
+4. **Start chatting.** Click **fuseraft** in the status bar, or **+** in the Chats view of the fuseraft sidebar.
 
-### Activity Bar Panel
+## The chat panel
 
-A dedicated fuseraft panel with three views:
+It works like the CLI's full-screen REPL.
 
-**Chats** — your saved REPL sessions for the current workspace, newest first. Click one to resume it (the last few turns are replayed); **+** starts a new chat; right-click to rename or delete. Sessions are saved after every turn to the fuseraft home's `repl-sessions/` directory.
+**Following a turn**
+- The model's thinking streams in dimmed under `∴` and folds to one line when it moves on.
+- Each tool call is a line that turns ✓ or ✗ when its result comes back; a sub-agent's calls are nested under it. Changed files show as `✎ path +added -removed`, and clicking one opens it.
+- Click a tool line for its arguments and output, or press **Ctrl+O** to page through recent tool output, thinking and shell output in full.
+- The status line shows the model, the turn, how full the context is (yellow as auto-compaction nears), active modes such as `hitl`, and a timer.
 
-Each chat is named from its first prompt and reply once that reply arrives (turn this off with `fuseraft settings set repl.autoTitle false`). To rename one, press **F2** on it in the list or in its open panel, or type `/title <name>` in the chat; even mid-reply, it applies at once. An empty name goes back to the generated one.
+**Talking to it**
+- Type while it works: a message joins the running turn after its current tool calls. `/title` and `/hitl on|off` apply at once; other `/commands`, `!commands` and `$skills` wait as a chip until the turn ends.
+- Completions for `/commands`, `$skills` and `@paths`. An `@path` attaches the file (git-ignored files and `.env` aren't offered).
+- Paste a screenshot, or attach images with the paperclip.
+- **↑/↓** walk your history, **Ctrl+R** searches it.
+- `!git status` runs a command yourself: unsandboxed, streamed into the panel, never shown to the model.
+- Switch models from the header without losing the conversation.
 
-**Memory** — lists entries from `~/.fuseraft/memory/repl`, grouped by type with each entry's description shown inline. Click to open the entry's markdown file; right-click to delete one entry or clear them all.
+**Staying in control**
+- With HITL on (the default), shell commands, file writes and other changes ask first, above the prompt; file writes open a real diff. Answer with **y**/**n**, or Esc to deny.
+- **Stop** or **Ctrl+C** interrupts a turn; press again to kill commands it's stuck on.
+- You get a notification when a reply finishes or an approval or question is waiting while you're elsewhere.
 
-**Skills** — lists skills discovered under the fuseraft home's `skills/` directory. Click to open `SKILL.md`; **+** to add a skill, right-click to remove one.
+**Keys:** **Enter** sends, **Shift+Enter** or **Alt+Enter** adds a line, **PgUp/PgDn** scroll, **Ctrl+End** follows new output again, **Ctrl+F** searches the conversation, **F2** renames the chat. `/copy` puts the last reply on the clipboard.
 
-### Command Palette
+## The sidebar
+
+**Chats:** your chats in this workspace, newest first. Click one to resume it; its last few turns are replayed. Each chat is named from its first prompt and reply once the reply arrives (`fuseraft settings set repl.autoTitle false` turns that off). Rename one with **F2**, the right-click menu, or `/title <name>` in the chat; an empty name goes back to the generated one.
+
+**Memory:** what the agent has remembered from your chats, grouped by type. Click an entry to open it; right-click to delete one or all.
+
+**Skills:** reusable instructions the agent can load when it needs them. Click one to open its `SKILL.md`; **+** adds one, right-click removes it.
+
+Chats, memories and skills live in the fuseraft home directory, `~/.fuseraft` by default.
+
+## Commands
 
 | Command | Description |
 |---------|-------------|
 | `fuseraft: Open REPL` | Show the open chat, or start one |
 | `fuseraft: New Chat` | Start a fresh chat (the current one stays resumable) |
-| `fuseraft: Resume Chat` | Pick any saved REPL session and resume it |
-| `fuseraft: Refresh Chats` | Reload the Chats view |
-| `fuseraft: Delete Memory` | Delete a memory entry |
-| `fuseraft: Delete All Memories` | Delete every memory entry |
-| `fuseraft: Add Skill` | Add a skill to the fuseraft home's `skills/` directory |
-| `fuseraft: Remove Skill` | Remove a skill |
-| `fuseraft: Install CLI` | Run the fuseraft installer in the integrated terminal |
-| `fuseraft: Update CLI` | Update the fuseraft CLI to the latest release |
-| `fuseraft: Set Binary Path` | Pick or enter the path to the fuseraft binary |
-| `fuseraft: Set Home Directory` | Override the fuseraft home directory (`~/.fuseraft` by default) |
-| `fuseraft: Configure fuseraft` | Configure your AI provider, model, and API key |
+| `fuseraft: Resume Chat` | Pick any saved chat and resume it |
+| `fuseraft: Refresh Chats` / `Refresh Memory` / `Refresh Skills` | Reload a sidebar view |
+| `fuseraft: Delete Memory` / `Delete All Memories` | Delete one memory entry, or all of them |
+| `fuseraft: Add Skill` / `Remove Skill` | Add or remove a skill |
+| `fuseraft: Configure fuseraft` | Change your provider, model or API key |
+| `fuseraft: Install CLI` / `Update CLI` | Install the CLI, or update it to the latest release, in a terminal |
+| `fuseraft: Set Binary Path` | Point at a fuseraft binary that isn't on your `PATH` |
+| `fuseraft: Set Home Directory` | Use a fuseraft home other than `~/.fuseraft` |
 
-Multi-agent orchestration (`fuseraft run`, `init`, `validate`, sessions) lives in the CLI — run it from a terminal.
+Rename Chat and Delete Chat are on a chat's right-click menu. Multi-agent orchestration (`fuseraft run`) lives in the CLI; run it from a terminal.
 
-## Requirements
-
-- [fuseraft CLI](https://github.com/fuseraft/fuseraft-cli) installed and on your `PATH` (thinking, tool results, the status line, typing during a turn and `!` need a CLI release from this version on; an older one still works, with less detail)
-- VS Code 1.85 or later
-
-## Extension Settings
+## Settings
 
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `fuseraft.binaryPath` | `fuseraft` | Path to the fuseraft binary |
-| `fuseraft.homeDir` | _(blank)_ | Override the fuseraft home directory (`~/.fuseraft` by default); matches the CLI's `FUSERAFT_HOME` |
+| `fuseraft.homeDir` | _(blank)_ | fuseraft home directory (`~/.fuseraft` when blank); same as the CLI's `FUSERAFT_HOME` |
 | `fuseraft.notifications` | `true` | Notify when a reply finishes, or an approval or question waits, while you're away from the panel |
+
+## Requirements
+
+- VS Code 1.85 or later
+- The fuseraft CLI (the extension can install it). Use a current release: an older CLI still works, but the panel shows less (no thinking, tool lines, status line, mid-turn messages or generated titles).
 
 ## Development
 
