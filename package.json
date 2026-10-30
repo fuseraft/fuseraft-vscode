@@ -171,7 +171,7 @@
       },
       {
         "view": "fuseraft.memory",
-        "contents": "No memories stored yet.\n\nMemories are saved automatically during REPL sessions and persist across sessions in ~/.fuseraft/memory/repl."
+        "contents": "No memories stored yet.\n\nRun /memory save in a REPL session to save memories (or turn on memory.autoSave). They persist across sessions in ~/.fuseraft/memory/repl."
       },
       {
         "view": "fuseraft.skills",
