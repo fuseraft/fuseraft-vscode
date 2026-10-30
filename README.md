@@ -21,15 +21,16 @@ It works like the CLI's full-screen REPL.
 
 **Following a turn**
 - The model's thinking streams in dimmed under `∴` and folds to one line when it moves on.
-- Each tool call is a line that turns ✓ or ✗ when its result comes back; a sub-agent's calls are nested under it. Changed files show as `✎ path +added -removed`, and clicking one opens it.
+- Each tool call is a line that counts up while it runs and turns ✓ or ✗ with how long it took; a sub-agent's calls are nested under it. Changed files show as `✎ path +added -removed`, and clicking one opens it.
 - Click a tool line for its arguments and output, or press **Ctrl+O** to page through recent tool output, thinking and shell output in full.
-- The status line shows the model, the turn, how full the context is (yellow as auto-compaction nears), active modes such as `hitl`, and a timer.
+- The status line shows the model, the turn, how full the context is (yellow as auto-compaction nears), the tokens the session has used and how many came from the provider's cache, active modes such as `hitl`, and a timer.
 
 **Talking to it**
-- Type while it works: a message joins the running turn after its current tool calls. `/title` and `/hitl on|off` apply at once; other `/commands`, `!commands` and `$skills` wait as a chip until the turn ends.
+- Type while it works: a message joins the running turn after its current tool calls. `/title` and `/hitl on|off` apply at once; other `/commands`, `!commands` and `$skills` wait as a chip until the turn ends. **↑** on an empty prompt takes the last one back to edit, and stopping the turn drops them.
 - Completions for `/commands`, `$skills` and `@paths`. An `@path` attaches the file (git-ignored files and `.env` aren't offered).
-- Paste a screenshot, or attach images with the paperclip.
+- Paste a screenshot, or attach images with the paperclip. A paste longer than 10 lines or 2,000 characters shows as `[pasted #1 · 40 lines]` and is sent in full (Ctrl+O shows it).
 - **↑/↓** walk your history, **Ctrl+R** searches it.
+- **Ctrl+G** opens the draft in an editor tab beside the panel; each save puts it back in the prompt.
 - `!git status` runs a command yourself: unsandboxed, streamed into the panel, never shown to the model.
 - Switch models from the header without losing the conversation.
 
@@ -38,7 +39,7 @@ It works like the CLI's full-screen REPL.
 - **Stop** or **Ctrl+C** interrupts a turn; press again to kill commands it's stuck on.
 - You get a notification when a reply finishes or an approval or question is waiting while you're elsewhere.
 
-**Keys:** **Enter** sends, **Shift+Enter** or **Alt+Enter** adds a line, **PgUp/PgDn** scroll, **Ctrl+End** follows new output again, **Ctrl+F** searches the conversation, **F2** renames the chat. `/copy` puts the last reply on the clipboard.
+**Keys:** **Enter** sends, **Shift+Enter** or **Alt+Enter** adds a line, **PgUp/PgDn** scroll, **Alt+↑/↓** jump between the messages you sent, **Ctrl+End** follows new output again, **Ctrl+F** searches the conversation, **F2** renames the chat. `/copy` puts the last reply on the clipboard.
 
 ## The sidebar
 

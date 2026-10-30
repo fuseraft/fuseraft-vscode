@@ -98,6 +98,8 @@ body{
 #welcome-send:disabled{opacity:.45;cursor:not-allowed}
 .msg{display:flex;flex-direction:column;gap:4px}
 .msg.user{align-items:flex-end}
+.msg.user.jumped .bubble{animation:jumped 1.2s ease-out}
+@keyframes jumped{from{box-shadow:0 0 0 2px var(--vscode-focusBorder)}to{box-shadow:0 0 0 2px transparent}}
 .msg.assistant{align-items:flex-start}
 .msg.system{align-items:center}
 .bubble{
@@ -454,6 +456,7 @@ body{
 }
 .tl-name{color:var(--vscode-terminal-ansiCyan,var(--vscode-textLink-foreground));font-weight:600;flex-shrink:0}
 .tl-sum{color:var(--vscode-descriptionForeground);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1}
+.tl-time{flex-shrink:0;color:var(--vscode-descriptionForeground);font-variant-numeric:tabular-nums}
 .tl-err{flex-basis:100%;padding-left:18px;color:var(--vscode-errorForeground,#f48771);white-space:pre-wrap;word-break:break-word}
 .activity .tool-detail{position:relative;margin:2px 0 4px 18px;max-height:260px;padding:0}
 .activity .tool-detail pre{margin:0;padding:6px 8px;white-space:pre-wrap;word-break:break-word;font:inherit}
