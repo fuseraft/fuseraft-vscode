@@ -660,13 +660,13 @@ function appendActivity(el, activity){
   scrollBottom();
 }
 
-// One tool call. t: {id, name, summary, args, agent, state: 'run'|'ok'|'fail'|'none', output, out}
+// One tool call. t: {id, name, summary, args, agent, state: 'run'|'ok'|'fail'|'none', output, out, started, took}
 function makeToolLine(t){
   const el = document.createElement('div');
   el.className = 'tool-line' + (t.agent ? ' sub' : '');
   el.innerHTML = '<span class="tl-icon"></span>'
     + (t.agent ? '<span class="tl-agent"></span>' : '')
-    + '<span class="tl-name"></span><span class="tl-sum"></span>';
+    + '<span class="tl-name"></span><span class="tl-sum"></span><span class="tl-time"></span>';
   if(t.agent) el.querySelector('.tl-agent').textContent = t.agent;
   el.querySelector('.tl-name').textContent = t.name;
   el.querySelector('.tl-sum').textContent = t.summary || '';
@@ -681,6 +681,7 @@ function paintTool(t){
   const icon = t.el.querySelector('.tl-icon');
   icon.className = 'tl-icon ' + t.state;
   icon.textContent = t.state==='run' ? '' : t.state==='ok' ? '✓' : t.state==='fail' ? '✗' : t.state==='cancelled' ? '–' : '↳';
+  paintToolTime(t);
   t.el.querySelector('.tl-err')?.remove();
   if(t.state==='fail' && t.output){
     const first = t.output.split('\n').find(l=>l.trim()) || '';
@@ -689,6 +690,25 @@ function paintTool(t){
     err.textContent = first.length>140 ? first.slice(0,137)+'…' : first;
     t.el.appendChild(err);
   }
+}
+
+// How long a call has run, once it's run for 2s, and how long it took, once that's 1s or more; as the terminal shows it.
+const TOOL_COUNTED_MS = 2000;
+function paintToolTime(t){
+  const ran = t.state==='run' && t.started ? Date.now() - t.started : -1;
+  t.el.querySelector('.tl-time').textContent =
+      ran >= TOOL_COUNTED_MS ? fmtElapsed(ran)
+    : (t.state==='ok' || t.state==='fail') && t.took >= 1000 ? fmtElapsed(t.took)
+    : t.state==='cancelled' ? 'stopped'
+    : '';
+}
+setInterval(()=>{ for(const t of toolsById.values()) if(t.state==='run') paintToolTime(t); }, 1000);
+
+// 9s, 1m05s, 1h02m.
+function fmtElapsed(ms){
+  const s = Math.floor(ms/1000);
+  return s < 60 ? s+'s' : s < 3600 ? Math.floor(s/60)+'m'+String(s%60).padStart(2,'0')+'s'
+    : Math.floor(s/3600)+'h'+String(Math.floor(s/60)%60).padStart(2,'0')+'m';
 }
 
 function toolText(t){
@@ -735,6 +755,7 @@ function addToolCall(msg){
     agent: msg.agent || null,
     // A subagent's calls are reported as they start, without results; so are calls from an older CLI.
     state: msg.id && !msg.agent ? 'run' : 'none',
+    started: Date.now(),
   };
   curToolList.push(t);
   if(t.id) toolsById.set(t.id, t);
@@ -745,6 +766,7 @@ function finishToolCall(msg){
   const t = toolsById.get(msg.id);
   if(!t) return;
   t.state = msg.ok===false ? 'fail' : 'ok';
+  t.took = Date.now() - t.started;
   t.output = typeof msg.output==='string' ? msg.output : '';
   t.out = keepOutput(toolTitle(t) + (t.state==='fail' ? '  ✗' : '  ✓'), toolText(t));
   paintTool(t);
@@ -1231,7 +1253,29 @@ function dispatch(m){
     if(usingInlineThinking) startThinking();
   }
   startTimer();
-  vscode.postMessage(m.images.length ? {type:'user_input',text:m.payload,images:m.images} : {type:'user_input',text:m.payload});
+  const payload = expandPastes(m.payload);
+  vscode.postMessage(m.images.length ? {type:'user_input',text:payload,images:m.images} : {type:'user_input',text:payload});
+}
+
+// ↑ on an empty prompt: the last held message comes back, with what was attached to it, to edit or drop.
+function unqueue(){
+  const m = queued.pop();
+  if(!m) return false;
+  renderQueue();
+  attachedFiles = attachedFiles.concat(m.files || []);
+  pastedImages = pastedImages.concat(m.images);
+  renderAttachments();
+  setInput(m.text);
+  return true;
+}
+
+// Cancelling a turn drops what was held for after it, as in the terminal.
+function dropQueue(){
+  if(!queued.length) return;
+  const n = queued.length;
+  queued.length = 0;
+  renderQueue();
+  addSystem('Dropped '+n+' message'+(n===1?'':'s')+' queued for after the turn.');
 }
 
 // The REPL is waiting for its next message: send the first one that was held back.
@@ -1252,7 +1296,7 @@ function renderQueue(){
   queued.forEach((m, i)=>{
     const chip = document.createElement('span');
     chip.className = 'attach-chip queue-chip';
-    chip.title = 'Sent when the running turn ends';
+    chip.title = 'Sent when the running turn ends (↑ on an empty prompt takes the last one back to edit)';
     const label = document.createElement('span');
     label.textContent = '⏳ ' + (m.display.length > 60 ? m.display.slice(0,57)+'…' : m.display);
     const rm = document.createElement('span');
@@ -1290,10 +1334,43 @@ function addPastedImages(e){
   return true;
 }
 
-$input.addEventListener('paste',e=>{ addPastedImages(e); });
+/* ── long pastes ───────────────────────────────────────
+   A paste longer than the prompt shows (10 lines, or 2,000 characters) goes in as a
+   mark, [pasted #1 · 40 lines], and is put back in full when the message is sent.
+   They're saved with the input history (see rememberInput), so a recalled message
+   still carries its paste after the panel reloads. */
+const PASTE_FOLD_LINES = 10, PASTE_FOLD_CHARS = 2000;
+const pastedTexts = new Map();   // mark → what it stands for, oldest first
+let pasteCount = 0;              // the last mark's number; never reused, since older marks may still be saved
+function pasteMark(text){
+  const lines = text.replace(/\n+$/, '').split('\n').length;
+  if(lines <= PASTE_FOLD_LINES && text.length <= PASTE_FOLD_CHARS) return null;
+  return '[pasted #'+(++pasteCount)+' · '+(lines > 1 ? lines.toLocaleString()+' lines' : text.length.toLocaleString()+' chars')+']';
+}
+// The message with its marks put back; each paste it carried is kept for the viewer (Ctrl+O).
+function expandPastes(text){
+  for(const [mark, pasted] of pastedTexts)
+    if(text.includes(mark)){
+      text = text.split(mark).join(pasted);
+      keepOutput(mark.slice(1, -1), pasted);
+    }
+  return text;
+}
+
+function foldPaste(e, ta){
+  const text = ((e.clipboardData && e.clipboardData.getData('text/plain')) || '').replace(/\r\n?/g, '\n');
+  const mark = pasteMark(text);
+  if(!mark) return;
+  e.preventDefault();
+  pastedTexts.set(mark, text);
+  editInput(ta, mark, ta.selectionStart, ta.selectionEnd);
+}
+
+$input.addEventListener('paste',e=>{ if(!addPastedImages(e)) foldPaste(e, $input); });
 // On the welcome screen there is no attachment row, so reveal the footer (where chips render) first.
 $wInput.addEventListener('paste',e=>{
   if(addPastedImages(e)){ dismissWelcome(); $input.focus(); }
+  else foldPaste(e, $wInput);
 });
 
 function send(){
@@ -1313,15 +1390,16 @@ function send(){
     const b = addUser(display, '…');
     applied.push(b);
     placeMidTurnCommand(b);
-    vscode.postMessage({type:'user_input', text});
+    vscode.postMessage({type:'user_input', text: expandPastes(text)});
     return;
   }
   const joinsTurn = isStreaming && text && !/^[\/!$]/.test(text) && !imgCount && !attachedFiles.length;
   if(joinsTurn){
     interjected.push(addUser(display, '↪ sent to the running turn'));
-    vscode.postMessage({type:'user_input', text});
+    vscode.postMessage({type:'user_input', text: expandPastes(text)});
     return;
   }
+  const files = attachedFiles.slice();
   let payload = text;
   if(attachedFiles.length){
     // An image path is sent as @"path" so the CLI attaches the picture itself instead of just naming the file.
@@ -1333,7 +1411,7 @@ function send(){
   const images = pastedImages.map(i=>({name:i.name,data:i.data}));
   pastedImages=[];
   renderAttachments();
-  const m = { text, payload, images, display };
+  const m = { text, payload, images, display, files };
   if(isStreaming){
     queued.push(m);
     renderQueue();
@@ -1520,6 +1598,7 @@ window.addEventListener('message',evt=>{
 
     case 'cancelled':
       splitMark = null;
+      dropQueue();
       abandonPendingApproval();
       abandonPendingQuestion();
       foldThinking();
@@ -1604,6 +1683,10 @@ window.addEventListener('message',evt=>{
       renderStatus();
       break;
 
+    case 'draft':
+      if(typeof msg.text==='string'){ setInput(msg.text); $input.focus(); }
+      break;
+
     case 'files_picked':
       for(const f of (msg.files||[])){
         if(!attachedFiles.find(a=>a.path===f.path))
@@ -1632,14 +1715,23 @@ function renderStatus(){
       '<span>turn '+esc(statusInfo.turn||1)+'</span>',
       '<span class="st-ctx lvl-'+esc(statusInfo.level||'clear')+'" title="Context used; auto-compaction runs before it fills">'+pct+'% context</span>',
     ];
+    const input = statusInfo.input||0, tokens = input + (statusInfo.output||0);
+    if(tokens > 0){
+      const cached = statusInfo.cached > 0 && input > 0 ? ' ('+Math.floor(statusInfo.cached*100/input)+'% cached)' : '';
+      parts.push('<span class="st-tok" title="Tokens the provider reported this session; cached is the share of input served from its cache">'
+        + fmtCount(tokens)+' tokens'+cached+'</span>');
+    }
     for(const m of (statusInfo.modes||[])) parts.push('<span class="st-mode">'+esc(m)+'</span>');
     $stLeft.innerHTML = parts.join('<span class="st-sep">·</span>');
   }
   if(sessionEnded){ $stRight.textContent='session ended'; return; }
-  if(!busy){ $stRight.innerHTML='<span class="st-hint">Ctrl+O output · Ctrl+R history · Ctrl+F find</span>'; return; }
-  const secs = Math.floor((Date.now()-busySince)/1000);
-  const t = secs<60 ? secs+'s' : Math.floor(secs/60)+'m '+String(secs%60).padStart(2,'0')+'s';
-  $stRight.innerHTML = '<span class="st-spin"></span><span>'+t+'</span><span class="st-hint">Ctrl+C to stop</span>';
+  if(!busy){ $stRight.innerHTML='<span class="st-hint">Ctrl+O output · Ctrl+R history · Ctrl+F find · Ctrl+G editor</span>'; return; }
+  $stRight.innerHTML = '<span class="st-spin"></span><span>'+fmtElapsed(Date.now()-busySince)+'</span><span class="st-hint">Ctrl+C to stop</span>';
+}
+// A token count in a few characters: 950, 48.2k, 1.25M.
+function fmtCount(n){
+  const trim = x => String(Number(x));
+  return n < 1000 ? String(n) : n < 999500 ? trim((n/1000).toFixed(1))+'k' : trim((n/1e6).toFixed(2))+'M';
 }
 function startTimer(){
   if(busyTimer) return;
@@ -1753,6 +1845,20 @@ $viewer.addEventListener('keydown',e=>{
 const MAX_HISTORY = 500;
 const saved = (vscode.getState && vscode.getState()) || {};
 const inputHistory = Array.isArray(saved.history) ? saved.history : [];
+for(const [mark, text] of Array.isArray(saved.pastes) ? saved.pastes : []) pastedTexts.set(mark, text);
+pasteCount = Math.max(0, ...[...pastedTexts.keys()].map(m => +(/^\[pasted #(\d+)/.exec(m)||[])[1] || 0));
+// Pastes are kept while a remembered message still names them, newest first, up to this many characters in all.
+const MAX_SAVED_PASTE_CHARS = 1000000;
+function savedPastes(){
+  const kept = [];
+  let chars = 0;
+  for(const [mark, text] of [...pastedTexts].reverse()){
+    if(!inputHistory.some(h => h.includes(mark))) continue;
+    if((chars += text.length) > MAX_SAVED_PASTE_CHARS) break;
+    kept.unshift([mark, text]);
+  }
+  return kept;
+}
 let historyAt = -1, historyDraft = '';
 
 function rememberInput(text){
@@ -1761,7 +1867,7 @@ function rememberInput(text){
   if(inputHistory[inputHistory.length-1] !== t) inputHistory.push(t);
   if(inputHistory.length > MAX_HISTORY) inputHistory.splice(0, inputHistory.length-MAX_HISTORY);
   historyAt = -1;
-  try { vscode.setState({ ...(vscode.getState()||{}), history: inputHistory }); } catch { /* state unavailable */ }
+  try { vscode.setState({ ...(vscode.getState()||{}), history: inputHistory, pastes: savedPastes() }); } catch { /* state unavailable */ }
 }
 function setInput(text){
   $input.value = text;
@@ -1971,7 +2077,16 @@ $input.addEventListener('keydown', e=>{
     editInput($input, '', $input.value.lastIndexOf('\n', at-1) + 1, at);
     return;
   }
+  if(e.key==='g' && e.ctrlKey && !e.shiftKey){
+    stop();
+    vscode.postMessage({type:'edit_draft', text:$input.value});
+    return;
+  }
   if(suggestOpen()) return;
+  if(e.key==='ArrowUp' && !e.shiftKey && !e.altKey && !$input.value && !pastedImages.length && !attachedFiles.length && unqueue()){
+    stop();
+    return;
+  }
   if(e.key==='ArrowUp' && !e.shiftKey && !e.altKey && mCtl.caretOnEdgeLine(true)){
     if(historyStep(-1)) stop();
     return;
@@ -1981,6 +2096,35 @@ $input.addEventListener('keydown', e=>{
     return;
   }
 }, true);
+
+/* ── Alt+↑/↓: the message you sent before or after the one at the top ─── */
+const JUMP_MARGIN = 12;
+function jumpToMessage(older){
+  const sent = [...$msgs.querySelectorAll('.msg.user')];
+  if(!sent.length) return;
+  const top = $msgs.getBoundingClientRect().top - $msgs.scrollTop;
+  const at = $msgs.scrollTop + JUMP_MARGIN;
+  const ys = sent.map(el => el.getBoundingClientRect().top - top);
+  // Near the end the view can't scroll a message to the top, so one that wouldn't move it is skipped.
+  const order = older ? ys.map((_, i) => ys.length - 1 - i) : ys.map((_, i) => i);
+  for(const i of order){
+    if(older ? ys[i] >= at - 4 : ys[i] <= at + 4) continue;
+    const want = Math.max(0, Math.min(ys[i] - JUMP_MARGIN, $msgs.scrollHeight - $msgs.clientHeight));
+    if(Math.abs(want - $msgs.scrollTop) < 2) continue;
+    $msgs.scrollTop = want;
+    following = false;
+    markJumped(sent[i]);
+    return;
+  }
+  // Past the first, it's picked out again to say so; past the last, back to following.
+  if(older) markJumped(sent[0]);
+  else scrollBottom(true);
+}
+function markJumped(el){
+  el.classList.remove('jumped');
+  void el.offsetWidth;   // restarts the animation
+  el.classList.add('jumped');
+}
 
 /* ── keys anywhere in the panel ────────────────────────────────────────── */
 function typingInField(t){
@@ -2002,6 +2146,11 @@ document.addEventListener('keydown', e=>{
   if(e.key==='Escape'){
     if(viewerOpen()){ e.preventDefault(); closeViewer(); return; }
     if(pendingApproval){ e.preventDefault(); respondApproval(false); return; }
+  }
+  if(e.altKey && !ctrl && !e.shiftKey && (e.key==='ArrowUp' || e.key==='ArrowDown') && !viewerOpen()){
+    e.preventDefault();
+    jumpToMessage(e.key==='ArrowUp');
+    return;
   }
   // In a text field Ctrl+End still moves the caret to the end as well.
   if(ctrl && e.key==='End'){ if(!typingInField(e.target)) e.preventDefault(); scrollBottom(true); return; }

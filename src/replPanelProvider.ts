@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as cp from 'child_process';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { FileIndex } from './fileSuggestions';
 import { getBinary, readApiKeyFromConfig, fetchModelsViaCli, getFuseraftHomeEnvOverride } from './fuseraftUtils';
@@ -82,6 +83,7 @@ export class ReplPanelProvider {
     private _files: FileIndex | undefined;
     /** When the user last sent something; a reply or question after a while away gets a notification. */
     private _lastInputAt = Date.now();
+    private _draft: vscode.Disposable | undefined;
 
     private constructor(panel: vscode.WebviewPanel, model: string, resumeId?: string, cwd?: string) {
         this._panel    = panel;
@@ -141,6 +143,8 @@ export class ReplPanelProvider {
             } else if (msg.type === 'open_text' && typeof msg.text === 'string') {
                 void vscode.workspace.openTextDocument({ content: msg.text, language: 'plaintext' })
                     .then(doc => vscode.window.showTextDocument(doc, { preview: true, viewColumn: vscode.ViewColumn.Active }));
+            } else if (msg.type === 'edit_draft' && typeof msg.text === 'string') {
+                void this._editDraft(msg.text);
             } else if (msg.type === 'file_suggest' && typeof msg.query === 'string') {
                 const query = msg.query;
                 this._files ??= this._cwd ? new FileIndex(this._cwd) : undefined;
@@ -150,6 +154,7 @@ export class ReplPanelProvider {
         });
 
         panel.onDidDispose(() => {
+            this._draft?.dispose();
             this._proc?.kill();
             ReplPanelProvider._current = undefined;
         });
@@ -253,6 +258,35 @@ export class ReplPanelProvider {
         this._proc.on('error', (err: Error) => {
             try { this._panel.webview.postMessage({ type: 'error', text: err.message }); } catch { /* panel disposed */ }
         });
+    }
+
+    /**
+     * Ctrl+G: the draft in an editor tab beside the panel, as $EDITOR is in the terminal. Each save puts it back in
+     * the prompt; closing the tab ends the edit.
+     */
+    private async _editDraft(text: string): Promise<void> {
+        this._draft?.dispose();
+        const file = path.join(os.tmpdir(), `fuseraft-draft-${process.pid}.md`);
+        fs.writeFileSync(file, text);
+        const uri = vscode.Uri.file(file);
+        const same = (doc: vscode.TextDocument) => doc.uri.fsPath === uri.fsPath;
+        const subscriptions = [
+            vscode.workspace.onDidSaveTextDocument(doc => {
+                if (same(doc)) {
+                    this._panel.webview.postMessage({ type: 'draft', text: doc.getText().replace(/\r\n/g, '\n').replace(/\n+$/, '') });
+                }
+            }),
+            vscode.workspace.onDidCloseTextDocument(doc => { if (same(doc)) { this._draft?.dispose(); } }),
+        ];
+        const draft = new vscode.Disposable(() => {
+            subscriptions.forEach(d => d.dispose());
+            fs.rmSync(file, { force: true });
+            if (this._draft === draft) { this._draft = undefined; }
+        });
+        this._draft = draft;
+        const doc = await vscode.workspace.openTextDocument(uri);
+        await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.Beside, preview: false });
+        void vscode.window.setStatusBarMessage('fuseraft: save to put the draft back in the prompt; close the tab when done', 6000);
     }
 
     private _openFile(file: string): void {
