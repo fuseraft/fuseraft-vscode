@@ -1,8 +1,8 @@
 {
   "name": "fuseraft",
   "displayName": "fuseraft",
-  "description": "Chat with fuseraft agents in an interactive REPL panel, right in VS Code",
-  "version": "0.5.0",
+  "description": "Open-source coding agent for VS Code that works with any model — Claude, GPT, Grok, Gemini, or local models via Ollama. Edits files and runs commands with your approval.",
+  "version": "0.5.1",
   "publisher": "fuseraft",
   "license": "MIT",
   "repository": {
