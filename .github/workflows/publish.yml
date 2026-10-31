@@ -3,8 +3,7 @@ name: Publish
 # Publishes to the VS Code Marketplace and Open VSX whenever a version bump lands on main.
 # Pushes that touch package.json without changing the version are no-ops (--skip-duplicate).
 # Both use trusted publishing (OIDC), so each registry needs a policy naming this repo and this
-# workflow file. Open VSX only allows that once the extension exists there, so its first publish
-# uses an OVSX_PAT secret; ovsx falls back to OIDC once that secret is removed.
+# workflow file; no tokens are stored.
 on:
   push:
     branches: [main]
@@ -43,9 +42,7 @@ jobs:
         run: npx --yes @vscode/vsce@4.1.0 publish --oidc --packagePath "${{ steps.package.outputs.vsix }}" --skip-duplicate
 
       - name: Publish to Open VSX
-        env:
-          OVSX_PAT: ${{ secrets.OVSX_PAT }}
-        run: npx --yes ovsx@1.3.0 publish --packagePath "${{ steps.package.outputs.vsix }}" --skip-duplicate
+        run: npx --yes ovsx@1.3.0 publish --trusted-publishing --packagePath "${{ steps.package.outputs.vsix }}" --skip-duplicate
 
       - uses: actions/upload-artifact@v7
         with:
