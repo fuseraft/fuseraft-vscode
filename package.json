@@ -2,7 +2,7 @@
   "name": "fuseraft",
   "displayName": "fuseraft",
   "description": "Open-source coding agent for VS Code that works with any model — Claude, GPT, Grok, Gemini, or local models via Ollama. Edits files and runs commands with your approval.",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "publisher": "fuseraft",
   "license": "MIT",
   "repository": {
