@@ -1,9 +1,9 @@
 name: Publish
 
-# Publishes to the VS Code Marketplace whenever a version bump lands on main.
+# Publishes to the VS Code Marketplace and Open VSX whenever a version bump lands on main.
 # Pushes that touch package.json without changing the version are no-ops (--skip-duplicate).
-# Auth is Marketplace Trusted Publishing (OIDC): no stored token, but the publisher needs a
-# Trusted Publishing policy naming this repo and this workflow file.
+# Both use trusted publishing (OIDC), so each registry needs a policy naming this repo and this
+# workflow file; no tokens are stored.
 on:
   push:
     branches: [main]
@@ -38,8 +38,11 @@ jobs:
           echo "vsix=fuseraft-$version.vsix" >> "$GITHUB_OUTPUT"
           npx --yes @vscode/vsce@4.1.0 package -o "fuseraft-$version.vsix"
 
-      - name: Publish
+      - name: Publish to VS Code Marketplace
         run: npx --yes @vscode/vsce@4.1.0 publish --oidc --packagePath "${{ steps.package.outputs.vsix }}" --skip-duplicate
+
+      - name: Publish to Open VSX
+        run: npx --yes ovsx@1.3.0 publish --trusted-publishing --packagePath "${{ steps.package.outputs.vsix }}" --skip-duplicate
 
       - uses: actions/upload-artifact@v7
         with:

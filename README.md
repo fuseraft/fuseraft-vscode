@@ -2,7 +2,7 @@
 
 ![fuseraft banner](media/fuseraft-banner.png)
 
-Chat with a [fuseraft](https://github.com/fuseraft/fuseraft-cli) agent in a panel beside your editor. It reads and edits your code, runs commands with your approval, and remembers what it learns across chats.
+An open-source coding agent for VS Code that works with any model, built on [fuseraft](https://github.com/fuseraft/fuseraft-cli). It reads and edits your code, runs commands with your approval, and remembers what it learns across chats.
 
 [Docs](https://fuseraft.ai/fuseraft-cli/) · [GitHub](https://github.com/fuseraft/fuseraft-cli)
 
