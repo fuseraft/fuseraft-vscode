@@ -16,9 +16,13 @@ const $thinkingLabel = document.getElementById('thinking-label');
 const $footer        = document.getElementById('footer');
 const $attachBtn     = document.getElementById('attach-btn');
 const $attachRow     = document.getElementById('attach-row');
+const $wContext      = document.getElementById('welcome-context');
 let modelsLoaded     = false;
 let activeModel      = ''; // model actually running this session, set by the CLI's 'ready' event
 let attachedFiles    = []; // [{name, path}]
+let attachedSelections = []; // [{name, path, rel, startLine, endLine, language, text?}] — code selected in an editor
+let activeFile       = null; // {path, rel, name, startLine?, endLine?} — the file you were last in, from the extension
+let includeActive    = true; // fuseraft.includeActiveFile: the active file is named with each message
 let pastedImages     = []; // [{name, data}] — screenshots pasted from the clipboard, sent as base64 data URLs
 let pastedImageCount = 0;
 const MAX_PASTED_IMAGES = 8; // mirrors the CLI's per-message cap
@@ -43,45 +47,125 @@ function isImagePath(p){
   return ['.png','.jpg','.jpeg','.gif','.webp'].some(x=>l.endsWith(x));
 }
 
+function lineRange(a,b){ return a===b ? String(a) : a+'-'+b; }
+
+function makeChip(text, title, onRemove, onOpen){
+  const chip=document.createElement('span');
+  chip.className='attach-chip';
+  const label=document.createElement('span');
+  label.textContent=text;
+  if(title) chip.title=title;
+  if(onOpen){ label.classList.add('attach-chip-open'); label.addEventListener('click', onOpen); }
+  chip.appendChild(label);
+  if(onRemove){
+    const rm=document.createElement('span');
+    rm.className='attach-chip-remove';
+    rm.textContent='✕';
+    rm.title='Remove';
+    rm.addEventListener('click', e=>{ e.stopPropagation(); onRemove(); renderAttachments(); });
+    chip.appendChild(rm);
+  }
+  return chip;
+}
+
+// The file you're in, shown on the welcome screen as well, since a first message names it too.
+function activeFileChip(){
+  const lines = activeFile.startLine ? ':'+lineRange(activeFile.startLine, activeFile.endLine) : '';
+  const chip = makeChip(activeFile.name+lines, includeActive
+    ? activeFile.rel+lines+' — the file you are in is named with your message. Click to stop.'
+    : activeFile.rel+lines+' — not sent. Click to name the file you are in with each message.');
+  chip.classList.add('active-file');
+  chip.classList.toggle('off', !includeActive);
+  chip.setAttribute('role','button');
+  chip.addEventListener('click', ()=>{
+    includeActive = !includeActive;
+    renderAttachments();
+    vscode.postMessage({type:'include_active_file', on: includeActive});
+  });
+  return chip;
+}
+
 function renderAttachments(){
   $attachRow.innerHTML='';
-  if(!attachedFiles.length && !pastedImages.length){ $attachRow.classList.remove('has-files'); return; }
+  $wContext.innerHTML='';
+  // Attached already, the file needs no second chip (and withContext doesn't name it twice).
+  const showActive = activeFile && !attachedFiles.some(f=>f.path===activeFile.path)
+    && !attachedSelections.some(x=>x.path===activeFile.path);
+  if(showActive) $wContext.appendChild(activeFileChip());
+  if(!showActive && !attachedFiles.length && !attachedSelections.length && !pastedImages.length){
+    $attachRow.classList.remove('has-files');
+    return;
+  }
   $attachRow.classList.add('has-files');
+  if(showActive) $attachRow.appendChild(activeFileChip());
+  for(const sel of attachedSelections){
+    const range = lineRange(sel.startLine, sel.endLine);
+    $attachRow.appendChild(makeChip(sel.name+':'+range,
+      sel.rel+' lines '+range+(sel.text===undefined ? ' (too long to include; the agent is told to read those lines)' : ''),
+      ()=>{ attachedSelections = attachedSelections.filter(x=>x!==sel); },
+      sel.path ? ()=>vscode.postMessage({type:'open_file', path: sel.path, line: sel.startLine, endLine: sel.endLine}) : null));
+  }
   pastedImages.forEach((img,idx)=>{
-    const chip=document.createElement('span');
-    chip.className='attach-chip';
-    const label=document.createElement('span');
-    label.textContent='image: '+img.name;
-    const rm=document.createElement('span');
-    rm.className='attach-chip-remove';
-    rm.textContent='✕';
-    rm.title='Remove';
-    rm.addEventListener('click',()=>{
-      pastedImages.splice(idx,1);
-      renderAttachments();
-    });
-    chip.appendChild(label);
-    chip.appendChild(rm);
-    $attachRow.appendChild(chip);
+    $attachRow.appendChild(makeChip('image: '+img.name, '', ()=>{ pastedImages.splice(idx,1); }));
   });
   for(const {name,path} of attachedFiles){
-    const chip=document.createElement('span');
-    chip.className='attach-chip';
-    const label=document.createElement('span');
-    label.textContent=name;
-    const rm=document.createElement('span');
-    rm.className='attach-chip-remove';
-    rm.textContent='✕';
-    rm.title='Remove';
-    rm.addEventListener('click',()=>{
-      attachedFiles=attachedFiles.filter(f=>f.path!==path);
-      renderAttachments();
-    });
-    chip.appendChild(label);
-    chip.appendChild(rm);
-    $attachRow.appendChild(chip);
+    $attachRow.appendChild(makeChip(name, path, ()=>{ attachedFiles=attachedFiles.filter(f=>f.path!==path); }));
   }
 }
+
+function hasAttachments(){ return attachedFiles.length>0 || attachedSelections.length>0; }
+
+// A fence longer than any run of backticks in the code, so the code can't close it early.
+function fenceFor(text){
+  const longest = Math.max(0, ...(text.match(/`+/g)||[]).map(r=>r.length));
+  return '`'.repeat(Math.max(3, longest+1));
+}
+
+// withContext's lines taken back off a sent message, where it's shown again (keep in sync with stripMessageContext).
+function stripContext(text){
+  let s = text;
+  for(;;){
+    let m = /^The file open in the user's editor: [^\n]*\n\n/.exec(s)
+      || /^The user referenced the following files which may be of interest in this message:\n(?:\d+\. [^\n]*\n)+\n/.exec(s)
+      || /^The user selected [^\n]*; it is too long to include here, so read those lines\.\n\n/.exec(s);
+    const sel = !m && /^The user selected this code from [^\n]*:\n(`{3,})[^\n]*\n/.exec(s);
+    if(sel){
+      const close = s.indexOf('\n'+sel[1]+'\n\n', sel[0].length-1);
+      if(close>=0) m = [s.slice(0, close+sel[1].length+3)];
+    }
+    if(!m) return s;
+    s = s.slice(m[0].length);
+  }
+}
+
+// What goes with a message: the file you're in, the files you attached and the code you selected. It goes ahead of
+// the message, except after a $skill's name, which the CLI only recognises at the start (the rest are its arguments).
+// /commands and !commands take none.
+function withContext(text, files, selections){
+  if(isCommand(text)) return text;
+  const parts=[];
+  const named = new Set(files.map(f=>f.path).concat(selections.map(x=>x.path)));
+  // A picture sent with no words gets the CLI's own default prompt, which a line about the file would displace.
+  if(includeActive && activeFile && text && !named.has(activeFile.path)){
+    const lines = activeFile.startLine ? ' (lines '+lineRange(activeFile.startLine, activeFile.endLine)+' selected)' : '';
+    parts.push("The file open in the user's editor: "+activeFile.rel+lines+'.');
+  }
+  if(files.length){
+    // An image path is sent as @"path" so the CLI attaches the picture itself instead of just naming the file.
+    const list = files.map((f,i)=>(i+1)+'. '+(isImagePath(f.path)?'@"'+f.path+'"':f.path)).join('\n');
+    parts.push('The user referenced the following files which may be of interest in this message:\n'+list);
+  }
+  for(const sel of selections){
+    const where = sel.rel+' (lines '+lineRange(sel.startLine, sel.endLine)+')';
+    if(sel.text===undefined){ parts.push('The user selected '+where+'; it is too long to include here, so read those lines.'); continue; }
+    const fence = fenceFor(sel.text);
+    parts.push('The user selected this code from '+where+':\n'+fence+(sel.language||'')+'\n'+sel.text.replace(/\n$/,'')+'\n'+fence);
+  }
+  if(!parts.length) return text;
+  return text.startsWith('$') ? text+' \n\n'+parts.join('\n\n') : parts.join('\n\n')+'\n\n'+text;
+}
+
+function isCommand(text){ return /^[\/!]/.test(text); }
 
 /* ── slash/skill completion ──────────────────────────── */
 // Mirrors ReplLineReader's SlashCommands/SubCommands in fuseraft-cli — keep in sync,
@@ -282,6 +366,8 @@ function esc(s){
 }
 
 const ICON_COPY  = '<svg viewBox="0 0 16 16" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M4 4V2.5A1.5 1.5 0 0 1 5.5 1h7A1.5 1.5 0 0 1 14 2.5v7a1.5 1.5 0 0 1-1.5 1.5H11v1.5A1.5 1.5 0 0 1 9.5 14h-7A1.5 1.5 0 0 1 1 12.5v-7A1.5 1.5 0 0 1 2.5 4H4zm1 0h4.5A1.5 1.5 0 0 1 11 5.5V10h1.5a.5.5 0 0 0 .5-.5v-7a.5.5 0 0 0-.5-.5h-7a.5.5 0 0 0-.5.5V4zM2.5 5a.5.5 0 0 0-.5.5v7a.5.5 0 0 0 .5.5h7a.5.5 0 0 0 .5-.5v-7a.5.5 0 0 0-.5-.5h-7z"/></svg>';
+const ICON_INSERT = '<svg viewBox="0 0 16 16" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M8.5 1v8.3l2.65-2.65.7.7L8 11.2 4.15 7.35l.7-.7L7.5 9.3V1h1zM2 13h12v1H2v-1z"/></svg>';
+const ICON_OPEN   = '<svg viewBox="0 0 16 16" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" d="M3 1h6.2L13 4.8V15H3V1zm1 1v12h8V5.5H8.5V2H4zm5.5.4V4.5h2.1L9.5 2.4z"/></svg>';
 const ICON_CHECK = '<svg viewBox="0 0 16 16" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M13.85 4.15a.5.5 0 0 1 0 .707l-7 7a.5.5 0 0 1-.707 0l-3.5-3.5a.5.5 0 1 1 .707-.707L6.5 10.793l6.646-6.647a.5.5 0 0 1 .707 0z"/></svg>';
 
 function makeCopyBtn(getText){
@@ -330,12 +416,15 @@ function makeActionsRow(getText,tokenInfo){
 // (re-rendered on every streamed token), so a single delegated listener
 // handles clicks rather than rebinding one per button on every render.
 $msgs.addEventListener('click', e=>{
-  const btn = e.target.closest('.code-copy-btn');
+  const btn = e.target.closest('.code-btn');
   if(!btn) return;
   e.stopPropagation();
-  const code = btn.nextElementSibling;
+  const pre = btn.closest('pre');
+  const code = pre && pre.querySelector('code');
   const text = code ? code.textContent : '';
   if(!text) return;
+  if(btn.classList.contains('code-insert-btn')){ vscode.postMessage({type:'insert_code', text}); return; }
+  if(btn.classList.contains('code-open-btn')){ vscode.postMessage({type:'open_code', text, lang: pre.dataset.lang || ''}); return; }
   navigator.clipboard.writeText(text).then(()=>{
     btn.innerHTML = ICON_CHECK;
     btn.classList.add('copied');
@@ -396,8 +485,12 @@ function mdToHtml(raw){
   // extract fenced code blocks
   let s = raw.replace(/```(\w*)\n?([\s\S]*?)```/g,(_,lang,code)=>{
     const attr=lang?' data-lang="'+esc(lang)+'"':'';
-    const btn='<button type="button" class="code-copy-btn" title="Copy code">'+ICON_COPY+'</button>';
-    return stash('<pre'+attr+'>'+btn+'<code>'+esc(code.replace(/\n$/,''))+'</code></pre>');
+    const btns='<div class="code-actions">'
+      +'<button type="button" class="code-btn code-insert-btn" title="Insert at the cursor in the file you were in">'+ICON_INSERT+'</button>'
+      +'<button type="button" class="code-btn code-open-btn" title="Open in a new editor">'+ICON_OPEN+'</button>'
+      +'<button type="button" class="code-btn code-copy-btn" title="Copy code">'+ICON_COPY+'</button>'
+      +'</div>';
+    return stash('<pre'+attr+'>'+btns+'<code>'+esc(code.replace(/\n$/,''))+'</code></pre>');
   });
   s = esc(s);
   // inline code
@@ -456,8 +549,70 @@ function mdToHtml(raw){
   }).join('\n');
   // restore stashed blocks
   s = s.replace(/\x00(\d+)\x00/g,(_,i)=>blocks[parseInt(i)]);
-  return s;
+  return markPaths(s);
 }
+
+/* ── file references in replies ──────────────────────────────────────────
+   Anything in a reply that looks like a file path (src/foo.ts, README.md,
+   src/foo.ts:42, foo.ts#L10-L20) is marked as a candidate; the extension
+   says which ones are files, and those become links that open at the line.
+   Code blocks and links are left alone. */
+const PATH_RE = /(^|[\s(\[{"'“‘,;>])((?:[A-Za-z]:[\\/]|~\/|\.{1,2}\/|\/)?(?:[\w@.+-]+[\\/])*[\w@+-][\w@.+-]*\.[A-Za-z]\w{0,9})(?::(\d+)(?:[-–](\d+)|:\d+)?|#L(\d+)(?:-L?(\d+))?)?(?=$|[\s)\]}"'”’,;:.!?<&])/g;
+function pathSpan(text, file, line, end){
+  return '<span class="path-ref" data-path="'+file+'"'+(line?' data-line="'+line+'"':'')+(end?' data-end="'+end+'"':'')+'>'+text+'</span>';
+}
+function markPaths(html){
+  let skip = 0;
+  return html.split(/(<[^>]+>)/).map((part, i, all)=>{
+    if(part.startsWith('<')){
+      if(/^<(pre|a)[\s>]/.test(part)) skip++;
+      else if(/^<\/(pre|a)>/.test(part)) skip--;
+      return part;
+    }
+    if(skip>0 || !part) return part;
+    // Inline code that is wholly a path: the span goes inside the <code>.
+    if(all[i-1]==='<code>' && all[i+1]==='</code>'){
+      PATH_RE.lastIndex = 0;
+      const m = PATH_RE.exec(part);
+      return m && m.index===0 && !m[1] && m[0].length===part.length ? pathSpan(part, m[2], m[3]||m[5], m[4]||m[6]) : part;
+    }
+    return part.replace(PATH_RE, (whole, pre, file, l1, e1, l2, e2)=>
+      pre + pathSpan(whole.slice(pre.length), file, l1||l2, e1||e2));
+  }).join('');
+}
+
+const knownPaths = new Map();   // path → whether it's a file, as the extension last said
+const askedPaths = new Set();
+let pathScan = 0;
+const MAX_PATH_CHECKS = 200;   // per message to the extension; the rest are asked once it answers
+function scanPaths(){
+  pathScan = 0;
+  const ask = [];
+  for(const el of $msgs.querySelectorAll('.path-ref:not(.ok):not(.no)')){
+    const p = el.dataset.path;
+    if(knownPaths.has(p)) el.classList.add(knownPaths.get(p) ? 'ok' : 'no');
+    else if(!askedPaths.has(p) && ask.length < MAX_PATH_CHECKS){ askedPaths.add(p); ask.push(p); }
+  }
+  if(ask.length) vscode.postMessage({type:'check_paths', paths: ask});
+}
+// A path the agent named before creating it is a file by the end of the turn, so what wasn't is asked again then.
+function forgetMissingPaths(){
+  let forgot = false;
+  for(const [p, ok] of knownPaths) if(!ok){ knownPaths.delete(p); forgot = true; }
+  if(!forgot) return;
+  for(const el of $msgs.querySelectorAll('.path-ref.no')) el.classList.remove('no');
+  scanPaths();
+}
+// Replies re-render on every streamed token, so candidates are looked up once per frame, not per render.
+new MutationObserver(()=>{ if(!pathScan) pathScan = requestAnimationFrame(scanPaths); })
+  .observe($msgs, {childList:true, subtree:true});
+$msgs.addEventListener('click', e=>{
+  const ref = e.target.closest('.path-ref.ok');
+  if(!ref) return;
+  e.stopPropagation();
+  const line = parseInt(ref.dataset.line||'', 10), end = parseInt(ref.dataset.end||'', 10);
+  vscode.postMessage({type:'open_file', path: ref.dataset.path, ...(line ? {line} : {}), ...(end ? {endLine: end} : {})});
+});
 
 // Follows new output unless you've scrolled up to read; Ctrl+End (or scrolling back down) follows again.
 let following = true;
@@ -1016,8 +1171,9 @@ function renderReplay(msg){
     : 'last '+turns.length+' of '+total+' turns';
   addSystem('Previous turns — '+scope+(msg.compacted?' · earlier context was compacted':''));
   for(const t of turns){
-    addUser(t.user||'');
-    rememberInput(t.user||'');
+    const said = stripContext(t.user||'');
+    addUser(said);
+    rememberInput(said);
     const tools=(Array.isArray(t.toolCalls)?t.toolCalls:[]).map(c=>({name:c.name||'tool', args:c.args||null}));
     if(t.assistant || tools.length) addAssistantHistorical(t.assistant||'', tools);
     else addSystem('(no response recorded — the turn was interrupted)');
@@ -1184,7 +1340,7 @@ function sendFromWelcome(){
   wCtl.resetTab();
   wCtl.sync();
   rememberInput(text);
-  dispatch({ text, payload: text, images: [], display: text });
+  dispatch({ text, payload: withContext(text, [], []), images: [], display: text });
 }
 
 $wSend.addEventListener('click',sendFromWelcome);
@@ -1263,6 +1419,7 @@ function unqueue(){
   if(!m) return false;
   renderQueue();
   attachedFiles = attachedFiles.concat(m.files || []);
+  attachedSelections = attachedSelections.concat(m.selections || []);
   pastedImages = pastedImages.concat(m.images);
   renderAttachments();
   setInput(m.text);
@@ -1319,6 +1476,11 @@ function addPastedImages(e){
                    .map(it=>it.getAsFile()).filter(Boolean);
   if(!files.length) return false;
   e.preventDefault();
+  addImageFiles(files);
+  return true;
+}
+
+function addImageFiles(files){
   for(const f of files){
     if(pastedImages.length>=MAX_PASTED_IMAGES) break;
     const ext=(f.type.split('/')[1]||'png').replace('jpeg','jpg');
@@ -1331,7 +1493,6 @@ function addPastedImages(e){
     };
     reader.readAsDataURL(f);
   }
-  return true;
 }
 
 /* ── long pastes ───────────────────────────────────────
@@ -1384,7 +1545,8 @@ function send(){
   rememberInput(text);
   const imgCount = pastedImages.length;
   const display = text + (imgCount ? (text?'\n\n':'') + '[+'+imgCount+' image'+(imgCount>1?'s':'')+']' : '');
-  const runsNow = isStreaming && !imgCount && !attachedFiles.length && !text.includes('\n')
+  // A command never takes the attachments (they wait for the next message), so they don't hold it back.
+  const runsNow = isStreaming && !imgCount && !text.includes('\n')
     && runsMidTurn(text);
   if(runsNow){
     const b = addUser(display, '…');
@@ -1393,25 +1555,21 @@ function send(){
     vscode.postMessage({type:'user_input', text: expandPastes(text)});
     return;
   }
-  const joinsTurn = isStreaming && text && !/^[\/!$]/.test(text) && !imgCount && !attachedFiles.length;
+  const joinsTurn = isStreaming && text && !/^[\/!$]/.test(text) && !imgCount && !hasAttachments();
   if(joinsTurn){
     interjected.push(addUser(display, '↪ sent to the running turn'));
     vscode.postMessage({type:'user_input', text: expandPastes(text)});
     return;
   }
-  const files = attachedFiles.slice();
-  let payload = text;
-  if(attachedFiles.length){
-    // An image path is sent as @"path" so the CLI attaches the picture itself instead of just naming the file.
-    const list = attachedFiles.map((f,i)=>(i+1)+'. '+(isImagePath(f.path)?'@"'+f.path+'"':f.path)).join('\n');
-    payload = 'The user referenced the following files which may be of interest in this message:\n'+list+'\n\n'+text;
-    attachedFiles=[];
-    renderAttachments();
-  }
+  const command = isCommand(text);
+  const files = command ? [] : attachedFiles.slice();
+  const selections = command ? [] : attachedSelections.slice();
+  const payload = withContext(text, files, selections);
+  if(!command){ attachedFiles=[]; attachedSelections=[]; }
   const images = pastedImages.map(i=>({name:i.name,data:i.data}));
   pastedImages=[];
   renderAttachments();
-  const m = { text, payload, images, display, files };
+  const m = { text, payload, images, display, files, selections };
   if(isStreaming){
     queued.push(m);
     renderQueue();
@@ -1458,11 +1616,18 @@ window.addEventListener('message',evt=>{
       $wSend.disabled=false;
       $wInput.focus();
       sessionReady=true;
+      // Kept so a window reload can resume this chat in the panel VS Code restores.
+      try { vscode.setState({ ...(vscode.getState()||{}), sessionId }); } catch { /* state unavailable */ }
       setEnabled(!isStreaming);
       break;
 
     case 'title':{
       chatTitle = msg.title || msg.autoTitle || null;
+      // After /switch or /fork switch the chat runs as another session; a reload should resume that one.
+      if(msg.sessionId && msg.sessionId !== sessionId){
+        sessionId = msg.sessionId;
+        try { vscode.setState({ ...(vscode.getState()||{}), sessionId }); } catch { /* state unavailable */ }
+      }
       showSessionLabel();
       break;
     }
@@ -1589,6 +1754,7 @@ window.addEventListener('message',evt=>{
       break;
 
     case 'message_end':
+      forgetMissingPaths();
       finalise({
         input:  typeof msg.inputTokens==='number'       ? msg.inputTokens       : undefined,
         output: typeof msg.outputTokens==='number'      ? msg.outputTokens      : undefined,
@@ -1688,11 +1854,28 @@ window.addEventListener('message',evt=>{
       break;
 
     case 'files_picked':
-      for(const f of (msg.files||[])){
-        if(!attachedFiles.find(a=>a.path===f.path))
-          attachedFiles.push(f);
-      }
+      addAttachments(msg.files, []);
+      break;
+
+    case 'attach':
+      leaveWelcome();
+      addAttachments(msg.files, msg.selections);
+      focusInput();
+      break;
+
+    case 'active_file':
+      activeFile = msg.file || null;
+      includeActive = msg.include !== false;
       renderAttachments();
+      break;
+
+    case 'focus_input':
+      focusInput();
+      break;
+
+    case 'paths_checked':
+      for(const [p, ok] of Object.entries(msg.results||{})){ knownPaths.set(p, !!ok); askedPaths.delete(p); }
+      scanPaths();
       break;
   }
 });
@@ -2083,7 +2266,7 @@ $input.addEventListener('keydown', e=>{
     return;
   }
   if(suggestOpen()) return;
-  if(e.key==='ArrowUp' && !e.shiftKey && !e.altKey && !$input.value && !pastedImages.length && !attachedFiles.length && unqueue()){
+  if(e.key==='ArrowUp' && !e.shiftKey && !e.altKey && !$input.value && !pastedImages.length && !hasAttachments() && unqueue()){
     stop();
     return;
   }
@@ -2168,4 +2351,65 @@ document.addEventListener('keydown', e=>{
   }
 });
 
+/* ── drag and drop ───────────────────────────────────────────────────────
+   Files from the Explorer or editor tabs arrive as URIs (VS Code only lets
+   a drop reach the panel while Shift is held); pictures dropped from
+   elsewhere are attached like pasted ones. */
+function dropUris(dt){
+  const list = dt.getData('application/vnd.code.uri-list') || dt.getData('text/uri-list');
+  return list.split(/\r?\n/).map(l=>l.trim()).filter(l=>l && !l.startsWith('#'));
+}
+function canDrop(dt){
+  return !!dt && [...dt.types].some(t=>t==='Files' || t==='text/uri-list' || t==='application/vnd.code.uri-list');
+}
+let dragDepth = 0;
+document.addEventListener('dragenter', e=>{
+  if(!canDrop(e.dataTransfer) || !sessionReady || sessionEnded) return;
+  dragDepth++;
+  document.body.classList.add('dropping');
+});
+document.addEventListener('dragleave', ()=>{
+  if(dragDepth && !--dragDepth) document.body.classList.remove('dropping');
+});
+document.addEventListener('dragover', e=>{
+  if(canDrop(e.dataTransfer)){ e.preventDefault(); e.dataTransfer.dropEffect='copy'; }
+});
+document.addEventListener('drop', e=>{
+  dragDepth = 0;
+  document.body.classList.remove('dropping');
+  if(!canDrop(e.dataTransfer)) return;
+  e.preventDefault();
+  if(!sessionReady || sessionEnded) return;
+  const uris = dropUris(e.dataTransfer);
+  if(uris.length){ vscode.postMessage({type:'drop_uris', uris}); return; }
+  const images = [...e.dataTransfer.files].filter(f=>f.type && f.type.indexOf('image/')===0);
+  if(images.length){ leaveWelcome(); addImageFiles(images); focusInput(); }
+  else addSystem("That can't be attached from here. Drop files from the Explorer or an editor tab, or use the paperclip.");
+});
+
+function addAttachments(files, selections){
+  for(const f of (files||[])){
+    if(!attachedFiles.find(a=>a.path===f.path)) attachedFiles.push(f);
+  }
+  for(const sel of (selections||[])){
+    if(!attachedSelections.find(a=>a.path===sel.path && a.startLine===sel.startLine && a.endLine===sel.endLine && a.text===sel.text))
+      attachedSelections.push(sel);
+  }
+  renderAttachments();
+}
+
+// Attachments show above the main prompt, not on the welcome screen, so what you'd typed there moves with them.
+function leaveWelcome(){
+  if($welcome.style.display==='none') return;
+  const draft = $wInput.value;
+  dismissWelcome();
+  if(draft) setInput(draft);
+}
+
+function focusInput(){
+  if(viewerOpen() || hsearchOpen()) return;
+  ($welcome.style.display==='none' ? $input : $wInput).focus();
+}
+
 renderStatus();
+vscode.postMessage({type:'webview_ready'});

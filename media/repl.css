@@ -213,12 +213,22 @@ body{
   margin-left:6px;font-size:10px;color:var(--vscode-descriptionForeground);
   white-space:nowrap
 }
-.bubble pre .code-copy-btn{
-  position:absolute;top:6px;right:6px;
-  opacity:0;transition:opacity .12s;
+.bubble pre .code-actions{
+  position:absolute;top:6px;right:6px;display:flex;gap:2px;
+  opacity:0;transition:opacity .12s
+}
+.bubble pre .code-btn{
+  display:flex;align-items:center;justify-content:center;
+  width:20px;height:20px;padding:0;border:none;border-radius:3px;cursor:pointer;
+  color:var(--vscode-descriptionForeground);
   background:var(--vscode-editorWidget-background,rgba(128,128,128,.25))
 }
-.bubble pre:hover .code-copy-btn,.bubble pre .code-copy-btn.copied{opacity:1}
+.bubble pre .code-btn:hover{color:var(--vscode-editor-foreground);background:var(--vscode-toolbar-hoverBackground,rgba(128,128,128,.35))}
+.bubble pre .code-btn svg{width:12px;height:12px;pointer-events:none}
+.bubble pre .code-btn.copied{color:var(--vscode-terminal-ansiGreen,#89d185)}
+.bubble pre:hover .code-actions,.bubble pre .code-actions:focus-within,.bubble pre .code-actions:has(.copied){opacity:1}
+.path-ref.ok{color:var(--vscode-textLink-foreground);cursor:pointer}
+.path-ref.ok:hover{color:var(--vscode-textLink-activeForeground);text-decoration:underline}
 .tool-row{display:flex;flex-wrap:wrap;gap:3px;padding-bottom:2px}
 .tool-badge{
   padding:1px 6px;border-radius:3px;font-size:10px;
@@ -278,9 +288,10 @@ body{
 .bubble pre[data-lang]::before{
   content:attr(data-lang);
   position:absolute;top:6px;right:30px;
-  font-size:10px;opacity:.45;
+  font-size:10px;opacity:.45;transition:opacity .12s;
   font-family:var(--vscode-font-family)
 }
+.bubble pre[data-lang]:hover::before,.bubble pre[data-lang]:has(.code-actions:focus-within)::before{opacity:0}
 .bubble blockquote{
   border-left:3px solid var(--vscode-panel-border);
   padding-left:10px;margin:4px 0;
@@ -353,6 +364,19 @@ body{
   padding:1px 2px;border-radius:2px
 }
 .attach-chip-remove:hover{opacity:1}
+.attach-chip-open{cursor:pointer}
+.attach-chip-open:hover{text-decoration:underline}
+.attach-chip.active-file{
+  cursor:pointer;padding-right:10px;
+  background:transparent;color:var(--vscode-foreground);
+  border:1px solid var(--vscode-badge-background)
+}
+.attach-chip.active-file.off{opacity:.55;text-decoration:line-through}
+#welcome-context{display:flex;flex-wrap:wrap;gap:4px;align-self:flex-start;min-height:0}
+#welcome-context:empty{display:none}
+body.dropping #footer,body.dropping #welcome-input-wrap{
+  outline:2px dashed var(--vscode-focusBorder);outline-offset:-2px
+}
 #input-row{display:flex;gap:6px;align-items:flex-end}
 #attach-btn{
   height:36px;width:36px;flex-shrink:0;

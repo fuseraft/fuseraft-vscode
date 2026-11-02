@@ -25,7 +25,8 @@
     "fuseraft"
   ],
   "activationEvents": [
-    "onStartupFinished"
+    "onStartupFinished",
+    "onWebviewPanel:fuseraftRepl"
   ],
   "icon": "media/icon.png",
   "main": "./out/extension.js",
@@ -60,6 +61,18 @@
         "title": "Delete Chat",
         "category": "fuseraft",
         "icon": "$(trash)"
+      },
+      {
+        "command": "fuseraft.addToChat",
+        "title": "Add to Chat",
+        "category": "fuseraft",
+        "icon": "$(comment-discussion)"
+      },
+      {
+        "command": "fuseraft.addFileToChat",
+        "title": "Add File to Chat",
+        "category": "fuseraft",
+        "icon": "$(comment-discussion)"
       },
       {
         "command": "fuseraft.refreshChats",
@@ -271,10 +284,47 @@
         {
           "command": "fuseraft.replRename",
           "when": "false"
+        },
+        {
+          "command": "fuseraft.addFileToChat",
+          "when": "false"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "fuseraft.addToChat",
+          "when": "resourceScheme == file",
+          "group": "fuseraft@1"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "fuseraft.addFileToChat",
+          "when": "resourceScheme == file",
+          "group": "fuseraft@1"
+        }
+      ],
+      "editor/title/context": [
+        {
+          "command": "fuseraft.addFileToChat",
+          "when": "resourceScheme == file",
+          "group": "fuseraft@1"
         }
       ]
     },
     "keybindings": [
+      {
+        "command": "fuseraft.repl",
+        "key": "ctrl+shift+alt+f",
+        "mac": "cmd+shift+alt+f",
+        "args": "toggle"
+      },
+      {
+        "command": "fuseraft.addToChat",
+        "key": "ctrl+shift+alt+a",
+        "mac": "cmd+shift+alt+a",
+        "when": "editorTextFocus"
+      },
       {
         "command": "fuseraft.replRename",
         "key": "f2",
@@ -304,6 +354,11 @@
           "type": "boolean",
           "default": true,
           "description": "Show a notification when a reply finishes, or an approval or question is waiting, while you're away from the REPL panel."
+        },
+        "fuseraft.includeActiveFile": {
+          "type": "boolean",
+          "default": true,
+          "description": "Mention the file you're working in (and the lines you've selected) with each message you send in the chat, so you can ask about \"this file\" without attaching it. Click the file's chip above the prompt to turn this off or on."
         }
       }
     }
