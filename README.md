@@ -25,6 +25,15 @@ It works like the CLI's full-screen REPL.
 - Click a tool line for its arguments and output, or press **Ctrl+O** to page through recent tool output, thinking and shell output in full.
 - The status line shows the model, the turn, how full the context is (yellow as auto-compaction nears), the tokens the session has used and how many came from the provider's cache, active modes such as `hitl`, and a timer.
 
+**Working with your code**
+- Select code and press **Ctrl+Shift+Alt+A** (**Cmd+Shift+Alt+A** on macOS), or right-click and choose **fuseraft: Add to Chat**. The selected code goes into your message, so the agent doesn't have to read the file. With nothing selected, the whole file is attached.
+- Right-click files or folders in the Explorer, or an editor tab, and choose **fuseraft: Add File to Chat**. You can also hold **Shift** and drop them on the panel.
+- The file you're working in shows as a chip above the prompt and is named with each message, along with any lines you've selected, so you can ask about "this function" without attaching anything. Click the chip to turn this off or on.
+- File paths in replies, like `src/app.ts:42`, are links that open the file at that line.
+- Code blocks in replies can be inserted at your cursor (replacing the selection), opened in a new editor, or copied.
+- **Ctrl+Shift+Alt+F** (**Cmd+Shift+Alt+F**) opens the chat. Press it in the chat to go back to your file.
+- A chat that's open when VS Code closes or reloads is resumed when it comes back.
+
 **Talking to it**
 - Type while it works: a message joins the running turn after its current tool calls. `/title` and `/hitl on|off` apply at once; other `/commands`, `!commands` and `$skills` wait as a chip until the turn ends. **↑** on an empty prompt takes the last one back to edit, and stopping the turn drops them.
 - Completions for `/commands`, `$skills` and `@paths`. An `@path` attaches the file (git-ignored files and `.env` aren't offered).
@@ -58,6 +67,7 @@ Chats, memories and skills live in the fuseraft home directory, `~/.fuseraft` by
 | `fuseraft: Open REPL` | Show the open chat, or start one |
 | `fuseraft: New Chat` | Start a fresh chat (the current one stays resumable) |
 | `fuseraft: Resume Chat` | Pick any saved chat and resume it |
+| `fuseraft: Add to Chat` | Add the editor's selection (or its file) to the message you're writing |
 | `fuseraft: Refresh Chats` / `Refresh Memory` / `Refresh Skills` | Reload a sidebar view |
 | `fuseraft: Delete Memory` / `Delete All Memories` | Delete one memory entry, or all of them |
 | `fuseraft: Add Skill` / `Remove Skill` | Add or remove a skill |
@@ -75,6 +85,7 @@ Rename Chat and Delete Chat are on a chat's right-click menu. Multi-agent orches
 | `fuseraft.binaryPath` | `fuseraft` | Path to the fuseraft binary |
 | `fuseraft.homeDir` | _(blank)_ | fuseraft home directory (`~/.fuseraft` when blank); same as the CLI's `FUSERAFT_HOME` |
 | `fuseraft.notifications` | `true` | Notify when a reply finishes, or an approval or question waits, while you're away from the panel |
+| `fuseraft.includeActiveFile` | `true` | Name the file you're working in (and your selected lines) with each message |
 
 ## Requirements
 

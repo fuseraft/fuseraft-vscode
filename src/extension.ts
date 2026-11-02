@@ -6,6 +6,7 @@ import { MemoryTreeProvider, MemoryItemNode, readMemoryEntries } from './memoryT
 import { SkillsTreeProvider, SkillItemNode, readSkills, getSkillsDir } from './skillsTreeProvider';
 import { ReplPanelProvider } from './replPanelProvider';
 import { registerDiffContentProvider } from './diffContentProvider';
+import { EditorTracker, selectionAttachment, isDraft } from './editorContext';
 import {
     getBinary, runInTerminal, shellQuote,
     runInstaller, runUpdate, checkCli, invalidateCliCache, disposeOutputChannel,
@@ -19,7 +20,20 @@ export function activate(context: vscode.ExtensionContext): void {
     const memoryProvider = new MemoryTreeProvider();
     const skillsProvider = new SkillsTreeProvider();
     ReplPanelProvider.extensionUri = context.extensionUri;
+    ReplPanelProvider.editors = new EditorTracker();
+    ReplPanelProvider.memento = context.workspaceState;
+    context.subscriptions.push(ReplPanelProvider.editors);
     registerDiffContentProvider(context);
+
+    // A chat left open when the window reloads comes back, resumed.
+    context.subscriptions.push(
+        vscode.window.registerWebviewPanelSerializer('fuseraftRepl', {
+            async deserializeWebviewPanel(panel: vscode.WebviewPanel, state: { sessionId?: unknown } | undefined) {
+                ReplPanelProvider.restore(panel, state, workspaceRoot());
+            },
+        })
+    );
+    context.subscriptions.push(ReplPanelProvider.watchForOrphans(workspaceRoot));
 
     // Tree views
     const chatView = vscode.window.createTreeView('fuseraft.chats', {
@@ -99,10 +113,50 @@ export function activate(context: vscode.ExtensionContext): void {
 
     // ---- Commands ----
 
-    // fuseraft.repl — bring the live chat into view, or start one with the configured model
+    // fuseraft.repl — bring the live chat into view, or start one with the configured model.
+    // The keybinding passes 'toggle': pressed in the chat, it goes back to the file you were in.
     context.subscriptions.push(
-        vscode.commands.registerCommand('fuseraft.repl', () => {
+        vscode.commands.registerCommand('fuseraft.repl', async (arg?: 'toggle') => {
+            if (arg === 'toggle' && ReplPanelProvider.isActive) {
+                if (!await ReplPanelProvider.editors.editor()) {
+                    await vscode.commands.executeCommand('workbench.action.focusPreviousGroup');
+                }
+                return;
+            }
             ReplPanelProvider.show('', undefined, workspaceRoot());
+        })
+    );
+
+    // fuseraft.addToChat — the editor's selection, or its whole file when nothing is selected
+    context.subscriptions.push(
+        vscode.commands.registerCommand('fuseraft.addToChat', () => {
+            const editor = vscode.window.activeTextEditor;
+            const uri = editor?.document.uri;
+            if (!editor || !uri || isDraft(uri)) {
+                vscode.window.showInformationMessage('Open a file and select some code to add it to the chat.');
+                return;
+            }
+            const selection = selectionAttachment(editor);
+            if (selection) {
+                ReplPanelProvider.attach([], [selection], workspaceRoot());
+            } else if (uri.scheme === 'file') {
+                ReplPanelProvider.attach([{ name: path.basename(uri.fsPath), path: uri.fsPath }], [], workspaceRoot());
+            } else {
+                vscode.window.showInformationMessage(editor.selection.isEmpty
+                    ? 'Select some code to add it to the chat, or save the file to add all of it.'
+                    : 'That selection is too long to add from an unsaved file. Save it first, then add it.');
+            }
+        })
+    );
+
+    // fuseraft.addFileToChat — the Explorer's selected files and folders, or a tab's file
+    context.subscriptions.push(
+        vscode.commands.registerCommand('fuseraft.addFileToChat', (uri?: vscode.Uri, uris?: unknown) => {
+            const picked = Array.isArray(uris) && uris.length > 0 ? uris as vscode.Uri[] : uri ? [uri] : [];
+            const files = picked
+                .filter(u => u instanceof vscode.Uri && u.scheme === 'file')
+                .map(u => ({ name: path.basename(u.fsPath), path: u.fsPath }));
+            if (files.length > 0) { ReplPanelProvider.attach(files, [], workspaceRoot()); }
         })
     );
 

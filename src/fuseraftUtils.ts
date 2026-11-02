@@ -5,6 +5,7 @@ import * as http from 'http';
 import * as path from 'path';
 import * as os from 'os';
 import { execFile } from 'child_process';
+import { stripMessageContext } from './editorContext';
 
 let outputChannel: vscode.OutputChannel | undefined;
 
@@ -368,7 +369,7 @@ export function readReplSessions(): ReplSessionInfo[] {
                     if (userMsg && Array.isArray(userMsg.Contents)) {
                         const textContent = (userMsg.Contents as Array<{ Type?: string; Text?: string }>)
                             .find(c => c.Type === 'text');
-                        firstMsg = textContent?.Text ?? '';
+                        firstMsg = stripMessageContext(textContent?.Text ?? '');
                     }
                 }
                 sessions.push({
