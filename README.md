@@ -31,6 +31,7 @@ It works like the CLI's full-screen REPL.
 
 **Working with your code**
 - Select code and press **Ctrl+Shift+Alt+A** (**Cmd+Shift+Alt+A** on macOS), or right-click and choose **fuseraft: Add to Chat**. The selected code goes into your message, so the agent doesn't have to read the file. With nothing selected, the whole file is attached.
+- On an error or warning, open the quick fixes (the light bulb, or **Ctrl+.**) and choose **Fix with fuseraft**. The problem goes in the prompt and the code around it is attached, ready to send.
 - Right-click files or folders in the Explorer, or an editor tab, and choose **fuseraft: Add File to Chat**. You can also hold **Shift** and drop them on the panel.
 - The file you're working in shows as a chip above the prompt and is named with each message, along with any lines you've selected, so you can ask about "this function" without attaching anything. Click the chip to turn this off or on.
 - File paths in replies, like `src/app.ts:42`, are links that open the file at that line.
@@ -51,12 +52,13 @@ It works like the CLI's full-screen REPL.
 - With HITL on (the default), shell commands, file writes and other changes ask first, above the prompt; file writes open a real diff. Answer with **y**/**n**, or Esc to deny.
 - **Stop** or **Ctrl+C** interrupts a turn; press again to kill commands it's stuck on.
 - You get a notification when a reply finishes or an approval or question is waiting while you're elsewhere.
+- The **fuseraft** item in the status bar follows the open chat: the model and how full its context is, a spinner while it works, and a highlighted **approval needed** or **question for you** when it's waiting on you. Click it to go to the chat.
 
 **Keys:** **Enter** sends, **Shift+Enter** or **Alt+Enter** adds a line, **PgUp/PgDn** scroll, **Alt+↑/↓** jump between the messages you sent, **Ctrl+End** follows new output again, **Ctrl+F** searches the conversation, **F2** renames the chat. `/copy` puts the last reply on the clipboard.
 
 ## The sidebar
 
-**Chats:** your chats in this workspace, newest first. Click one to resume it; its last few turns are replayed. Each chat is named from its first prompt and reply once the reply arrives (`fuseraft settings set repl.autoTitle false` turns that off). Rename one with **F2**, the right-click menu, or `/title <name>` in the chat; an empty name goes back to the generated one.
+**Chats:** your chats in this workspace, newest first. Click one to resume it; its last few turns are replayed. Each chat is named from its first prompt and reply once the reply arrives (`fuseraft settings set repl.autoTitle false` turns that off). Rename one with **F2**, the right-click menu, or `/title <name>` in the chat; an empty name goes back to the generated one. **Export to Markdown…** on the right-click menu saves a chat to read or share: your messages, and each reply with the tools it used.
 
 **Memory:** what the agent has remembered from your chats, grouped by type. Click an entry to open it; right-click to delete one or all.
 
@@ -80,7 +82,7 @@ Chats, memories and skills live in the fuseraft home directory, `~/.fuseraft` by
 | `fuseraft: Set Binary Path` | Point at a fuseraft binary that isn't on your `PATH` |
 | `fuseraft: Set Home Directory` | Use a fuseraft home other than `~/.fuseraft` |
 
-Rename Chat and Delete Chat are on a chat's right-click menu. Multi-agent orchestration (`fuseraft run`) lives in the CLI; run it from a terminal.
+Rename Chat, Export to Markdown and Delete Chat are on a chat's right-click menu; Fix with fuseraft is a quick fix on errors and warnings. Multi-agent orchestration (`fuseraft run`) lives in the CLI; run it from a terminal.
 
 ## Settings
 
