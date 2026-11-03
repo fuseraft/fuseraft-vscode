@@ -25,6 +25,10 @@ It works like the CLI's full-screen REPL.
 - Click a tool line for its arguments and output, or press **Ctrl+O** to page through recent tool output, thinking and shell output in full.
 - The status line shows the model, the turn, how full the context is (yellow as auto-compaction nears), the tokens the session has used and how many came from the provider's cache, active modes such as `hitl`, and a timer.
 
+**Starting a chat**
+- A new chat offers places to start from what's open: explaining the file you're in, reviewing your uncommitted changes, or continuing your last chat in this workspace. Clicking one fills in the prompt for you to edit; **Continue** resumes that chat in the same panel.
+- Below them, a line shows where the agent may work (the folder it's sandboxed to, or a warning when `repl.yolo` turns the sandbox off).
+
 **Working with your code**
 - Select code and press **Ctrl+Shift+Alt+A** (**Cmd+Shift+Alt+A** on macOS), or right-click and choose **fuseraft: Add to Chat**. The selected code goes into your message, so the agent doesn't have to read the file. With nothing selected, the whole file is attached.
 - Right-click files or folders in the Explorer, or an editor tab, and choose **fuseraft: Add File to Chat**. You can also hold **Shift** and drop them on the panel.

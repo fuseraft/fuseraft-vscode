@@ -423,6 +423,27 @@ export function readReplSessions(): ReplSessionInfo[] {
     );
 }
 
+/** Sessions started inside one of the open workspace folders; every session when no folder is open. */
+export function filterReplSessionsToWorkspace(sessions: ReplSessionInfo[]): ReplSessionInfo[] {
+    const folders = vscode.workspace.workspaceFolders;
+    if (!folders || folders.length === 0) { return sessions; }
+    const roots = folders.map(f => path.resolve(f.uri.fsPath));
+    return sessions.filter(s => {
+        if (!s.cwd) { return false; }
+        const cwd = path.resolve(s.cwd);
+        return roots.some(r => cwd === r || cwd.startsWith(r + path.sep));
+    });
+}
+
+/** The chat's title: the user's, else the generated one, else its first message. */
+export function sessionTitle(session: ReplSessionInfo): string {
+    if (session.title) { return session.title; }
+    if (session.autoTitle) { return session.autoTitle; }
+    const first = session.firstUserMessage.replace(/\s+/g, ' ').trim();
+    if (!first) { return session.sessionId || '(empty chat)'; }
+    return first.length > 60 ? first.slice(0, 59) + '…' : first;
+}
+
 export function formatRelativeTime(isoDate: string): string {
     if (!isoDate) { return ''; }
     const ms = Date.now() - new Date(isoDate).getTime();

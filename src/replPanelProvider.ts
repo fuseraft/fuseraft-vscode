@@ -4,7 +4,10 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { FileIndex } from './fileSuggestions';
-import { getBinary, readApiKeyFromConfig, fetchModelsViaCli, getFuseraftHomeEnvOverride, readReplSessions } from './fuseraftUtils';
+import {
+    getBinary, readApiKeyFromConfig, fetchModelsViaCli, getFuseraftHomeEnvOverride, readReplSessions, getFuseraftHome,
+    filterReplSessionsToWorkspace, sessionTitle, formatRelativeTime,
+} from './fuseraftUtils';
 import { readSkills, getSkillsDir } from './skillsTreeProvider';
 import { showDiffPreview, closeDiffPreview } from './diffContentProvider';
 import { EditorTracker, SelectionAttachment } from './editorContext';
@@ -114,7 +117,7 @@ export class ReplPanelProvider {
     private static _open(model: string, resumeId: string | undefined, cwd: string | undefined, column: vscode.ViewColumn): ReplPanelProvider {
         const panel = vscode.window.createWebviewPanel(
             VIEW_TYPE,
-            resumeId ? `fuseraft REPL · ${resumeId}` : 'fuseraft REPL',
+            'fuseraft',
             column,
             { ...ReplPanelProvider._webviewOptions(), retainContextWhenHidden: true, enableFindWidget: true }
         );
@@ -230,6 +233,8 @@ export class ReplPanelProvider {
         panel.webview.html = this._html();
         const editorWatch = vscode.Disposable.from(
             ReplPanelProvider.editors?.onDidChange(() => this._postActiveFile()) ?? new vscode.Disposable(() => {}),
+            // Changes made while the chat sat in the background show when you come back to it.
+            panel.onDidChangeViewState(e => { if (e.webviewPanel.visible) { void this._postStarters(); } }),
             vscode.workspace.onDidChangeConfiguration(e => {
                 if (e.affectsConfiguration('fuseraft.includeActiveFile')) { this._postActiveFile(); }
             }),
@@ -238,7 +243,7 @@ export class ReplPanelProvider {
         panel.webview.onDidReceiveMessage((msg: {
             type: string; text?: string; model?: string; approved?: boolean; answer?: string | null;
             images?: { name: string; data: string }[]; path?: string; query?: string; title?: string;
-            line?: number; endLine?: number; lang?: string; paths?: unknown; uris?: unknown; on?: boolean;
+            line?: number; endLine?: number; lang?: string; paths?: unknown; uris?: unknown; on?: boolean; sessionId?: unknown;
         }) => {
             if (msg.type === 'user_input' || msg.type === 'approval_response' || msg.type === 'question_response') {
                 this._lastInputAt = Date.now();
@@ -283,12 +288,15 @@ export class ReplPanelProvider {
                         });
                     }
                 });
+            } else if (msg.type === 'resume_chat' && typeof msg.sessionId === 'string') {
+                this._resumeHere(msg.sessionId);
             } else if (msg.type === 'open_setup') {
                 void vscode.commands.executeCommand('fuseraft.setup');
             } else if (msg.type === 'webview_ready') {
                 const pending = this._pending ?? [];
                 this._pending = undefined;
                 this._postActiveFile();
+                void this._postStarters();
                 pending.forEach(m => this._panel.webview.postMessage(m));
             } else if (msg.type === 'open_file' && typeof msg.path === 'string') {
                 this._openFile(msg.path, msg.line, msg.endLine);
@@ -506,6 +514,46 @@ export class ReplPanelProvider {
         return rel && !rel.startsWith('..') && !path.isAbsolute(rel) ? rel.split(path.sep).join('/') : file;
     }
 
+    /** What a new chat offers to start from: uncommitted changes, the last chat here, and where the agent may work. */
+    private async _postStarters(): Promise<void> {
+        if (this._pending) { return; }
+        const last = filterReplSessionsToWorkspace(readReplSessions())
+            .find(s => s.sessionId !== this._sessionId && (s.turnIndex > 0 || !!s.firstUserMessage));
+        const changes = this._cwd ? await countGitChanges(this._cwd) : 0;
+        const yolo = readReplYolo();
+        const extra = (vscode.workspace.workspaceFolders ?? []).filter(f => f.uri.fsPath !== this._cwd).length;
+        const root = this._cwd ? path.basename(this._cwd) + (extra ? ` and ${extra} more folder${extra === 1 ? '' : 's'}` : '') : '';
+        this._panel.webview.postMessage({
+            type: 'starters',
+            changes,
+            last: last ? { sessionId: last.sessionId, title: sessionTitle(last), age: formatRelativeTime(last.lastUpdatedAt) } : null,
+            sandbox: !root ? '' : yolo ? 'Not sandboxed: repl.yolo is on' : `Sandboxed to ${root}`,
+            unsandboxed: yolo,
+        });
+    }
+
+    /** Continue: the empty chat's CLI makes way for one resuming that chat, in this panel. */
+    private _resumeHere(sessionId: string): void {
+        const saved = readReplSessions().find(s => s.sessionId === sessionId);
+        if (!saved) {
+            vscode.window.showWarningMessage('That chat is no longer saved.');
+            void this._postStarters();
+            return;
+        }
+        const old = this._proc;
+        // Its exit isn't this chat ending, so it mustn't say so.
+        old?.removeAllListeners();
+        old?.stdout?.removeAllListeners();
+        old?.kill();
+        this._proc = undefined;
+        this._buf = '';
+        this._alive = false;
+        this._exited = false;
+        this._sessionEndSent = false;
+        this._sessionId = sessionId;
+        this._spawn(saved.modelId, sessionId, this._cwd);
+    }
+
     private _postActiveFile(): void {
         if (this._pending) { return; }
         const file = ReplPanelProvider.editors?.activeFile;
@@ -565,9 +613,9 @@ export class ReplPanelProvider {
         } catch { /* skills dir missing/unreadable — webview just gets no skill completions */ }
     }
 
+    // The session ID is in the panel's header already; an untitled chat's tab needn't repeat it.
     private _setTabTitle(title: string | undefined): void {
-        this._panel.title = title ? `fuseraft · ${title}`
-            : this._sessionId ? `fuseraft REPL · ${this._sessionId}` : 'fuseraft REPL';
+        this._panel.title = title ? `fuseraft · ${title}` : 'fuseraft';
     }
 
     private _post(msg: object): void {
@@ -610,17 +658,12 @@ export class ReplPanelProvider {
   <span class="session" id="session-label"></span>
 </div>
 <div id="messages">
-  <div id="welcome">
-    <div id="welcome-inner">
-      <div id="welcome-title">${this._mark('icon-mark', 'fr-mark-welcome')}fuseraft</div>
-      <div id="welcome-hint">What would you like to work on?</div>
-      <div id="welcome-input-wrap" class="disabled">
-        <div id="welcome-highlight" aria-hidden="true">&nbsp;</div>
-        <textarea id="welcome-input" rows="3" placeholder="Ask something or type a /command…" disabled></textarea>
-      </div>
-      <div id="welcome-context"></div>
-      <button id="welcome-send" disabled>Send</button>
-    </div>
+  <div id="empty">
+    <div id="empty-mark">${this._mark('icon-mark', 'fr-mark-empty')}</div>
+    <div id="empty-title">fuseraft</div>
+    <div id="empty-hint">What would you like to work on?</div>
+    <div id="starters"></div>
+    <div id="empty-status"></div>
   </div>
 </div>
 <div id="thinking-bar">
@@ -646,7 +689,7 @@ export class ReplPanelProvider {
     <button class="approval-btn approval-deny" id="question-skip-btn" title="Let the agent decide">Skip</button>
   </div>
 </div>
-<div id="footer" style="display:none">
+<div id="footer">
   <div id="attach-row"></div>
   <div id="input-row">
     <button id="attach-btn" title="Attach files (or hold Shift and drop them on the chat)" disabled>
@@ -700,4 +743,23 @@ const LANGUAGE_ALIASES: Record<string, string> = {
 function languageId(lang: string): string {
     const l = lang.toLowerCase();
     return LANGUAGE_ALIASES[l] ?? l;
+}
+
+/** Files git reports as changed or untracked; 0 outside a repository or when git isn't available. */
+function countGitChanges(cwd: string): Promise<number> {
+    return new Promise(resolve => {
+        cp.execFile('git', ['status', '--porcelain'], { cwd, timeout: 3000 }, (err, stdout) => {
+            resolve(err ? 0 : stdout.split('\n').filter(l => l.trim()).length);
+        });
+    });
+}
+
+/** The repl.yolo setting, which turns the sandbox and approvals off for every chat. */
+function readReplYolo(): boolean {
+    try {
+        const cfg = JSON.parse(fs.readFileSync(path.join(getFuseraftHome(), 'config'), 'utf8'));
+        return cfg?.repl?.yolo === true;
+    } catch {
+        return false;
+    }
 }

@@ -1,7 +1,9 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import { ReplSessionInfo, readReplSessions, formatRelativeTime, getReplSessionsDir } from './fuseraftUtils';
+import { ReplSessionInfo, readReplSessions, formatRelativeTime, getReplSessionsDir, filterReplSessionsToWorkspace, sessionTitle } from './fuseraftUtils';
+
+export { sessionTitle };
 import { ReplPanelProvider } from './replPanelProvider';
 
 export class ReplSessionTreeProvider implements vscode.TreeDataProvider<ReplSessionItem> {
@@ -65,18 +67,6 @@ function withLiveTitle(session: ReplSessionInfo): ReplSessionInfo {
     return { ...session, title: live.title ?? undefined, autoTitle: live.autoTitle ?? session.autoTitle };
 }
 
-/** Sessions started inside one of the open workspace folders; every session when no folder is open. */
-export function filterReplSessionsToWorkspace(sessions: ReplSessionInfo[]): ReplSessionInfo[] {
-    const folders = vscode.workspace.workspaceFolders;
-    if (!folders || folders.length === 0) { return sessions; }
-    const roots = folders.map(f => path.resolve(f.uri.fsPath));
-    return sessions.filter(s => {
-        if (!s.cwd) { return false; }
-        const cwd = path.resolve(s.cwd);
-        return roots.some(r => cwd === r || cwd.startsWith(r + path.sep));
-    });
-}
-
 export class ReplSessionItem extends vscode.TreeItem {
     constructor(public readonly session: ReplSessionInfo) {
         super(sessionTitle(session), vscode.TreeItemCollapsibleState.None);
@@ -100,11 +90,3 @@ export class ReplSessionItem extends vscode.TreeItem {
     }
 }
 
-/** The chat's title: the user's, else the generated one, else its first message. */
-export function sessionTitle(session: ReplSessionInfo): string {
-    if (session.title) { return session.title; }
-    if (session.autoTitle) { return session.autoTitle; }
-    const first = session.firstUserMessage.replace(/\s+/g, ' ').trim();
-    if (!first) { return session.sessionId || '(empty chat)'; }
-    return first.length > 60 ? first.slice(0, 59) + '…' : first;
-}

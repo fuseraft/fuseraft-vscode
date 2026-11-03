@@ -35,67 +35,34 @@ body{
   display:flex;flex-direction:column;gap:10px;
   position:relative
 }
-#welcome{
-  position:absolute;inset:0;
-  display:flex;align-items:center;justify-content:center;
-  padding:32px 24px;
-  background:var(--vscode-editor-background);
-  z-index:5
+/* A new chat: what to start from, sitting just above the prompt. */
+#empty{
+  flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;
+  gap:10px;padding:24px 0 28px;text-align:center
 }
-#welcome-inner{
-  width:100%;max-width:540px;
-  display:flex;flex-direction:column;gap:14px
+#empty-mark .icon-mark{width:52px;height:52px;border-radius:12px;display:block}
+#empty-title{font-size:1.55em;font-weight:600;color:var(--vscode-editor-foreground);margin-top:2px}
+#empty-hint{color:var(--vscode-descriptionForeground);margin-top:-4px}
+#starters{width:100%;display:flex;flex-direction:column;gap:6px;margin-top:6px}
+#starters:empty{display:none}
+.starter{
+  display:flex;align-items:center;gap:10px;width:100%;
+  padding:8px 12px;border-radius:8px;cursor:pointer;text-align:left;
+  font-family:inherit;font-size:var(--vscode-font-size);color:var(--vscode-foreground);
+  border:1px solid var(--vscode-widget-border,rgba(128,128,128,.25));
+  background:var(--vscode-editorWidget-background,rgba(128,128,128,.06))
 }
-#welcome-title{
-  font-size:1.3em;font-weight:600;
-  text-align:center;
-  color:var(--vscode-editor-foreground);
-  display:flex;align-items:center;justify-content:center;gap:8px
+.starter:hover,.starter:focus-visible{
+  background:var(--vscode-list-hoverBackground);border-color:var(--vscode-focusBorder);outline:none
 }
-#welcome-title .icon-mark{width:26px;height:26px;border-radius:6px}
-#welcome-hint{
-  font-size:.92em;text-align:center;
-  color:var(--vscode-descriptionForeground)
-}
-#welcome-input-wrap{
-  position:relative;width:100%;min-height:72px;max-height:200px
-}
-#welcome-input-wrap.disabled{opacity:.45}
-#welcome-highlight,#welcome-input{
-  position:absolute;top:0;left:0;width:100%;
-  padding:10px 14px;
-  border:1px solid transparent;
-  border-radius:8px;
-  font-family:var(--vscode-font-family);
-  font-size:var(--vscode-font-size);
-  line-height:1.5;
-  box-sizing:border-box;
-  scrollbar-gutter:stable
-}
-#welcome-highlight{
-  background:var(--vscode-input-background);
-  color:var(--vscode-input-foreground);
-  border-color:var(--vscode-input-border,var(--vscode-panel-border));
-  white-space:pre-wrap;word-wrap:break-word;overflow:hidden;
-  pointer-events:none
-}
-#welcome-input{
-  resize:none;outline:none;
-  background:transparent;color:transparent;
-  caret-color:var(--vscode-input-foreground)
-}
-#welcome-input::placeholder{color:var(--vscode-input-placeholderForeground,var(--vscode-descriptionForeground))}
-#welcome-input-wrap:focus-within #welcome-highlight{border-color:var(--vscode-focusBorder)}
-#welcome-input-wrap.disabled #welcome-input{cursor:not-allowed}
-#welcome-send{
-  align-self:flex-end;height:36px;padding:0 20px;
-  background:var(--vscode-button-background);
-  color:var(--vscode-button-foreground);
-  border:none;border-radius:6px;cursor:pointer;
-  font-size:var(--vscode-font-size);white-space:nowrap
-}
-#welcome-send:hover:not(:disabled){background:var(--vscode-button-hoverBackground)}
-#welcome-send:disabled{opacity:.45;cursor:not-allowed}
+.starter svg{width:14px;height:14px;flex-shrink:0;color:var(--vscode-textLink-foreground)}
+.starter-main{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.starter-main code{font-family:inherit;background:none;padding:0;color:var(--vscode-descriptionForeground)}
+.starter-sub{font-size:.85em;color:var(--vscode-descriptionForeground);white-space:nowrap}
+#empty-status{display:flex;align-items:center;gap:6px;margin-top:8px;font-size:.85em;color:var(--vscode-descriptionForeground)}
+#empty-status:empty{display:none}
+#empty-status svg{width:12px;height:12px}
+#empty-status.unsandboxed{color:var(--vscode-editorWarning-foreground,#cca700)}
 .msg{display:flex;flex-direction:column;gap:4px}
 .msg.user{align-items:flex-end}
 .msg.user.jumped .bubble{animation:jumped 1.2s ease-out}
@@ -261,10 +228,7 @@ body{
 .bubble p{margin:4px 0}
 .bubble p:first-child{margin-top:0}
 .bubble p:last-child{margin-bottom:0}
-.bubble .cot-block{
-  border:1px solid var(--vscode-panel-border);
-  border-radius:6px;padding:6px 10px;margin:6px 0
-}
+.bubble .cot-block{margin:10px 0}
 .bubble .cot-block:first-child{margin-top:0}
 .bubble .cot-block:last-child{margin-bottom:0}
 .bubble .cot-block>*:first-child{margin-top:0}
@@ -307,6 +271,8 @@ body{
 .bubble tr:nth-child(even) td{background:rgba(128,128,128,.06)}
 .bubble a{color:var(--vscode-textLink-foreground);text-decoration:none}
 .bubble a:hover{color:var(--vscode-textLink-activeForeground);text-decoration:underline}
+/* Link blue doesn't read on the button-blue of your own messages; underline in the bubble's own color instead. */
+.user .bubble a,.user .bubble .path-ref.ok,.user .bubble .path-ref.ok:hover{color:inherit;text-decoration:underline;text-underline-offset:2px}
 .bubble img{max-width:100%;border-radius:4px;margin:4px 0;display:block}
 .bubble hr{border:none;border-top:1px solid var(--vscode-panel-border);margin:10px 0}
 .bubble li.task-list-item{list-style:none;margin-left:-20px}
@@ -318,13 +284,6 @@ body{
   vertical-align:text-bottom;margin-left:1px
 }
 @keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
-.bubble.finalised::after{
-  content:'';
-  display:block;
-  width:16px;height:2px;
-  background:var(--vscode-panel-border);
-  margin-top:8px;border-radius:1px;opacity:.5
-}
 .thinking{
   display:flex;align-items:center;gap:6px;
   color:var(--vscode-descriptionForeground);font-size:11px;
@@ -373,9 +332,7 @@ body{
   border:1px solid var(--vscode-badge-background)
 }
 .attach-chip.active-file.off{opacity:.55;text-decoration:line-through}
-#welcome-context{display:flex;flex-wrap:wrap;gap:4px;align-self:flex-start;min-height:0}
-#welcome-context:empty{display:none}
-body.dropping #footer,body.dropping #welcome-input-wrap{
+body.dropping #footer{
   outline:2px dashed var(--vscode-focusBorder);outline-offset:-2px
 }
 #input-row{display:flex;gap:6px;align-items:flex-end}
@@ -585,7 +542,7 @@ body.dropping #footer,body.dropping #welcome-input-wrap{
   border:1px solid var(--vscode-editorSuggestWidget-border,var(--vscode-panel-border));
   border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.35);overflow:hidden
 }
-#hsearch{left:12px;right:12px;bottom:90px;flex-direction:column}
+#hsearch{left:calc(var(--gutter) + 12px);right:calc(var(--gutter) + 12px);bottom:90px;flex-direction:column}
 #hsearch.active{display:flex}
 #hsearch-input{
   margin:6px;padding:4px 8px;border-radius:4px;outline:none;
@@ -594,7 +551,7 @@ body.dropping #footer,body.dropping #welcome-input-wrap{
   border:1px solid var(--vscode-focusBorder)
 }
 #hsearch-list{max-height:240px;overflow-y:auto}
-#suggest{left:52px;right:80px;bottom:calc(100% - 2px);max-height:240px;overflow-y:auto}
+#suggest{left:calc(var(--gutter) + 52px);right:calc(var(--gutter) + 80px);bottom:calc(100% - 2px);max-height:240px;overflow-y:auto}
 #suggest.active{display:block}
 .hs-item,.sg-item{
   padding:3px 10px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
@@ -611,5 +568,11 @@ body.dropping #footer,body.dropping #welcome-input-wrap{
 #queue-row.has-items{display:flex}
 .queue-chip{background:var(--vscode-button-secondaryBackground,rgba(128,128,128,.2));color:var(--vscode-button-secondaryForeground,var(--vscode-editor-foreground))}
 .audit-line{padding:1px 4px 1px 22px;color:var(--vscode-descriptionForeground);font-style:italic;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#welcome-inner{position:relative}
-#suggest.below{left:0;right:0;bottom:auto}
+
+/* One centered column for the conversation and the prompt, so a wide panel doesn't stretch lines edge to edge.
+   --gutter is the space either side of it; the header and status line stay full width. */
+body{--col:680px;--gutter:max(0px,(100% - var(--col)) / 2)}
+#messages{padding-left:max(12px,calc((100% - var(--col)) / 2));padding-right:max(12px,calc((100% - var(--col)) / 2))}
+#attach-row,#queue-row,#input-row{width:100%;max-width:var(--col);margin-left:auto;margin-right:auto;box-sizing:border-box}
+#thinking-bar{padding-left:max(12px,calc((100% - var(--col)) / 2));padding-right:max(12px,calc((100% - var(--col)) / 2))}
+#approval-bar,#question-bar{padding-left:max(14px,calc((100% - var(--col)) / 2));padding-right:max(14px,calc((100% - var(--col)) / 2))}

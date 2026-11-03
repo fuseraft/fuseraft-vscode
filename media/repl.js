@@ -3,11 +3,9 @@ const $msgs    = document.getElementById('messages');
 const $input   = document.getElementById('input');
 const $send    = document.getElementById('send');
 const $stop    = document.getElementById('stop');
-const $welcome      = document.getElementById('welcome');
-const $wInput       = document.getElementById('welcome-input');
-const $wInputWrap   = document.getElementById('welcome-input-wrap');
-const $wHighlight   = document.getElementById('welcome-highlight');
-const $wSend        = document.getElementById('welcome-send');
+const $empty        = document.getElementById('empty');
+const $starters     = document.getElementById('starters');
+const $emptyStatus  = document.getElementById('empty-status');
 const $inputWrap    = document.getElementById('input-wrap');
 const $inputHighlight = document.getElementById('input-highlight');
 const $modelSelect  = document.getElementById('model-select');
@@ -16,7 +14,6 @@ const $thinkingLabel = document.getElementById('thinking-label');
 const $footer        = document.getElementById('footer');
 const $attachBtn     = document.getElementById('attach-btn');
 const $attachRow     = document.getElementById('attach-row');
-const $wContext      = document.getElementById('welcome-context');
 let modelsLoaded     = false;
 let activeModel      = ''; // model actually running this session, set by the CLI's 'ready' event
 let attachedFiles    = []; // [{name, path}]
@@ -68,7 +65,7 @@ function makeChip(text, title, onRemove, onOpen){
   return chip;
 }
 
-// The file you're in, shown on the welcome screen as well, since a first message names it too.
+// The file you're in, named with each message unless switched off.
 function activeFileChip(){
   const lines = activeFile.startLine ? ':'+lineRange(activeFile.startLine, activeFile.endLine) : '';
   const chip = makeChip(activeFile.name+lines, includeActive
@@ -87,11 +84,9 @@ function activeFileChip(){
 
 function renderAttachments(){
   $attachRow.innerHTML='';
-  $wContext.innerHTML='';
   // Attached already, the file needs no second chip (and withContext doesn't name it twice).
   const showActive = activeFile && !attachedFiles.some(f=>f.path===activeFile.path)
     && !attachedSelections.some(x=>x.path===activeFile.path);
-  if(showActive) $wContext.appendChild(activeFileChip());
   if(!showActive && !attachedFiles.length && !attachedSelections.length && !pastedImages.length){
     $attachRow.classList.remove('has-files');
     return;
@@ -331,14 +326,11 @@ function setupCommandInput(ta, wrap, mirror, maxHeight){
   return { sync, resetTab, caretOnEdgeLine };
 }
 
-const wCtl = setupCommandInput($wInput, $wInputWrap, $wHighlight, 200);
 const mCtl = setupCommandInput($input, $inputWrap, $inputHighlight, 120);
-wCtl.sync();
 mCtl.sync();
 // The prompt's height follows its text at its current width, which changes with the panel, and as Stop comes and goes.
 if(window.ResizeObserver){
   new ResizeObserver(()=>mCtl.sync()).observe(document.getElementById('input-row'));
-  new ResizeObserver(()=>wCtl.sync()).observe($wInputWrap.parentElement);
 }
 
 let curBubble   = null;
@@ -643,11 +635,12 @@ function setEnabled(on){
   $attachBtn.disabled = closed;
   if(modelsLoaded) $modelSelect.disabled = closed || busy;
   setBusy(busy);
-  if(on && !closed && $welcome.style.display==='none' && !viewerOpen() && !hsearchOpen()) $input.focus();
+  if(on && !closed && !viewerOpen() && !hsearchOpen()) $input.focus();
 }
 
 /* ── message builders ────────────────────────────────── */
 function addUser(text, note){
+  hideEmpty();
   const d = document.createElement('div');
   d.className='msg user';
   d.innerHTML='<div class="bubble">'+mdToHtml(text)+'</div>';
@@ -1042,11 +1035,8 @@ function finalise(tokenInfo){
       _collapseIntoCot(curMsgDiv, curBubble, curTools);
       curMsgDiv.appendChild(makeActionsRow(()=>text,tokenInfo));
     } else {
-      // Box each streamed block separately so the breaks between them —
-      // where one chain-of-thought bubble replaced another while live —
-      // stay visible after the message is done.
+      // The blocks it streamed one at a time stay apart once it's done, where one replaced another while live.
       curBubble.innerHTML = splitBlocks(text).map(b=>'<div class="cot-block">'+mdToHtml(b)+'</div>').join('');
-      curBubble.classList.add('finalised');
       curMsgDiv.appendChild(makeActionsRow(()=>text,tokenInfo));
     }
   } else if(curMsgDiv){
@@ -1155,7 +1145,6 @@ function addAssistantHistorical(text, tools){
     d.appendChild(makeActionsRow(()=>text));
   } else {
     bubble.innerHTML=splitBlocks(text).map(b=>'<div class="cot-block">'+mdToHtml(b)+'</div>').join('');
-    bubble.classList.add('finalised');
     d.appendChild(makeActionsRow(()=>text));
   }
   $msgs.appendChild(d);
@@ -1164,7 +1153,7 @@ function addAssistantHistorical(text, tools){
 function renderReplay(msg){
   const turns=Array.isArray(msg.turns)?msg.turns:[];
   if(!turns.length) return;
-  dismissWelcome();
+  hideEmpty();
   const total=typeof msg.total==='number'?msg.total:turns.length;
   const scope=turns.length===total
     ? total+' turn'+(total===1?'':'s')
@@ -1326,7 +1315,7 @@ function addFileChanges(changes){
 
 // The CLI exited before the chat was ready: usually a provider or API key that isn't set up, or a CLI that isn't installed.
 function startFailed(){
-  leaveWelcome();
+  hideEmpty();
   const d=document.createElement('div');
   d.className='msg system start-failed';
   d.innerHTML='<div class="bubble">The chat couldn\'t start. Open setup to check the CLI, your provider and your API key, then start a new chat.'
@@ -1336,30 +1325,41 @@ function startFailed(){
   scrollBottom();
 }
 
-/* ── welcome prompt ──────────────────────────────────── */
-function dismissWelcome(){
-  if($welcome.style.display==='none') return;
-  $welcome.style.display='none';
-  $footer.style.display='flex';
-  mCtl.sync();
-}
+/* ── a new chat ──────────────────────────────────────────────────────────
+   Until the first message, the transcript offers places to start, built from
+   what's open: the file you're in, uncommitted changes, the last chat here.
+   A starter fills the prompt to edit; Continue resumes that chat in place. */
+const ICON_FILE    = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M4 1.5h5l3 3v10H4z"/><path d="M9 1.5v3h3"/></svg>';
+const ICON_BRANCH  = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><circle cx="4" cy="3.5" r="1.6"/><circle cx="4" cy="12.5" r="1.6"/><circle cx="12" cy="6" r="1.6"/><path d="M4 5.1v5.8M12 7.6c0 2.4-3 2.4-6.6 3.6"/></svg>';
+const ICON_HISTORY = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M2.5 8a5.5 5.5 0 1 0 1.6-3.9"/><path d="M2.5 2.5v2.6h2.6"/><path d="M8 5v3.2l2.2 1.4"/></svg>';
+const ICON_SHIELD  = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M8 1.5l5 2v4c0 3.2-2.2 5.6-5 7-2.8-1.4-5-3.8-5-7v-4z"/></svg>';
+let startInfo = { changes: 0, last: null, sandbox: '', unsandboxed: false }; // from the extension's 'starters' message
 
-function sendFromWelcome(){
-  const text=$wInput.value.trim();
-  if(!text||isStreaming) return;
-  dismissWelcome();
-  $wInput.value='';
-  wCtl.resetTab();
-  wCtl.sync();
-  rememberInput(text);
-  dispatch({ text, payload: withContext(text, [], []), images: [], display: text });
-}
+function hideEmpty(){ $empty.style.display='none'; }
 
-$wSend.addEventListener('click',sendFromWelcome);
-$wInput.addEventListener('keydown',e=>{
-  if(e.key==='Enter'&&!e.shiftKey&&!e.altKey&&!e.isComposing){e.preventDefault();sendFromWelcome();}
-  else if(e.key==='Enter'&&e.altKey&&!e.isComposing){e.preventDefault();insertNewline($wInput);}
-});
+function renderStarters(){
+  $starters.innerHTML='';
+  const rows=[];
+  if(activeFile) rows.push({ icon: ICON_FILE, html: 'Explain <code>'+esc(activeFile.rel)+'</code>', sub: 'open file', text: 'Explain '+activeFile.rel });
+  if(startInfo.changes>0) rows.push({ icon: ICON_BRANCH, html: 'Review my uncommitted changes',
+    sub: startInfo.changes+' file'+(startInfo.changes===1?'':'s')+' changed', text: 'Review my uncommitted changes' });
+  if(startInfo.last) rows.push({ icon: ICON_HISTORY, html: 'Continue “'+esc(startInfo.last.title)+'”', sub: startInfo.last.age, resume: startInfo.last.sessionId });
+  for(const r of rows){
+    const b=document.createElement('button');
+    b.type='button';
+    b.className='starter';
+    b.innerHTML=r.icon+'<span class="starter-main">'+r.html+'</span><span class="starter-sub">'+esc(r.sub)+'</span>';
+    if(r.resume) b.title='Resume this chat here';
+    b.addEventListener('click',()=>{
+      if(r.resume){ vscode.postMessage({type:'resume_chat', sessionId: r.resume}); return; }
+      setInput(r.text);
+      $input.focus();
+    });
+    $starters.appendChild(b);
+  }
+  $emptyStatus.innerHTML = startInfo.sandbox ? ICON_SHIELD+'<span>'+esc(startInfo.sandbox)+'</span>' : '';
+  $emptyStatus.classList.toggle('unsandboxed', !!startInfo.unsandboxed);
+}
 
 /* ── sending while a turn runs ───────────────────────────────────────────
    As in the full-screen REPL: a plain message joins the running turn (the
@@ -1540,11 +1540,6 @@ function foldPaste(e, ta){
 }
 
 $input.addEventListener('paste',e=>{ if(!addPastedImages(e)) foldPaste(e, $input); });
-// On the welcome screen there is no attachment row, so reveal the footer (where chips render) first.
-$wInput.addEventListener('paste',e=>{
-  if(addPastedImages(e)){ dismissWelcome(); $input.focus(); }
-  else foldPaste(e, $wInput);
-});
 
 function send(){
   const text = $input.value.trim();
@@ -1623,10 +1618,6 @@ window.addEventListener('message',evt=>{
       midTurnCommands = Array.isArray(msg.midTurnCommands) ? msg.midTurnCommands.map(c=>String(c).toLowerCase()) : [];
       showSessionLabel();
       if(msg.model) selectModel(msg.model);
-      $wInput.disabled=false;
-      $wInputWrap.classList.remove('disabled');
-      $wSend.disabled=false;
-      $wInput.focus();
       sessionReady=true;
       // Kept so a window reload can resume this chat in the panel VS Code restores.
       try { vscode.setState({ ...(vscode.getState()||{}), sessionId }); } catch { /* state unavailable */ }
@@ -1652,7 +1643,6 @@ window.addEventListener('message',evt=>{
 
     case 'skills':
       skillNames = Array.isArray(msg.list) ? msg.list : [];
-      wCtl.sync();
       mCtl.sync();
       break;
 
@@ -1813,8 +1803,6 @@ window.addEventListener('message',evt=>{
       settleRunningTools('cancelled');
       if(curMsgDiv){ curMsgDiv.remove(); curBubble=null; curTools=null; curText=''; curMsgDiv=null; }
       curToolList=[]; curToolState={expanded:false};
-      // Before the chat is ready the welcome screen covers the transcript, so this would go unseen.
-      if(!sessionReady) leaveWelcome();
       addSystem('Error: '+(msg.text||'unknown error'));
       isStreaming=false;
       resetThinkingLabel();
@@ -1873,7 +1861,6 @@ window.addEventListener('message',evt=>{
       break;
 
     case 'attach':
-      leaveWelcome();
       addAttachments(msg.files, msg.selections);
       focusInput();
       break;
@@ -1882,6 +1869,12 @@ window.addEventListener('message',evt=>{
       activeFile = msg.file || null;
       includeActive = msg.include !== false;
       renderAttachments();
+      renderStarters();
+      break;
+
+    case 'starters':
+      startInfo = { changes: msg.changes||0, last: msg.last||null, sandbox: msg.sandbox||'', unsandboxed: !!msg.unsandboxed };
+      renderStarters();
       break;
 
     case 'focus_input':
@@ -1953,7 +1946,7 @@ let curShell = null;
 const SHELL_MAX_LINES = 5000;
 
 function startShell(command){
-  dismissWelcome();
+  hideEmpty();
   const d = document.createElement('div');
   d.className = 'msg shell';
   d.innerHTML = '<div class="shell-block"><div class="shell-head"></div><pre class="shell-out"></pre></div>';
@@ -2016,7 +2009,7 @@ function openViewer(index){
 }
 function closeViewer(){
   $viewer.classList.remove('active');
-  if(!$input.disabled && $welcome.style.display==='none') $input.focus();
+  if(!$input.disabled) $input.focus();
 }
 function stepViewer(d){
   const i = viewerAt + d;
@@ -2155,16 +2148,14 @@ $suggest.id = 'suggest';
 $suggest.setAttribute('role','listbox');
 document.getElementById('footer').prepend($suggest);
 let sgItems = [], sgAt = 0, sgKind = '', sgRange = null, sgQuery = null, sgTimer = null;
-// The prompt the list is for: the main one, or the welcome box a new chat starts in.
-let sgTa = $input, sgCtl = mCtl;
 
 function suggestOpen(){ return $suggest.classList.contains('active') && sgItems.length>0; }
 function hideSuggest(){ $suggest.classList.remove('active'); sgItems=[]; sgKind=''; }
 
 // The @token the caret is in: {start, end, query}, or null.
 function mentionAtCaret(){
-  const text = sgTa.value, caret = sgTa.selectionStart;
-  if(caret !== sgTa.selectionEnd) return null;
+  const text = $input.value, caret = $input.selectionStart;
+  if(caret !== $input.selectionEnd) return null;
   let start = caret;
   while(start>0 && !/\s/.test(text[start-1])) start--;
   const token = text.slice(start, caret);
@@ -2175,11 +2166,9 @@ function mentionAtCaret(){
 }
 
 function updateSuggest(){
-  const ta = document.activeElement;
-  if(ta !== $input && ta !== $wInput){ hideSuggest(); return; }
-  sgTa = ta; sgCtl = ta === $input ? mCtl : wCtl;
-  const text = sgTa.value;
-  if((text.startsWith('/') || text.startsWith('$')) && sgTa.selectionStart===text.length){
+  if(document.activeElement !== $input){ hideSuggest(); return; }
+  const text = $input.value;
+  if((text.startsWith('/') || text.startsWith('$')) && $input.selectionStart===text.length){
     const items = findCompletions(text).filter(c=>c.toLowerCase()!==text.trim().toLowerCase());
     showSuggest('cmd', items.map(c=>({label:c, value:c})), null);
     return;
@@ -2203,11 +2192,6 @@ function receiveFileSuggestions(msg){
 function showSuggest(kind, items, range){
   sgKind = kind; sgItems = items.slice(0,12); sgAt = 0; sgRange = range;
   if(!sgItems.length){ $suggest.classList.remove('active'); $suggest.innerHTML=''; return; }
-  // Above the main prompt; below the welcome box, which sits mid-panel.
-  const home = sgTa === $wInput ? $wInputWrap.parentElement : document.getElementById('footer');
-  if($suggest.parentElement !== home) home.prepend($suggest);
-  $suggest.classList.toggle('below', sgTa === $wInput);
-  $suggest.style.top = sgTa === $wInput ? ($wInputWrap.offsetTop + $wInputWrap.offsetHeight + 4)+'px' : '';
   $suggest.innerHTML = '';
   sgItems.forEach((it,i)=>{
     const row = document.createElement('div');
@@ -2229,19 +2213,19 @@ function acceptSuggest(){
   const it = sgItems[sgAt];
   if(!it) return;
   if(sgKind==='cmd'){
-    sgTa.value = it.value + ' ';
-    sgTa.selectionStart = sgTa.selectionEnd = sgTa.value.length;
-    sgCtl.resetTab();
-    sgCtl.sync();
+    $input.value = it.value + ' ';
+    $input.selectionStart = $input.selectionEnd = $input.value.length;
+    mCtl.resetTab();
+    mCtl.sync();
     hideSuggest();
   } else if(sgRange){
-    const text = sgTa.value;
+    const text = $input.value;
     const value = /\s/.test(it.value) ? '@"'+it.value+'"' : '@'+it.value;
     // A directory stays open so you can keep going down; a file ends the mention.
     const insert = value + (it.dir ? '' : ' ');
-    sgTa.value = text.slice(0, sgRange.start) + insert + text.slice(sgRange.end);
-    sgTa.selectionStart = sgTa.selectionEnd = sgRange.start + insert.length;
-    sgCtl.sync();
+    $input.value = text.slice(0, sgRange.start) + insert + text.slice(sgRange.end);
+    $input.selectionStart = $input.selectionEnd = sgRange.start + insert.length;
+    mCtl.sync();
     sgQuery = null;
     hideSuggest();
     if(it.dir) updateSuggest();
@@ -2249,20 +2233,17 @@ function acceptSuggest(){
 }
 
 $input.addEventListener('input', ()=>{ historyAt=-1; updateSuggest(); });
-for(const ta of [$input, $wInput]){
-  if(ta !== $input) ta.addEventListener('input', updateSuggest);
-  ta.addEventListener('click', updateSuggest);
-  ta.addEventListener('blur', ()=>setTimeout(hideSuggest, 100));
-  // Runs before the prompt's own handlers (Enter to send, Tab to complete), so an open list gets the keys first.
-  ta.addEventListener('keydown', e=>{
-    if(e.isComposing || !suggestOpen() || sgTa !== ta) return;
-    const stop = ()=>{ e.preventDefault(); e.stopImmediatePropagation(); };
-    if(e.key==='ArrowDown'){ stop(); moveSuggest(1); }
-    else if(e.key==='ArrowUp'){ stop(); moveSuggest(-1); }
-    else if((e.key==='Enter' && !e.shiftKey && !e.altKey) || e.key==='Tab'){ stop(); acceptSuggest(); }
-    else if(e.key==='Escape'){ stop(); hideSuggest(); }
-  }, true);
-}
+$input.addEventListener('click', updateSuggest);
+$input.addEventListener('blur', ()=>setTimeout(hideSuggest, 100));
+// Runs before the prompt's own handlers (Enter to send, Tab to complete), so an open list gets the keys first.
+$input.addEventListener('keydown', e=>{
+  if(e.isComposing || !suggestOpen()) return;
+  const stop = ()=>{ e.preventDefault(); e.stopImmediatePropagation(); };
+  if(e.key==='ArrowDown'){ stop(); moveSuggest(1); }
+  else if(e.key==='ArrowUp'){ stop(); moveSuggest(-1); }
+  else if((e.key==='Enter' && !e.shiftKey && !e.altKey) || e.key==='Tab'){ stop(); acceptSuggest(); }
+  else if(e.key==='Escape'){ stop(); hideSuggest(); }
+}, true);
 
 // History and line editing in the main prompt.
 $input.addEventListener('keydown', e=>{
@@ -2398,7 +2379,7 @@ document.addEventListener('drop', e=>{
   const uris = dropUris(e.dataTransfer);
   if(uris.length){ vscode.postMessage({type:'drop_uris', uris}); return; }
   const images = [...e.dataTransfer.files].filter(f=>f.type && f.type.indexOf('image/')===0);
-  if(images.length){ leaveWelcome(); addImageFiles(images); focusInput(); }
+  if(images.length){ addImageFiles(images); focusInput(); }
   else addSystem("That can't be attached from here. Drop files from the Explorer or an editor tab, or use the paperclip.");
 });
 
@@ -2413,17 +2394,9 @@ function addAttachments(files, selections){
   renderAttachments();
 }
 
-// Attachments show above the main prompt, not on the welcome screen, so what you'd typed there moves with them.
-function leaveWelcome(){
-  if($welcome.style.display==='none') return;
-  const draft = $wInput.value;
-  dismissWelcome();
-  if(draft) setInput(draft);
-}
-
 function focusInput(){
   if(viewerOpen() || hsearchOpen()) return;
-  ($welcome.style.display==='none' ? $input : $wInput).focus();
+  $input.focus();
 }
 
 renderStatus();
