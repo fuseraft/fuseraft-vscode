@@ -56,6 +56,16 @@ export class ReplPanelProvider {
         return cur?._alive && cur._title !== undefined ? { title: cur._title, autoTitle: cur._autoTitle } : undefined;
     }
 
+    /** Where the live chat is, for the status bar: undefined when no chat is running. */
+    static get liveStatus(): LiveStatus | undefined {
+        const cur = ReplPanelProvider._current;
+        if (!cur?._alive) { return undefined; }
+        return { ...cur._status, title: cur._title ?? cur._autoTitle ?? undefined };
+    }
+
+    private static readonly _onDidChangeStatus = new vscode.EventEmitter<void>();
+    static readonly onDidChangeStatus = ReplPanelProvider._onDidChangeStatus.event;
+
     private static readonly _onDidChangeLiveTitle = new vscode.EventEmitter<void>();
     static readonly onDidChangeLiveTitle = ReplPanelProvider._onDidChangeLiveTitle.event;
 
@@ -183,8 +193,8 @@ export class ReplPanelProvider {
         }
     }
 
-    /** Adds files and selections to the message being written, opening a chat first if none is live. */
-    static attach(files: { name: string; path: string }[], selections: SelectionAttachment[], cwd?: string): void {
+    /** Adds files and selections to the message being written, opening a chat first if none is live; `text`, if given, becomes the prompt. */
+    static attach(files: { name: string; path: string }[], selections: SelectionAttachment[], cwd?: string, text?: string): void {
         const deliver = (cur: ReplPanelProvider) => {
             cur._panel.reveal();
             cur._post({
@@ -192,6 +202,7 @@ export class ReplPanelProvider {
                 files,
                 selections: selections.map(s => ({ ...s, rel: s.path ? cur._display(s.path) : s.name })),
             });
+            if (text) { cur._post({ type: 'draft', text }); }
         };
         if (!ReplPanelProvider._current || ReplPanelProvider._current._exited) { ReplPanelProvider.show('', undefined, cwd); }
         if (ReplPanelProvider._opening) { ReplPanelProvider._opening.then.push(deliver); }
@@ -222,6 +233,7 @@ export class ReplPanelProvider {
     /** When the user last sent something; a reply or question after a while away gets a notification. */
     private _lastInputAt = Date.now();
     private _draft: vscode.Disposable | undefined;
+    private _status: Omit<LiveStatus, 'title'> = { model: '', busy: false };
     /** Messages for the webview held until its script is listening; ones posted before then would be lost. */
     private _pending: object[] | undefined = [];
 
@@ -256,11 +268,15 @@ export class ReplPanelProvider {
                 this._send(images.length > 0
                     ? { type: 'user_input', text: msg.text, images }
                     : { type: 'user_input', text: msg.text });
+                // A message starts a turn; a /command doesn't, and the REPL's next status settles either way.
+                if (!msg.text.startsWith('/')) { this._setStatus({ busy: true }); }
             } else if (msg.type === 'approval_response' && typeof msg.approved === 'boolean') {
                 this._send({ type: 'approval_response', approved: msg.approved });
+                this._setStatus({ waiting: undefined });
                 void closeDiffPreview();
             } else if (msg.type === 'question_response') {
                 this._send({ type: 'question_response', answer: typeof msg.answer === 'string' ? msg.answer : null });
+                this._setStatus({ waiting: undefined });
             } else if (msg.type === 'interrupt') {
                 if (process.platform === 'win32') {
                     // Windows has no equivalent of SIGINT for child processes; send the
@@ -338,7 +354,10 @@ export class ReplPanelProvider {
             this._draft?.dispose();
             this._proc?.kill();
             // A panel replaced by another can go after its successor has opened.
-            if (ReplPanelProvider._current === this) { ReplPanelProvider._current = undefined; }
+            if (ReplPanelProvider._current === this) {
+                ReplPanelProvider._current = undefined;
+                ReplPanelProvider._onDidChangeStatus.fire();
+            }
         });
 
         this._spawn(model, resumeId, cwd);
@@ -418,6 +437,7 @@ export class ReplPanelProvider {
                             void vscode.env.clipboard.writeText(evt.text);
                         }
                         this._notifyIfAway(evt);
+                        this._trackStatus(evt);
                         // write_file/patch_file approvals carry full before/after file content —
                         // open it as a native diff editor tab (syntax-highlighted, side-by-side)
                         // rather than trying to cram it into the webview's compact approval bar.
@@ -441,6 +461,7 @@ export class ReplPanelProvider {
         this._proc.on('exit', () => {
             this._alive = false;
             this._exited = true;
+            this._fireStatus();
             if (this._sessionEndSent) { return; }
             try { this._post({ type: 'session_end' }); } catch { /* panel disposed */ }
         });
@@ -582,6 +603,49 @@ export class ReplPanelProvider {
 
     // The full-screen REPL rings the bell when a turn ends or a question waits after 10 s away from the keyboard;
     // here that's a notification, when the panel isn't what you're looking at.
+    private _trackStatus(evt: ReplEvent): void {
+        switch (evt.type) {
+            case 'ready':
+            case 'title':
+                this._setStatus(typeof evt.model === 'string' ? { model: evt.model } : {});
+                break;
+            case 'status':
+                this._setStatus({
+                    ...(typeof evt.model === 'string' ? { model: evt.model } : {}),
+                    ...(typeof evt.context === 'number' ? { context: evt.context } : {}),
+                    busy: false, waiting: undefined,
+                });
+                break;
+            // A turn begins when a message is sent (see the user_input handler); these keep it showing as running.
+            case 'turn_start':
+            case 'thinking':
+            case 'token':
+            case 'tool_call':
+                if (!this._status.busy) { this._setStatus({ busy: true }); }
+                break;
+            case 'approval_request':
+                this._setStatus({ waiting: 'approval' });
+                break;
+            case 'question':
+                this._setStatus({ waiting: 'question' });
+                break;
+            case 'error':
+            case 'cancelled':
+            case 'session_end':
+                this._setStatus({ busy: false, waiting: undefined });
+                break;
+        }
+    }
+
+    private _setStatus(change: Partial<Omit<LiveStatus, 'title'>>): void {
+        this._status = { ...this._status, ...change };
+        this._fireStatus();
+    }
+
+    private _fireStatus(): void {
+        if (ReplPanelProvider._current === this) { ReplPanelProvider._onDidChangeStatus.fire(); }
+    }
+
     private _notifyIfAway(evt: ReplEvent): void {
         const waiting = evt.type === 'approval_request' || evt.type === 'question';
         if (!waiting && evt.type !== 'message_end') { return; }
@@ -743,6 +807,15 @@ const LANGUAGE_ALIASES: Record<string, string> = {
 function languageId(lang: string): string {
     const l = lang.toLowerCase();
     return LANGUAGE_ALIASES[l] ?? l;
+}
+
+/** The live chat as the status bar shows it. `context` is the share of the context window in use (0–1). */
+export interface LiveStatus {
+    model: string;
+    context?: number;
+    busy: boolean;
+    waiting?: 'approval' | 'question';
+    title?: string;
 }
 
 /** Files git reports as changed or untracked; 0 outside a repository or when git isn't available. */

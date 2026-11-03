@@ -145,6 +145,17 @@
         "title": "Set Home Directory",
         "category": "fuseraft",
         "icon": "$(folder)"
+      },
+      {
+        "command": "fuseraft.replExport",
+        "title": "Export to Markdown…",
+        "category": "fuseraft",
+        "icon": "$(export)"
+      },
+      {
+        "command": "fuseraft.fixDiagnostic",
+        "title": "Fix with fuseraft",
+        "category": "fuseraft"
       }
     ],
     "viewsContainers": {
@@ -251,6 +262,11 @@
           "group": "1_chat@2"
         },
         {
+          "command": "fuseraft.replExport",
+          "when": "view == fuseraft.chats && viewItem == replSession",
+          "group": "1_chat@3"
+        },
+        {
           "command": "fuseraft.replDelete",
           "when": "view == fuseraft.chats && viewItem == replSession",
           "group": "2_danger"
@@ -287,6 +303,14 @@
         },
         {
           "command": "fuseraft.addFileToChat",
+          "when": "false"
+        },
+        {
+          "command": "fuseraft.replExport",
+          "when": "false"
+        },
+        {
+          "command": "fuseraft.fixDiagnostic",
           "when": "false"
         }
       ],

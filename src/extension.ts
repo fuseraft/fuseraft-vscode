@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { ReplSessionTreeProvider, ReplSessionItem, sessionTitle } from './replSessionTreeProvider';
 import { MemoryTreeProvider, MemoryItemNode, readMemoryEntries } from './memoryTreeProvider';
@@ -14,6 +15,7 @@ import {
     getMemoryReplDir, getFuseraftHome, getReplSessionsDir, writeReplSessionTitle,
 } from './fuseraftUtils';
 import { isConfigured, runSetupWizard } from './setupWizard';
+import { chatToMarkdown, exportFileName } from './chatExport';
 
 export function activate(context: vscode.ExtensionContext): void {
     const chatProvider = new ReplSessionTreeProvider();
@@ -50,12 +52,31 @@ export function activate(context: vscode.ExtensionContext): void {
     });
 
     // Status bar
+    // Follows the open chat, so a reply or an approval it's waiting on shows while you're in another file.
     const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 10);
-    statusBar.text = '$(comment-discussion) fuseraft';
-    statusBar.tooltip = 'fuseraft: Open REPL';
     statusBar.command = 'fuseraft.repl';
+    const renderStatusBar = () => {
+        const live = ReplPanelProvider.liveStatus;
+        statusBar.backgroundColor = live?.waiting ? new vscode.ThemeColor('statusBarItem.warningBackground') : undefined;
+        if (!live) {
+            statusBar.text = '$(comment-discussion) fuseraft';
+            statusBar.tooltip = 'fuseraft: open a chat';
+            return;
+        }
+        const pct = live.context !== undefined ? ` · ${Math.round(live.context * 100)}%` : '';
+        statusBar.text = live.waiting === 'approval' ? '$(bell-dot) fuseraft: approval needed'
+            : live.waiting === 'question' ? '$(bell-dot) fuseraft: question for you'
+            : live.busy ? `$(loading~spin) ${live.model || 'fuseraft'}`
+            : `$(comment-discussion) ${live.model || 'fuseraft'}${pct}`;
+        const tip = new vscode.MarkdownString();
+        tip.appendMarkdown(`**${live.title ? escapeMarkdown(live.title) : 'fuseraft chat'}**\n\n`);
+        tip.appendMarkdown(`${escapeMarkdown(live.model)}${live.context !== undefined ? ` · ${Math.round(live.context * 100)}% of context used` : ''}\n\n`);
+        tip.appendMarkdown(live.waiting ? 'Waiting for you. Click to answer.' : live.busy ? 'Working. Click to watch.' : 'Click to open the chat.');
+        statusBar.tooltip = tip;
+    };
+    renderStatusBar();
     statusBar.show();
-    context.subscriptions.push(statusBar);
+    context.subscriptions.push(statusBar, ReplPanelProvider.onDidChangeStatus(renderStatusBar));
 
     // First-run: two-phase check — CLI presence first, then config.
     (async () => {
@@ -160,6 +181,24 @@ export function activate(context: vscode.ExtensionContext): void {
         })
     );
 
+    // fuseraft.fixDiagnostic — "Fix with fuseraft" on an error or warning: the code around it, and the problem as the prompt
+    context.subscriptions.push(
+        vscode.languages.registerCodeActionsProvider({ scheme: 'file' }, new FixWithFuseraft(), {
+            providedCodeActionKinds: FixWithFuseraft.kinds,
+        }),
+        vscode.commands.registerCommand('fuseraft.fixDiagnostic', async (uri: vscode.Uri, diagnostic: vscode.Diagnostic) => {
+            const doc = await vscode.workspace.openTextDocument(uri);
+            const start = Math.max(0, diagnostic.range.start.line - FIX_CONTEXT_LINES);
+            const end = Math.min(doc.lineCount - 1, diagnostic.range.end.line + FIX_CONTEXT_LINES);
+            const code = doc.getText(new vscode.Range(start, 0, end, doc.lineAt(end).text.length));
+            const selection = {
+                path: uri.fsPath, name: path.basename(uri.fsPath), startLine: start + 1, endLine: end + 1,
+                language: doc.languageId, text: code,
+            };
+            ReplPanelProvider.attach([], [selection], workspaceRoot(), describeDiagnostic(diagnostic));
+        })
+    );
+
     // fuseraft.replNew — start a fresh chat, replacing a live one (which stays resumable)
     context.subscriptions.push(
         vscode.commands.registerCommand('fuseraft.replNew', () => {
@@ -209,8 +248,30 @@ export function activate(context: vscode.ExtensionContext): void {
         })
     );
 
+    // fuseraft.replExport — a saved chat as Markdown, to read or share
     // fuseraft.replRename — name a chat; an empty name goes back to its first message
     context.subscriptions.push(
+        vscode.commands.registerCommand('fuseraft.replExport', async (arg?: ReplSessionItem) => {
+            const session = (arg ?? chatView.selection[0])?.session;
+            if (!session?.sessionId) { return; }
+            let markdown: string;
+            try {
+                markdown = chatToMarkdown(session);
+            } catch (err: unknown) {
+                vscode.window.showErrorMessage(`Couldn't read that chat: ${err instanceof Error ? err.message : String(err)}`);
+                return;
+            }
+            const folder = workspaceRoot() ?? os.homedir();
+            const target = await vscode.window.showSaveDialog({
+                defaultUri: vscode.Uri.file(path.join(folder, exportFileName(session))),
+                filters: { Markdown: ['md'] },
+                saveLabel: 'Export',
+                title: 'Export chat to Markdown',
+            });
+            if (!target) { return; }
+            await vscode.workspace.fs.writeFile(target, Buffer.from(markdown, 'utf8'));
+            await vscode.window.showTextDocument(target, { preview: false });
+        }),
         // F2 in the chat panel passes 'live': rename the chat that's open there.
         vscode.commands.registerCommand('fuseraft.replRename', async (arg?: ReplSessionItem | 'live') => {
             const session = arg === 'live' ? liveSessionInfo() : (arg ?? chatView.selection[0])?.session;
@@ -527,4 +588,40 @@ async function pickAndResumeReplSession(sessions: ReplSessionInfo[], cwd?: strin
 
 export function deactivate(): void {
     disposeOutputChannel();
+}
+
+function escapeMarkdown(text: string): string {
+    return text.replace(/[\\`*_{}[\]()#+\-.!|<>]/g, '\\$&');
+}
+
+// Lines either side of a problem that go with it, so the agent sees the code around it without reading the file.
+const FIX_CONTEXT_LINES = 5;
+
+/** Offers "Fix with fuseraft" on the errors and warnings under the cursor. */
+class FixWithFuseraft implements vscode.CodeActionProvider {
+    static readonly kinds = [vscode.CodeActionKind.QuickFix];
+
+    provideCodeActions(doc: vscode.TextDocument, _range: vscode.Range, ctx: vscode.CodeActionContext): vscode.CodeAction[] {
+        if (isDraft(doc.uri)) { return []; }
+        const problems = ctx.diagnostics.filter(d => d.severity <= vscode.DiagnosticSeverity.Warning).slice(0, 3);
+        return problems.map(d => {
+            const short = d.message.split('\n')[0];
+            const title = problems.length === 1 ? 'Fix with fuseraft'
+                : `Fix with fuseraft: ${short.length > 50 ? short.slice(0, 49) + '…' : short}`;
+            const action = new vscode.CodeAction(title, vscode.CodeActionKind.QuickFix);
+            action.diagnostics = [d];
+            action.command = { command: 'fuseraft.fixDiagnostic', title, arguments: [doc.uri, d] };
+            return action;
+        });
+    }
+}
+
+/** The prompt for a fix: the problem as the editor reports it, and where it is. */
+function describeDiagnostic(d: vscode.Diagnostic): string {
+    const kind = d.severity === vscode.DiagnosticSeverity.Error ? 'error' : 'warning';
+    const code = typeof d.code === 'object' ? d.code.value : d.code;
+    const from = [d.source, code !== undefined ? String(code) : ''].filter(Boolean).join(' ');
+    const lines = d.range.start.line === d.range.end.line ? `line ${d.range.start.line + 1}`
+        : `lines ${d.range.start.line + 1}-${d.range.end.line + 1}`;
+    return `Fix this ${kind}${from ? ` (${from})` : ''} on ${lines}: ${d.message}`;
 }
