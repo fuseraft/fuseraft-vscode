@@ -1324,6 +1324,18 @@ function addFileChanges(changes){
   scrollBottom();
 }
 
+// The CLI exited before the chat was ready: usually a provider or API key that isn't set up, or a CLI that isn't installed.
+function startFailed(){
+  leaveWelcome();
+  const d=document.createElement('div');
+  d.className='msg system start-failed';
+  d.innerHTML='<div class="bubble">The chat couldn\'t start. Open setup to check the CLI, your provider and your API key, then start a new chat.'
+    +'<div class="start-failed-actions"><button type="button" class="approval-btn approval-allow">Open Setup</button></div></div>';
+  d.querySelector('button').addEventListener('click',()=>vscode.postMessage({type:'open_setup'}));
+  $msgs.appendChild(d);
+  scrollBottom();
+}
+
 /* ── welcome prompt ──────────────────────────────────── */
 function dismissWelcome(){
   if($welcome.style.display==='none') return;
@@ -1801,6 +1813,8 @@ window.addEventListener('message',evt=>{
       settleRunningTools('cancelled');
       if(curMsgDiv){ curMsgDiv.remove(); curBubble=null; curTools=null; curText=''; curMsgDiv=null; }
       curToolList=[]; curToolState={expanded:false};
+      // Before the chat is ready the welcome screen covers the transcript, so this would go unseen.
+      if(!sessionReady) leaveWelcome();
       addSystem('Error: '+(msg.text||'unknown error'));
       isStreaming=false;
       resetThinkingLabel();
@@ -1840,7 +1854,8 @@ window.addEventListener('message',evt=>{
     case 'session_end':
       abandonPendingApproval();
       abandonPendingQuestion();
-      addSystem('Session ended.');
+      if(sessionReady) addSystem('Session ended.');
+      else startFailed();
       isStreaming=false;
       sessionEnded=true;
       stopTimer();

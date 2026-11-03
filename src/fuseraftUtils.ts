@@ -221,33 +221,50 @@ function runSettingsSet(key: string, value: string): Promise<boolean> {
     });
 }
 
-/**
- * Fetch available model IDs from the provider's models endpoint.
- * Uses GET {endpoint}/models with Bearer auth for OpenAI-compatible providers,
- * GET {endpoint}/api/tags for Ollama, or GET {endpoint}/v1/models with
- * x-api-key/anthropic-version headers for the native Anthropic provider (its
- * base endpoint has no bare /models route and doesn't take Bearer auth).
- * Returns a sorted array of model ID strings, or null on any error.
- */
-export function fetchProviderModels(
+/** The provider's model IDs, or null when they couldn't be listed. */
+export async function fetchProviderModels(
     endpoint: string,
     apiKey: string,
     provider: 'ollama' | 'anthropic' | string,
     timeoutMs = 8000
 ): Promise<string[] | null> {
+    const result = await listProviderModels(endpoint, apiKey, provider, timeoutMs);
+    return 'models' in result ? result.models : null;
+}
+
+interface ModelList {
+    data?: { id?: string }[];
+    models?: { name?: string; supportedGenerationMethods?: string[] }[];
+    error?: string | { message?: string };
+}
+
+/** Lists the provider's models, or says why it couldn't: proof the endpoint and key work, without picking a model. */
+export function listProviderModels(
+    endpoint: string,
+    apiKey: string,
+    provider: 'ollama' | 'anthropic' | string,
+    timeoutMs = 8000
+): Promise<{ models: string[] } | { error: string; status?: number }> {
     return new Promise(resolve => {
-        const isOllama = provider === 'ollama';
-        const isAnthropic = provider === 'anthropic';
         const base = endpoint.replace(/\/$/, '');
-        const urlStr = isOllama ? `${base}/api/tags` : isAnthropic ? `${base}/v1/models` : `${base}/models`;
+        // Ollama's own listing is at its root; through its OpenAI-compatible /v1 it lists like OpenAI.
+        const ollamaNative = provider === 'ollama' && !/\/v1$/.test(base);
+        // Anthropic's base endpoint has no bare /models route and doesn't take Bearer auth.
+        const isAnthropic = provider === 'anthropic';
+        const isGoogle = provider === 'google';
+        const urlStr = ollamaNative ? `${base}/api/tags`
+            : isAnthropic ? `${base}/v1/models?limit=1000`
+            : isGoogle ? `${base}/v1beta/models?pageSize=1000&key=${encodeURIComponent(apiKey)}`
+            : `${base}/models`;
 
         let parsed: URL;
         try { parsed = new URL(urlStr); }
-        catch { resolve(null); return; }
+        catch { resolve({ error: `Invalid endpoint URL: ${endpoint || '(empty)'}` }); return; }
 
         const lib = parsed.protocol === 'https:' ? https : http;
         const headers: Record<string, string> = isAnthropic
             ? { ...(apiKey ? { 'x-api-key': apiKey } : {}), 'anthropic-version': '2023-06-01' }
+            : isGoogle ? {}
             : (apiKey ? { Authorization: `Bearer ${apiKey}` } : {});
         const options: https.RequestOptions = {
             hostname: parsed.hostname,
@@ -261,19 +278,29 @@ export function fetchProviderModels(
             let data = '';
             res.on('data', (chunk: Buffer) => { data += chunk.toString(); });
             res.on('end', () => {
-                try {
-                    if (res.statusCode !== 200) { resolve(null); return; }
-                    const json = JSON.parse(data);
-                    const ids: string[] = isOllama
-                        ? (json.models ?? []).map((m: { name?: string }) => m.name).filter(Boolean)
-                        : (json.data   ?? []).map((m: { id?:   string }) => m.id  ).filter(Boolean);
-                    resolve(ids.sort());
-                } catch { resolve(null); }
+                let json: ModelList | undefined;
+                try { json = JSON.parse(data) as ModelList; } catch { json = undefined; }
+                if (res.statusCode !== 200) {
+                    const status = res.statusCode ?? 0;
+                    const detail = typeof json?.error === 'string' ? json.error : json?.error?.message;
+                    resolve({ error: detail ?? `HTTP ${status}`, status });
+                    return;
+                }
+                if (!json || typeof json !== 'object') { resolve({ error: 'The endpoint answered, but not with a model list.' }); return; }
+                const ids: string[] = ollamaNative
+                    ? (json.models ?? []).map(m => m.name ?? '').filter(Boolean)
+                    : isGoogle
+                        ? (json.models ?? [])
+                            .filter(m => !m.supportedGenerationMethods || m.supportedGenerationMethods.includes('generateContent'))
+                            .map(m => (m.name ?? '').replace(/^models\//, ''))
+                            .filter(Boolean)
+                        : (json.data ?? []).map(m => m.id ?? '').filter(Boolean);
+                resolve({ models: ids.sort() });
             });
         });
 
-        req.on('error',   () => resolve(null));
-        req.on('timeout', () => { req.destroy(); resolve(null); });
+        req.on('error',   (err: Error) => resolve({ error: err.message }));
+        req.on('timeout', () => { req.destroy(); resolve({ error: 'Request timed out' }); });
         req.setTimeout(timeoutMs);
         req.end();
     });

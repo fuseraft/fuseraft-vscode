@@ -8,6 +8,7 @@ import { getBinary, readApiKeyFromConfig, fetchModelsViaCli, getFuseraftHomeEnvO
 import { readSkills, getSkillsDir } from './skillsTreeProvider';
 import { showDiffPreview, closeDiffPreview } from './diffContentProvider';
 import { EditorTracker, SelectionAttachment } from './editorContext';
+import { isConfigured } from './setupWizard';
 
 const VIEW_TYPE = 'fuseraftRepl';
 
@@ -63,6 +64,12 @@ export class ReplPanelProvider {
     /** `fresh` replaces a live chat instead of revealing it; the replaced chat stays resumable from its snapshot. */
     static show(model: string, resumeId?: string, cwd?: string, fresh = false, column = vscode.ViewColumn.Beside): void {
         if (ReplPanelProvider._opening) { return; }
+        // Without a provider the CLI exits as soon as it starts, leaving a chat you can't type in; set one up first.
+        // The wizard offers to start a chat once it's saved.
+        if ((!ReplPanelProvider._current || ReplPanelProvider._current._exited) && !isConfigured()) {
+            void vscode.commands.executeCommand('fuseraft.setup');
+            return;
+        }
         if (ReplPanelProvider._current) {
             const cur = ReplPanelProvider._current;
             if (!fresh && (!resumeId || cur._sessionId === resumeId)) {
@@ -185,7 +192,7 @@ export class ReplPanelProvider {
         };
         if (!ReplPanelProvider._current || ReplPanelProvider._current._exited) { ReplPanelProvider.show('', undefined, cwd); }
         if (ReplPanelProvider._opening) { ReplPanelProvider._opening.then.push(deliver); }
-        else if (ReplPanelProvider._current) { deliver(ReplPanelProvider._current); }
+        else if (ReplPanelProvider._current && !ReplPanelProvider._current._exited) { deliver(ReplPanelProvider._current); }
     }
 
     private static _webviewOptions(): vscode.WebviewOptions {
@@ -276,6 +283,8 @@ export class ReplPanelProvider {
                         });
                     }
                 });
+            } else if (msg.type === 'open_setup') {
+                void vscode.commands.executeCommand('fuseraft.setup');
             } else if (msg.type === 'webview_ready') {
                 const pending = this._pending ?? [];
                 this._pending = undefined;
@@ -431,7 +440,10 @@ export class ReplPanelProvider {
         this._proc.on('error', (err: Error) => {
             // A CLI that couldn't be started emits no exit.
             this._exited = true;
-            try { this._post({ type: 'error', text: err.message }); } catch { /* panel disposed */ }
+            try {
+                this._post({ type: 'error', text: err.message });
+                if (!this._sessionEndSent) { this._sessionEndSent = true; this._post({ type: 'session_end' }); }
+            } catch { /* panel disposed */ }
         });
     }
 

@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as http from 'http';
 import * as https from 'https';
 import * as path from 'path';
-import { checkCli, invalidateCliCache, runInstaller, runUpdate, pollForInstalledBinary, storeApiKeyToCliKeychain, getApiKeyFromCliKeychain, fetchProviderModels, getFuseraftHome, parseProviderSection, writeProviderConfigViaCli } from './fuseraftUtils';
+import { checkCli, invalidateCliCache, runInstaller, runUpdate, pollForInstalledBinary, storeApiKeyToCliKeychain, getApiKeyFromCliKeychain, fetchProviderModels, listProviderModels, getFuseraftHome, parseProviderSection, writeProviderConfigViaCli } from './fuseraftUtils';
 
 /** Re-resolved on every call (not cached) so it reflects live changes to fuseraft.homeDir. */
 function getConfigDir(): string { return getFuseraftHome(); }
@@ -332,7 +332,18 @@ export async function runSetupWizard(extensionUri: vscode.Uri): Promise<void> {
         const actualProvider = (msg.provider === 'custom' || msg.provider === 'ollama') ? 'openai' : msg.provider;
 
         if (msg.action === 'test') {
-            const result = await testConnection(msg.modelId, msg.endpoint, actualProvider, msg.apiKey);
+            // As with loading models: a blank key field means the key already saved.
+            const apiKey = (msg.apiKey as string) || await getApiKeyFromCliKeychain();
+            if (!msg.modelId) {
+                const result = await testByListingModels(msg.endpoint, actualProvider, apiKey);
+                if (result.models) {
+                    liveModels = result.models;
+                    panel.webview.postMessage({ type: 'modelsLoaded', models: result.models });
+                }
+                panel.webview.postMessage({ type: 'testResult', result: { ok: result.ok, message: result.message } });
+                return;
+            }
+            const result = await testConnection(msg.modelId, msg.endpoint, actualProvider, apiKey);
             panel.webview.postMessage({ type: 'testResult', result });
         } else if (msg.action === 'save') {
             try {
@@ -675,12 +686,15 @@ function getSetupWebviewHtml(
         if (matches) { providerEl.value = curProv; }
     }
 
-    function updateForm() {
+    // keep: models arrived from the provider; keep what's been typed rather than going back to the saved values.
+    function updateForm(keep) {
         const p = providers.find(x => x.provider === providerEl.value) || providers[0];
+        const end = keep ? endpointEl.value : curEnd;
+        const mod = keep ? getFormData().modelId : curMod;
 
         // Endpoint
         if (p.provider === 'custom') {
-            endpointEl.value = curEnd || '';
+            endpointEl.value = end || '';
             if (cliFound) { endpointEl.disabled = false; }
         } else {
             endpointEl.value = p.endpoint;
@@ -703,14 +717,14 @@ function getSetupWebviewHtml(
 
             modelSelectEl.style.display = 'block';
 
-            if (p.models.includes(curMod)) {
-                modelSelectEl.value = curMod;
+            if (p.models.includes(mod)) {
+                modelSelectEl.value = mod;
                 modelInputEl.style.display = 'none';
                 modelInputEl.value = '';
-            } else if (curMod && curMod.trim() !== '') {
+            } else if (mod && mod.trim() !== '') {
                 modelSelectEl.value = '__custom__';
                 modelInputEl.style.display = 'block';
-                modelInputEl.value = curMod;
+                modelInputEl.value = mod;
             } else {
                 modelSelectEl.value = p.models[0];
                 modelInputEl.style.display = 'none';
@@ -718,11 +732,11 @@ function getSetupWebviewHtml(
         } else {
             modelSelectEl.style.display = 'none';
             modelInputEl.style.display = 'block';
-            modelInputEl.value = curMod || '';
+            modelInputEl.value = mod || '';
         }
     }
 
-    providerEl.addEventListener('change', updateForm);
+    providerEl.addEventListener('change', () => updateForm());
 
     const loadModelsBtn = document.getElementById('loadModelsBtn');
     if (loadModelsBtn) {
@@ -761,10 +775,6 @@ function getSetupWebviewHtml(
 
     testBtn.addEventListener('click', () => {
         const data = getFormData();
-        if (!data.modelId) {
-            showResult(false, 'Please specify a model ID');
-            return;
-        }
         if (data.provider === 'custom' && !data.endpoint) {
             showResult(false, 'Please specify a custom endpoint');
             return;
@@ -809,7 +819,7 @@ function getSetupWebviewHtml(
                 // Inject into the current provider entry so updateForm picks them up
                 const p = providers.find(x => x.provider === providerEl.value);
                 if (p) { p.models = loaded; }
-                updateForm();
+                updateForm(true);
                 if (btn) { btn.textContent = '✓ ' + loaded.length + ' models loaded'; }
                 if (badge) { badge.textContent = '✓ ' + loaded.length + ' models loaded from provider'; }
             } else {
@@ -901,6 +911,25 @@ async function writeUserConfig(modelId: string, endpoint: string, provider: stri
             throw new Error('Failed to store the API key in the OS keychain. Your key was not saved.');
         }
     }
+}
+
+/** With no model chosen yet, listing the provider's models shows the endpoint and key work, and offers the models to pick from. */
+async function testByListingModels(
+    endpoint: string,
+    provider: string,
+    apiKey: string,
+): Promise<{ ok: boolean; message: string; models?: string[] }> {
+    const result = await listProviderModels(endpoint, apiKey, provider, 10_000);
+    if ('models' in result) {
+        return result.models.length > 0
+            ? { ok: true, message: `${result.models.length} models available. Pick one above.`, models: result.models }
+            : { ok: true, message: 'the provider listed no models. Enter a model ID above.' };
+    }
+    // Some OpenAI-compatible servers only serve chat completions.
+    if (result.status === 404 || result.status === 405) {
+        return { ok: false, message: "this endpoint doesn't list its models. Enter a model ID and test again." };
+    }
+    return { ok: false, message: result.error };
 }
 
 async function testConnection(
