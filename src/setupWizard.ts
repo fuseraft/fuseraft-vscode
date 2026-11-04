@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as http from 'http';
 import * as https from 'https';
 import * as path from 'path';
-import { checkCli, invalidateCliCache, runInstaller, runUpdate, pollForInstalledBinary, storeApiKeyToCliKeychain, getApiKeyFromCliKeychain, fetchProviderModels, listProviderModels, getFuseraftHome, parseProviderSection, writeProviderConfigViaCli } from './fuseraftUtils';
+import { checkCli, invalidateCliCache, runInstaller, runUpdate, pollForInstalledBinary, storeApiKeyToCliKeychain, getApiKeyFromCliKeychain, fetchProviderModels, listProviderModels, describeRequestError, cliHasScopedKeys, getFuseraftHome, parseProviderSection, writeProviderConfigViaCli } from './fuseraftUtils';
 
 /** Re-resolved on every call (not cached) so it reflects live changes to fuseraft.homeDir. */
 function getConfigDir(): string { return getFuseraftHome(); }
@@ -15,61 +15,69 @@ interface ProviderDef {
     provider: string;
     endpoint: string;
     models: string[];
+    /** Where to create an API key; opened from "Get a key". */
+    keyUrl?: string;
 }
 
 const PROVIDERS: ProviderDef[] = [
     {
         label: 'Anthropic',
-        description: 'Claude models',
+        description: 'Claude',
+        keyUrl: 'https://console.anthropic.com/settings/keys',
         provider: 'anthropic',
         endpoint: 'https://api.anthropic.com',
         models: ['claude-sonnet-4-6', 'claude-opus-4-7', 'claude-haiku-4-5-20251001'],
     },
     {
         label: 'OpenAI',
-        description: 'GPT models',
+        description: 'GPT',
+        keyUrl: 'https://platform.openai.com/api-keys',
         provider: 'openai',
         endpoint: 'https://api.openai.com/v1',
         models: ['gpt-4o', 'gpt-4o-mini'],
     },
     {
         label: 'xAI',
-        description: 'Grok models',
+        description: 'Grok',
+        keyUrl: 'https://console.x.ai',
         provider: 'xai',
         endpoint: 'https://api.x.ai/v1',
         models: ['grok-4', 'grok-4-1-fast-reasoning'],
     },
     {
         label: 'Google',
-        description: 'Gemini models',
+        description: 'Gemini',
+        keyUrl: 'https://aistudio.google.com/apikey',
         provider: 'google',
         endpoint: 'https://generativelanguage.googleapis.com',
         models: ['gemini-2.5-flash', 'gemini-2.0-flash'],
     },
     {
         label: 'Mistral',
-        description: 'Mistral models',
+        description: 'Mistral, Codestral',
+        keyUrl: 'https://console.mistral.ai/api-keys',
         provider: 'mistral',
         endpoint: 'https://api.mistral.ai/v1',
         models: ['mistral-medium-latest', 'mistral-large-latest'],
     },
     {
         label: 'DeepSeek',
-        description: 'DeepSeek models',
+        description: 'Chat, reasoner',
+        keyUrl: 'https://platform.deepseek.com/api_keys',
         provider: 'deepseek',
         endpoint: 'https://api.deepseek.com/v1',
         models: ['deepseek-chat'],
     },
     {
         label: 'Ollama',
-        description: 'Local Ollama server (no API key required)',
+        description: 'Local, no key',
         provider: 'ollama',
         endpoint: 'http://localhost:11434/v1',
         models: ['llama3.2', 'phi4', 'mistral', 'gemma3', 'qwen2.5-coder'],
     },
     {
-        label: '$(edit) Custom / Self-hosted',
-        description: 'OpenAI-compatible endpoint',
+        label: 'Custom',
+        description: 'OpenAI-compatible',
         provider: 'custom',
         endpoint: '',
         models: [],
@@ -171,9 +179,17 @@ export async function runSetupWizard(extensionUri: vscode.Uri): Promise<void> {
 
     // Run the CLI check and config read in parallel before building the UI.
     const [cli, saved] = await Promise.all([checkCli(), readSavedConfig()]);
+    let scopedKeys = cli.found && await cliHasScopedKeys();
 
     // Try to pre-fetch the model list from the configured provider.
     let liveModels: string[] | null = null;
+    let liveFor = saved.provider;
+    // A saved key belongs to one server; never send it to another. A CLI that keeps a key per
+    // endpoint answers for any server; an older one holds only the saved provider's.
+    let savedProvider = saved.provider;
+    const keyFor = async (provider: string, endpoint: string, typed: string) =>
+        typed || (scopedKeys ? (endpoint ? await getApiKeyFromCliKeychain(endpoint) : '')
+                             : provider === savedProvider ? await getApiKeyFromCliKeychain() : '');
     if (saved.endpoint) {
         const apiKey = saved.apiKey || await getApiKeyFromCliKeychain();
         liveModels = await fetchProviderModels(saved.endpoint, apiKey, saved.provider);
@@ -183,7 +199,7 @@ export async function runSetupWizard(extensionUri: vscode.Uri): Promise<void> {
         'fuseraftSetup',
         'fuseraft setup',
         vscode.ViewColumn.One,
-        { enableScripts: true }
+        { enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media')] }
     );
     panel.iconPath = vscode.Uri.joinPath(extensionUri, 'media', 'icon.png');
 
@@ -195,20 +211,36 @@ export async function runSetupWizard(extensionUri: vscode.Uri): Promise<void> {
         cancelPoll = undefined;
     });
 
-    panel.webview.html = getSetupWebviewHtml(
-        panel.webview,
-        cli.found,
-        cli.version,
-        saved.hasPlaintextKey,
-        saved.hasKeychainKey,
-        saved.provider,
-        saved.endpoint,
-        saved.modelId,
-        saved.apiKey,
-        liveModels
-    );
+    const render = (c: { found: boolean; version: string }, sv: typeof saved) => {
+        panel.webview.html = getSetupWebviewHtml(
+            panel.webview, extensionUri, c.found, c.version,
+            sv.hasPlaintextKey, sv.hasKeychainKey,
+            sv.provider, sv.endpoint, sv.modelId, sv.apiKey,
+            liveFor === sv.provider ? liveModels : null, scopedKeys
+        );
+    };
+    const rerender = async () => {
+        const [c, sv] = await Promise.all([checkCli(), readSavedConfig()]);
+        scopedKeys = c.found && await cliHasScopedKeys();
+        savedProvider = sv.provider;
+        render(c, sv);
+    };
+    render(cli, saved);
 
     panel.webview.onDidReceiveMessage(async (msg) => {
+        if (msg.action === 'checkKey') {
+            // Only whether a key exists goes to the webview, never the key.
+            const has = scopedKeys && !!msg.endpoint && (await getApiKeyFromCliKeychain(msg.endpoint)).length > 0;
+            panel.webview.postMessage({ type: 'keyStatus', endpoint: msg.endpoint, saved: has });
+            return;
+        }
+
+        if (msg.action === 'openKeyPage') {
+            const url = PROVIDERS.find(p => p.provider === msg.provider)?.keyUrl;
+            if (url) { vscode.env.openExternal(vscode.Uri.parse(url)); }
+            return;
+        }
+
         if (msg.action === 'openInstallDocs') {
             vscode.env.openExternal(vscode.Uri.parse('https://github.com/fuseraft/fuseraft-cli#install'));
             return;
@@ -217,44 +249,20 @@ export async function runSetupWizard(extensionUri: vscode.Uri): Promise<void> {
         if (msg.action === 'openBinaryPathSetting') {
             await vscode.commands.executeCommand('fuseraft.setBinaryPath');
             invalidateCliCache();
-            const [newCli2, newSaved2] = await Promise.all([checkCli(), readSavedConfig()]);
-            panel.webview.html = getSetupWebviewHtml(
-                panel.webview,
-                newCli2.found,
-                newCli2.version,
-                newSaved2.hasPlaintextKey,
-                newSaved2.hasKeychainKey,
-                newSaved2.provider,
-                newSaved2.endpoint,
-                newSaved2.modelId,
-                newSaved2.apiKey,
-                liveModels
-            );
+            await rerender();
             return;
         }
 
         if (msg.action === 'recheckCli') {
             invalidateCliCache();
-            const [newCli, newSaved] = await Promise.all([checkCli(), readSavedConfig()]);
-            panel.webview.html = getSetupWebviewHtml(
-                panel.webview,
-                newCli.found,
-                newCli.version,
-                newSaved.hasPlaintextKey,
-                newSaved.hasKeychainKey,
-                newSaved.provider,
-                newSaved.endpoint,
-                newSaved.modelId,
-                newSaved.apiKey,
-                liveModels
-            );
+            await rerender();
             return;
         }
 
         if (msg.action === 'fetchModels') {
-            const apiKey = (msg.apiKey as string) || await getApiKeyFromCliKeychain();
+            const apiKey = await keyFor(msg.provider, msg.endpoint, msg.apiKey);
             const models = await fetchProviderModels(msg.endpoint as string, apiKey, msg.provider as string);
-            if (models) { liveModels = models; }
+            if (models) { liveModels = models; liveFor = msg.provider; }
             panel.webview.postMessage({ type: 'modelsLoaded', models: models ?? [] });
             return;
         }
@@ -280,19 +288,7 @@ export async function runSetupWizard(extensionUri: vscode.Uri): Promise<void> {
                 }
 
                 invalidateCliCache();
-                const [newCli, newSaved] = await Promise.all([checkCli(), readSavedConfig()]);
-                panel.webview.html = getSetupWebviewHtml(
-                    panel.webview,
-                    newCli.found,
-                    newCli.version,
-                    newSaved.hasPlaintextKey,
-                    newSaved.hasKeychainKey,
-                    newSaved.provider,
-                    newSaved.endpoint,
-                    newSaved.modelId,
-                    newSaved.apiKey,
-                    liveModels
-                );
+                await rerender();
             });
             return;
         }
@@ -319,25 +315,20 @@ export async function runSetupWizard(extensionUri: vscode.Uri): Promise<void> {
                 }
             }
             // Refresh the wizard to reflect the new keychain status.
-            const [migCli, migSaved] = await Promise.all([checkCli(), readSavedConfig()]);
-            panel.webview.html = getSetupWebviewHtml(
-                panel.webview, migCli.found, migCli.version,
-                migSaved.hasPlaintextKey, migSaved.hasKeychainKey,
-                migSaved.provider, migSaved.endpoint, migSaved.modelId, migSaved.apiKey,
-                liveModels
-            );
+            await rerender();
             return;
         }
 
         const actualProvider = (msg.provider === 'custom' || msg.provider === 'ollama') ? 'openai' : msg.provider;
 
         if (msg.action === 'test') {
-            // As with loading models: a blank key field means the key already saved.
-            const apiKey = (msg.apiKey as string) || await getApiKeyFromCliKeychain();
+            // As with loading models: a blank key field means the saved key, for its own provider only.
+            const apiKey = await keyFor(msg.provider, msg.endpoint, msg.apiKey);
             if (!msg.modelId) {
                 const result = await testByListingModels(msg.endpoint, actualProvider, apiKey);
                 if (result.models) {
                     liveModels = result.models;
+                    liveFor = msg.provider;
                     panel.webview.postMessage({ type: 'modelsLoaded', models: result.models });
                 }
                 panel.webview.postMessage({ type: 'testResult', result: { ok: result.ok, message: result.message } });
@@ -367,6 +358,7 @@ export async function runSetupWizard(extensionUri: vscode.Uri): Promise<void> {
 
 function getSetupWebviewHtml(
     webview: vscode.Webview,
+    extensionUri: vscode.Uri,
     cliFound: boolean,
     cliVersion: string,
     hasPlaintextKey: boolean,
@@ -375,502 +367,142 @@ function getSetupWebviewHtml(
     curEnd: string,
     curMod: string,
     curKey: string,
-    liveModels: string[] | null = null
+    liveModels: string[] | null = null,
+    scopedKeys = false
 ): string {
     const nonce = Math.random().toString(36).substring(2, 15);
+    const media = (file: string) => webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', file));
     // When live models were fetched for the current provider, inject them into
     // that provider's entry so the select is populated with the real list.
-    const providersData = (liveModels && liveModels.length > 0)
+    const providers = (liveModels && liveModels.length > 0)
         ? PROVIDERS.map(p => p.provider === curProv ? { ...p, models: liveModels } : p)
         : PROVIDERS;
-    const providersJson = JSON.stringify(providersData);
-    const liveModelCount = liveModels ? liveModels.length : 0;
+    const init = {
+        providers, cliFound, hasPlaintextKey, hasKeychainKey,
+        curProv, curEnd, curMod, curKey, scopedKeys,
+        liveModelCount: liveModels ? liveModels.length : 0,
+    };
+    // Inside a <script> block, "</script>" in a value (an endpoint, say) would end it.
+    const initJson = JSON.stringify(init).replace(/</g, '\\u003c');
 
-    // Build pre-flight rows
-    const cliRow = cliFound
-        ? `<div class="preflight-row ok"><span class="pi">✅</span><span>fuseraft CLI detected${cliVersion ? ' — ' + escHtml(cliVersion) : ''}
-            &nbsp;|&nbsp;
-            <a href="#" id="updateBtn" class="action-link">Update</a> &nbsp;|&nbsp;
-            <a href="#" id="binaryPathLink">Change path</a> &nbsp;|&nbsp;
-            <a href="#" id="recheckCliLink">Check again</a>
-           </span></div>`
-        : `<div class="preflight-row error"><span class="pi">❌</span><span>fuseraft CLI not found on PATH.
-            <a href="#" id="installBtn" class="action-link">Install</a> &nbsp;|&nbsp;
-            <a href="#" id="installLink">Install instructions</a> &nbsp;|&nbsp;
-            <a href="#" id="binaryPathLink">Set binary path</a> &nbsp;|&nbsp;
-            <a href="#" id="recheckCliLink">Check again</a>
-           </span></div>`;
+    // `fuseraft --version` prints "fuseraft 1.16.0+<commit>"; the number is enough here.
+    const shortVersion = cliVersion.replace(/^fuseraft\s+/i, '').replace(/\+.*$/, '');
+    const cliStep = cliFound
+        ? `<div class="cli-status">
+            <span class="dot"></span>
+            <span>fuseraft CLI is installed${shortVersion ? ` <span class="cli-version">${escHtml(shortVersion)}</span>` : ''}</span>
+            <span class="links">
+                <a href="#" id="updateLink">Update</a>
+                <a href="#" id="binaryPathLink">Change path</a>
+                <a href="#" id="recheckLink">Check again</a>
+            </span>
+           </div>`
+        : `<div class="cli-missing">
+            <div class="cli-status"><span class="dot bad"></span><span>The fuseraft CLI isn't installed, or isn't on your PATH.</span></div>
+            <div class="hint">The extension runs your chats through it. Installing takes a few seconds.</div>
+            <div class="step-content"><button id="installBtn" class="primary">Install the CLI</button></div>
+            <div class="links">
+                <a href="#" id="installDocsLink">Install it yourself</a>
+                <a href="#" id="binaryPathLink">Set the path to it</a>
+                <a href="#" id="recheckLink">Check again</a>
+            </div>
+           </div>`;
 
-    const keychainRow = hasPlaintextKey
-        ? `<div class="preflight-row warn"><span class="pi">⚠️</span><span>API key stored in plaintext. &nbsp;<a href="#" id="secureKeyLink" class="action-link">Secure it now</a></span></div>`
-        : hasKeychainKey
-        ? `<div class="preflight-row ok"><span class="pi">🔐</span><span>API key secured in OS keychain</span></div>`
-        : '';
-
-    const preflightSection = `
-    <div class="preflight">
-        <div class="preflight-title">Pre-flight checklist</div>
-        ${cliRow}
-        ${keychainRow}
-    </div>`;
-
-    // If CLI is missing, disable the action buttons
-    const disabledAttr = cliFound ? '' : 'disabled';
+    const refreshIcon = `<svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M13.45 5.17A6 6 0 1 0 14 8h-1.5a4.5 4.5 0 1 1-.5-2.06L10 6v1.5h4.5V3L13 4.5z"/></svg>`;
 
     return /* html */`<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';">
-<style>
-    body {
-        font-family: var(--vscode-font-family);
-        padding: 20px;
-        color: var(--vscode-foreground);
-        max-width: 620px;
-        margin: 0 auto;
-    }
-    h2 { margin-bottom: 16px; font-weight: 400; display: flex; align-items: center; gap: 8px; }
-    h2 .icon-mark { width: 22px; height: 22px; border-radius: 5px; overflow: hidden; flex-shrink: 0; }
-
-    /* ── Pre-flight ── */
-    .preflight {
-        border: 1px solid var(--vscode-panel-border, var(--vscode-input-border, #444));
-        border-radius: 4px;
-        padding: 12px 14px;
-        margin-bottom: 24px;
-        background: var(--vscode-editor-inactiveSelectionBackground, transparent);
-    }
-    .preflight-title {
-        font-size: 11px;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-        color: var(--vscode-descriptionForeground);
-        margin-bottom: 8px;
-    }
-    .preflight-row {
-        display: flex;
-        align-items: flex-start;
-        gap: 8px;
-        font-size: 13px;
-        margin-bottom: 6px;
-        line-height: 1.5;
-    }
-    .preflight-row:last-child { margin-bottom: 0; }
-    .preflight-row.error { color: var(--vscode-errorForeground, #f48771); }
-    .preflight-row.warn  { color: var(--vscode-editorWarning-foreground, #cca700); }
-    .preflight-row.ok    { color: var(--vscode-terminal-ansiGreen, #89d185); }
-    .pi { flex-shrink: 0; }
-    .preflight-row a {
-        color: inherit;
-        text-decoration: underline;
-        cursor: pointer;
-    }
-    .preflight-row a.action-link {
-        font-weight: 700;
-    }
-    .preflight-row a.dimmed {
-        opacity: 0.5;
-        pointer-events: none;
-        text-decoration: none;
-    }
-    code {
-        font-family: var(--vscode-editor-font-family, monospace);
-        font-size: 12px;
-        background: var(--vscode-textCodeBlock-background, rgba(128,128,128,0.2));
-        padding: 1px 4px;
-        border-radius: 3px;
-    }
-
-    /* ── Form ── */
-    .form-group { margin-bottom: 16px; }
-    label {
-        display: block;
-        margin-bottom: 6px;
-        font-weight: 600;
-        font-size: 13px;
-    }
-    .description {
-        font-size: 12px;
-        color: var(--vscode-descriptionForeground);
-        margin-bottom: 6px;
-    }
-    select, input[type="text"], input[type="password"] {
-        width: 100%;
-        padding: 6px 8px;
-        background: var(--vscode-input-background);
-        color: var(--vscode-input-foreground);
-        border: 1px solid var(--vscode-input-border, transparent);
-        border-radius: 2px;
-        font-family: inherit;
-        font-size: 13px;
-        outline: none;
-        box-sizing: border-box;
-    }
-    select:focus, input:focus {
-        border-color: var(--vscode-focusBorder);
-    }
-    select:disabled, input:disabled { opacity: 0.5; cursor: not-allowed; }
-    .actions {
-        margin-top: 32px;
-        display: flex;
-        gap: 10px;
-    }
-    button {
-        padding: 8px 14px;
-        border: none;
-        border-radius: 2px;
-        cursor: pointer;
-        font-family: inherit;
-        font-size: 13px;
-        font-weight: 500;
-    }
-    button.primary {
-        background: var(--vscode-button-background);
-        color: var(--vscode-button-foreground);
-    }
-    button.primary:hover:not(:disabled) { background: var(--vscode-button-hoverBackground); }
-    button.secondary {
-        background: var(--vscode-button-secondaryBackground);
-        color: var(--vscode-button-secondaryForeground);
-    }
-    button.secondary:hover:not(:disabled) { background: var(--vscode-button-secondaryHoverBackground); }
-    button:disabled { opacity: 0.5; cursor: not-allowed; }
-
-    #testResult {
-        margin-top: 16px;
-        padding: 10px;
-        border-radius: 4px;
-        display: none;
-        font-size: 13px;
-    }
-    .success { background: #1b5e20; color: white; border-left: 4px solid #4caf50; }
-    .error-result { background: #b71c1c; color: white; border-left: 4px solid #f44336; }
-</style>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${nonce}';">
+<link rel="stylesheet" href="${media('setup.css')}">
 </head>
 <body>
-    <h2>${fuseraftMarkSvg('icon-mark', 'fr-mark-setup')}fuseraft setup</h2>
-
-    ${preflightSection}
-
-    <div class="form-group">
-        <label for="provider">AI Provider</label>
-        <div class="description">Select the provider your chats use by default.</div>
-        <select id="provider" ${disabledAttr}></select>
-    </div>
-
-    <div class="form-group" id="endpointGroup">
-        <label for="endpoint">Endpoint URL</label>
-        <div class="description">The base URL for the provider's API.</div>
-        <input type="text" id="endpoint" placeholder="e.g. https://api.openai.com/v1" ${disabledAttr} />
-    </div>
-
-    <div class="form-group">
-        <label for="model">Model ID</label>
-        <div class="description">
-            Select or type the model you wish to use.
-            ${liveModelCount > 0
-                ? `<span id="liveModelsBadge" style="margin-left:6px;color:var(--vscode-terminal-ansiGreen,#89d185);font-size:11px;">✓ ${liveModelCount} models loaded from provider</span>`
-                : ''}
+<main class="${cliFound ? '' : 'locked'}">
+    <header>
+        ${fuseraftMarkSvg('icon-mark', 'fr-mark-setup')}
+        <div>
+            <h1>Set up fuseraft</h1>
+            <p>${curMod ? 'Change the model your chats use.' : 'Connect a model to start chatting. It takes about a minute.'}</p>
         </div>
-        <select id="modelSelect" ${disabledAttr}></select>
-        <input type="text" id="modelInput" style="display: none; margin-top: 8px;" placeholder="Enter custom model ID" ${disabledAttr} />
-        ${cliFound ? `<div style="margin-top:6px;"><a href="#" id="loadModelsBtn" style="font-size:12px;color:var(--vscode-textLink-foreground,#3794ff);">↻ Load models from provider</a></div>` : ''}
+    </header>
+
+    <section class="step ${cliFound ? 'done' : 'attention'}" id="step-cli">
+        <div class="num"><span>1</span></div>
+        <div class="step-body">
+            <h2>fuseraft CLI</h2>
+            <div class="step-content">${cliStep}</div>
+            <div class="progress" id="cliProgress" hidden><span class="spinner"></span><span class="text"></span></div>
+        </div>
+    </section>
+
+    <section class="step" id="step-provider">
+        <div class="num"><span>2</span></div>
+        <div class="step-body">
+            <h2>Provider</h2>
+            <div class="hint">Where your chats send requests. You can switch models per chat later.</div>
+            <div class="step-content">
+                <div class="tiles" id="tiles" role="radiogroup" aria-label="Provider"></div>
+                <div class="endpoint-line" id="endpointLine">Endpoint <code></code></div>
+                <div class="field" id="endpointField" hidden>
+                    <label class="field-label" for="endpoint">Endpoint URL</label>
+                    <input type="text" id="endpoint" placeholder="https://my-server.example.com/v1" spellcheck="false" />
+                    <div class="hint">The base URL of an OpenAI-compatible API, usually ending in <code>/v1</code>.</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="step" id="step-key">
+        <div class="num"><span>3</span></div>
+        <div class="step-body">
+            <div class="step-head"><h2>API key</h2><a href="#" id="keyUrlLink">Get a key</a></div>
+            <div class="hint" id="keyHint" hidden>Optional. Leave it blank if your server doesn't need one.</div>
+            <div class="step-content">
+                <div id="keyField">
+                    <div class="row">
+                        <input type="password" id="apiKey" autocomplete="off" spellcheck="false" aria-label="API key" />
+                        <button type="button" class="secondary" id="showKeyBtn">Show</button>
+                    </div>
+                    <div class="status" id="keyStatus">
+                        <span class="text"></span>
+                        <a href="#" id="secureKeyLink" data-for hidden>Move it to the keychain</a>
+                    </div>
+                </div>
+                <div class="note" id="keyNote" hidden>Ollama runs on your machine, so no API key is needed.</div>
+            </div>
+        </div>
+    </section>
+
+    <section class="step" id="step-model">
+        <div class="num"><span>4</span></div>
+        <div class="step-body">
+            <h2>Model</h2>
+            <div class="step-content">
+                <div class="row">
+                    <select id="modelSelect" aria-label="Model"></select>
+                    <button type="button" class="icon" id="refreshModelsBtn" title="Load models from the provider" aria-label="Load models from the provider">${refreshIcon}</button>
+                </div>
+                <input type="text" id="modelInput" placeholder="Model ID, e.g. llama3.2" spellcheck="false" aria-label="Model ID" />
+                <div class="status" id="modelStatus"><span class="text"></span></div>
+            </div>
+        </div>
+    </section>
+
+    <div id="result" role="status" hidden></div>
+</main>
+
+<footer>
+    <div class="inner">
+        <span class="summary" id="summary"></span>
+        <button id="testBtn" class="secondary" ${cliFound ? '' : 'disabled'}>Test connection</button>
+        <button id="saveBtn" class="primary" disabled>Save</button>
     </div>
+</footer>
 
-    <div class="form-group">
-        <label for="apiKey">API Key</label>
-        <div class="description">Paste your API key from your provider's dashboard.</div>
-        <input type="password" id="apiKey"
-            placeholder="${hasKeychainKey ? 'Leave blank to keep your secured key' : 'Paste your API key here'}"
-            value="${escHtml(curKey)}" ${disabledAttr} />
-        ${hasKeychainKey ? `<div style="margin-top:6px;font-size:11px;color:var(--vscode-terminal-ansiGreen,#89d185);">✓ Key is secured in OS keychain — leave blank to keep it</div>` : ''}
-    </div>
-
-    <div id="testResult"></div>
-
-    <div class="actions">
-        ${!cliFound ? `<button id="installCliBtn" class="secondary">Install CLI</button>` : ''}
-        <button id="testBtn" class="secondary" ${disabledAttr}>Test Connection</button>
-        <button id="saveBtn" class="primary" ${disabledAttr}>Save Configuration</button>
-    </div>
-
-<script nonce="${nonce}">
-    const vscode = acquireVsCodeApi();
-    const providers = ${providersJson};
-    const cliFound = ${cliFound};
-
-    const providerEl    = document.getElementById('provider');
-    const endpointEl    = document.getElementById('endpoint');
-    const modelSelectEl = document.getElementById('modelSelect');
-    const modelInputEl  = document.getElementById('modelInput');
-    const apiKeyEl      = document.getElementById('apiKey');
-    const testBtn       = document.getElementById('testBtn');
-    const saveBtn       = document.getElementById('saveBtn');
-    const testResultEl  = document.getElementById('testResult');
-
-    const curProv = ${JSON.stringify(curProv)};
-    const curEnd  = ${JSON.stringify(curEnd)};
-    const curMod  = ${JSON.stringify(curMod)};
-
-    // Pre-flight link handlers
-    const updateBtn = document.getElementById('updateBtn');
-    if (updateBtn) {
-        updateBtn.addEventListener('click', (e) => {
-            e.preventDefault();
-            updateBtn.textContent = 'Updating…';
-            updateBtn.classList.add('dimmed');
-            vscode.postMessage({ action: 'runUpdate' });
-        });
-    }
-    const installBtn = document.getElementById('installBtn');
-    if (installBtn) {
-        installBtn.addEventListener('click', (e) => {
-            e.preventDefault();
-            installBtn.textContent = 'Installing…';
-            installBtn.classList.add('dimmed');
-            vscode.postMessage({ action: 'runInstaller' });
-        });
-    }
-    const installLink = document.getElementById('installLink');
-    if (installLink) {
-        installLink.addEventListener('click', (e) => {
-            e.preventDefault();
-            vscode.postMessage({ action: 'openInstallDocs' });
-        });
-    }
-    const binaryPathLink = document.getElementById('binaryPathLink');
-    if (binaryPathLink) {
-        binaryPathLink.addEventListener('click', (e) => {
-            e.preventDefault();
-            vscode.postMessage({ action: 'openBinaryPathSetting' });
-        });
-    }
-    const recheckCliLink = document.getElementById('recheckCliLink');
-    if (recheckCliLink) {
-        recheckCliLink.addEventListener('click', (e) => {
-            e.preventDefault();
-            vscode.postMessage({ action: 'recheckCli' });
-        });
-    }
-    const installCliBtn = document.getElementById('installCliBtn');
-    if (installCliBtn) {
-        installCliBtn.addEventListener('click', () => {
-            installCliBtn.textContent = 'Installing…';
-            installCliBtn.disabled = true;
-            vscode.postMessage({ action: 'runInstaller' });
-        });
-    }
-
-    const secureKeyLink = document.getElementById('secureKeyLink');
-    if (secureKeyLink) {
-        secureKeyLink.addEventListener('click', (e) => {
-            e.preventDefault();
-            secureKeyLink.textContent = 'Securing…';
-            secureKeyLink.classList.add('dimmed');
-            vscode.postMessage({ action: 'migrateKey' });
-        });
-    }
-
-    // Populate providers
-    providers.forEach(p => {
-        const opt = document.createElement('option');
-        opt.value = p.provider;
-        const cleanLabel = p.label.replace(/\\\$\\\(.*?\\\)\\\s*/g, '');
-        opt.textContent = cleanLabel + ' (' + p.description + ')';
-        providerEl.appendChild(opt);
-    });
-
-    if (curProv) {
-        const matches = providers.some(x => x.provider === curProv);
-        if (matches) { providerEl.value = curProv; }
-    }
-
-    // keep: models arrived from the provider; keep what's been typed rather than going back to the saved values.
-    function updateForm(keep) {
-        const p = providers.find(x => x.provider === providerEl.value) || providers[0];
-        const end = keep ? endpointEl.value : curEnd;
-        const mod = keep ? getFormData().modelId : curMod;
-
-        // Endpoint
-        if (p.provider === 'custom') {
-            endpointEl.value = end || '';
-            if (cliFound) { endpointEl.disabled = false; }
-        } else {
-            endpointEl.value = p.endpoint;
-            endpointEl.disabled = true;
-        }
-
-        // Models
-        modelSelectEl.innerHTML = '';
-        if (p.models && p.models.length > 0) {
-            p.models.forEach(m => {
-                const opt = document.createElement('option');
-                opt.value = m;
-                opt.textContent = m;
-                modelSelectEl.appendChild(opt);
-            });
-            const customOpt = document.createElement('option');
-            customOpt.value = '__custom__';
-            customOpt.textContent = 'Enter custom model...';
-            modelSelectEl.appendChild(customOpt);
-
-            modelSelectEl.style.display = 'block';
-
-            if (p.models.includes(mod)) {
-                modelSelectEl.value = mod;
-                modelInputEl.style.display = 'none';
-                modelInputEl.value = '';
-            } else if (mod && mod.trim() !== '') {
-                modelSelectEl.value = '__custom__';
-                modelInputEl.style.display = 'block';
-                modelInputEl.value = mod;
-            } else {
-                modelSelectEl.value = p.models[0];
-                modelInputEl.style.display = 'none';
-            }
-        } else {
-            modelSelectEl.style.display = 'none';
-            modelInputEl.style.display = 'block';
-            modelInputEl.value = mod || '';
-        }
-    }
-
-    providerEl.addEventListener('change', () => updateForm());
-
-    const loadModelsBtn = document.getElementById('loadModelsBtn');
-    if (loadModelsBtn) {
-        loadModelsBtn.addEventListener('click', (e) => {
-            e.preventDefault();
-            loadModelsBtn.textContent = '↻ Loading…';
-            loadModelsBtn.style.pointerEvents = 'none';
-            const data = getFormData();
-            vscode.postMessage({ action: 'fetchModels', endpoint: endpointEl.value.trim(), apiKey: data.apiKey, provider: providerEl.value });
-        });
-    }
-
-    modelSelectEl.addEventListener('change', () => {
-        if (modelSelectEl.value === '__custom__') {
-            modelInputEl.style.display = 'block';
-            if (cliFound) { modelInputEl.focus(); }
-        } else {
-            modelInputEl.style.display = 'none';
-        }
-    });
-
-    updateForm();
-
-    function getFormData() {
-        const provider = providerEl.value;
-        const endpoint = endpointEl.value.trim();
-        let modelId = '';
-        if (modelSelectEl.style.display !== 'none' && modelSelectEl.value !== '__custom__') {
-            modelId = modelSelectEl.value;
-        } else {
-            modelId = modelInputEl.value.trim();
-        }
-        const apiKey = apiKeyEl.value.trim();
-        return { provider, endpoint, modelId, apiKey };
-    }
-
-    testBtn.addEventListener('click', () => {
-        const data = getFormData();
-        if (data.provider === 'custom' && !data.endpoint) {
-            showResult(false, 'Please specify a custom endpoint');
-            return;
-        }
-        testBtn.disabled = true;
-        testBtn.textContent = 'Testing…';
-        testResultEl.style.display = 'none';
-        vscode.postMessage({ action: 'test', ...data });
-    });
-
-    saveBtn.addEventListener('click', () => {
-        const data = getFormData();
-        if (!data.modelId) {
-            showResult(false, 'Please specify a model ID before saving');
-            return;
-        }
-        saveBtn.disabled = true;
-        saveBtn.textContent = 'Saving…';
-        vscode.postMessage({ action: 'save', ...data });
-    });
-
-    window.addEventListener('message', event => {
-        const message = event.data;
-        if (message.type === 'testResult') {
-            testBtn.disabled = false;
-            testBtn.textContent = 'Test Connection';
-            showResult(
-                message.result.ok,
-                (message.result.ok ? 'Connection successful — ' : 'Connection failed — ') + message.result.message
-            );
-        }
-        if (message.type === 'saveError') {
-            saveBtn.disabled = false;
-            saveBtn.textContent = 'Save Configuration';
-            showResult(false, message.message);
-        }
-        if (message.type === 'modelsLoaded') {
-            const btn = document.getElementById('loadModelsBtn');
-            const badge = document.getElementById('liveModelsBadge');
-            const loaded = message.models;
-            if (loaded && loaded.length > 0) {
-                // Inject into the current provider entry so updateForm picks them up
-                const p = providers.find(x => x.provider === providerEl.value);
-                if (p) { p.models = loaded; }
-                updateForm(true);
-                if (btn) { btn.textContent = '✓ ' + loaded.length + ' models loaded'; }
-                if (badge) { badge.textContent = '✓ ' + loaded.length + ' models loaded from provider'; }
-            } else {
-                if (btn) {
-                    btn.textContent = '✗ Could not load — check endpoint and API key';
-                    btn.style.pointerEvents = 'auto';
-                }
-            }
-        }
-        if (message.type === 'installerLaunched') {
-            // Highlight the "Check again" link so the user knows what to do next
-            const recheckLink = document.getElementById('recheckCliLink');
-            if (recheckLink) {
-                recheckLink.style.fontWeight = 'bold';
-                recheckLink.style.textDecoration = 'underline';
-            }
-            // Show a subtle inline hint below the preflight block
-            const preflight = document.querySelector('.preflight');
-            if (preflight && !document.getElementById('installerHint')) {
-                const hint = document.createElement('div');
-                hint.id = 'installerHint';
-                hint.style.cssText = 'margin-top:10px;font-size:12px;color:var(--vscode-descriptionForeground);';
-                hint.textContent = '⬆ Installer running in terminal. Detecting binary automatically…';
-                preflight.appendChild(hint);
-            }
-        }
-        if (message.type === 'updaterLaunched') {
-            // Highlight the "Check again" link so the user knows what to do next
-            const recheckLink = document.getElementById('recheckCliLink');
-            if (recheckLink) {
-                recheckLink.style.fontWeight = 'bold';
-                recheckLink.style.textDecoration = 'underline';
-            }
-            // Show a subtle inline hint below the preflight block
-            const preflight = document.querySelector('.preflight');
-            if (preflight && !document.getElementById('updaterHint')) {
-                const hint = document.createElement('div');
-                hint.id = 'updaterHint';
-                hint.style.cssText = 'margin-top:10px;font-size:12px;color:var(--vscode-descriptionForeground);';
-                hint.textContent = '⬆ Updater running in terminal. Click "Check again" once it finishes to see the new version.';
-                preflight.appendChild(hint);
-            }
-        }
-    });
-
-    function showResult(isOk, text) {
-        testResultEl.textContent = text;
-        testResultEl.style.display = 'block';
-        testResultEl.className = isOk ? 'success' : 'error-result';
-    }
-</script>
+<script id="init" type="application/json">${initJson}</script>
+<script nonce="${nonce}" src="${media('setup.js')}"></script>
 </body>
 </html>`;
 }
@@ -947,7 +579,7 @@ async function testConnection(
         }
         return await testOpenAICompatibleConnection(modelId, endpoint, apiKey);
     } catch (e: unknown) {
-        return { ok: false, message: e instanceof Error ? e.message : String(e) };
+        return { ok: false, message: describeRequestError(e, endpoint) };
     }
 }
 
