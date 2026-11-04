@@ -26,6 +26,7 @@ let _cliCheckCache: CliCheckResult | undefined;
 
 export function invalidateCliCache(): void {
     _cliCheckCache = undefined;
+    _scopedKeysCache = undefined;
 }
 
 /**
@@ -44,16 +45,34 @@ export async function storeApiKeyToCliKeychain(apiKey: string): Promise<boolean>
 }
 
 /**
- * Retrieve the API key from the CLI's OS keychain by calling `fuseraft keychain --get`.
+ * Retrieve the API key from the CLI's OS keychain by calling `fuseraft keychain --get`: the configured
+ * provider's key, or with `endpoint` the key saved for that server (needs {@link cliHasScopedKeys}).
  * Returns the key on success, or an empty string if no key is stored or the CLI is unavailable.
  */
-export async function getApiKeyFromCliKeychain(): Promise<string> {
+export async function getApiKeyFromCliKeychain(endpoint?: string): Promise<string> {
     return new Promise(resolve => {
         const binary = getBinary();
         const env: NodeJS.ProcessEnv = { ...process.env, ...getFuseraftHomeEnvOverride() };
-        execFile(binary, ['keychain', '--get'], { env, timeout: 5000 }, (err, stdout) => {
+        const args = endpoint ? ['keychain', '--get', '--endpoint', endpoint] : ['keychain', '--get'];
+        execFile(binary, args, { env, timeout: 5000 }, (err, stdout) => {
             if (err || !stdout) { resolve(''); return; }
             resolve(stdout.trim());
+        });
+    });
+}
+
+let _scopedKeysCache: boolean | undefined;
+
+/**
+ * Whether the CLI keeps a key per endpoint and sends it only there (`fuseraft keychain --endpoint`).
+ * Older CLIs keep one key and send it to whatever endpoint is configured.
+ */
+export async function cliHasScopedKeys(): Promise<boolean> {
+    if (_scopedKeysCache !== undefined) { return _scopedKeysCache; }
+    return new Promise(resolve => {
+        execFile(getBinary(), ['keychain', '--help'], { timeout: 5000 }, (err, stdout) => {
+            _scopedKeysCache = !err && /--endpoint/.test(stdout ?? '');
+            resolve(_scopedKeysCache);
         });
     });
 }
@@ -299,11 +318,22 @@ export function listProviderModels(
             });
         });
 
-        req.on('error',   (err: Error) => resolve({ error: err.message }));
+        req.on('error',   (err: Error) => resolve({ error: describeRequestError(err, endpoint) }));
         req.on('timeout', () => { req.destroy(); resolve({ error: 'Request timed out' }); });
         req.setTimeout(timeoutMs);
         req.end();
     });
+}
+
+/** A refused connection to localhost is an AggregateError (IPv4 and IPv6 attempts) with an empty message. */
+export function describeRequestError(e: unknown, endpoint: string): string {
+    const errors = (e as { errors?: unknown[] } | null)?.errors;
+    const first = Array.isArray(errors) && errors.length > 0 ? errors[0] : e;
+    const code = (first as NodeJS.ErrnoException)?.code;
+    if (code === 'ECONNREFUSED') { return `nothing answered at ${endpoint}. Is the server running?`; }
+    if (code === 'ENOTFOUND') { return `couldn't find the host for ${endpoint}.`; }
+    const message = first instanceof Error ? first.message : String(first);
+    return message || code || 'the request failed.';
 }
 
 /**
