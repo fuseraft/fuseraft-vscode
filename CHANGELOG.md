@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.8.0 — 2026-11-04
 
 ### Setup
 - Redesigned setup screen: numbered steps (CLI, provider, API key, model), provider tiles instead of a dropdown, and a footer with Test and Save that stays in view.
@@ -9,7 +9,7 @@
 - A missing CLI locks the other steps behind a single **Install the CLI** button.
 
 ### Fixes
-- Test and Load models no longer send a saved key to a different provider or server than the one it was saved for. With a current fuseraft CLI, a key is looked up for the server you're testing.
+- Test and Load models no longer send a saved key to a different provider or server than the one it was saved for. With fuseraft CLI 1.17.0 or later, a key is looked up for the server you're testing.
 - A model list loaded for one provider no longer shows up under another after the screen refreshes.
 - A refused connection says why ("Nothing answered at http://localhost:11434/v1. Is the server running?") instead of showing an empty error.
 - The CLI version shows as `1.16.0` instead of the full build string.
