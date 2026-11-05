@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.2 — 2026-11-04
+
+### New chat
+- The logo, starters and sandbox note sit centered in the panel instead of pressed against the prompt under empty space.
+- Starter cards (Continue, Explain, Review) stay at most 560px wide, so a wide panel no longer stretches them edge to edge.
+
 ## 0.8.1 — 2026-11-04
 
 ### Chat
