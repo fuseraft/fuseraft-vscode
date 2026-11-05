@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.1 — 2026-11-04
+
+### Chat
+- The chat column is wider in a wide panel: messages and the prompt now go up to 960px instead of 680px.
+
 ## 0.8.0 — 2026-11-04
 
 ### Setup
