@@ -35,15 +35,16 @@ body{
   display:flex;flex-direction:column;gap:10px;
   position:relative
 }
-/* A new chat: what to start from, sitting just above the prompt. */
+/* A new chat: what to start from, centered a little above the middle so a tall panel
+   doesn't leave it stranded against the prompt under a screen of empty space. */
 #empty{
-  flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;
-  gap:10px;padding:24px 0 28px;text-align:center
+  flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:10px;padding:24px 0 max(28px,8vh);text-align:center
 }
 #empty-mark .icon-mark{width:52px;height:52px;border-radius:12px;display:block}
 #empty-title{font-size:1.55em;font-weight:600;color:var(--vscode-editor-foreground);margin-top:2px}
 #empty-hint{color:var(--vscode-descriptionForeground);margin-top:-4px}
-#starters{width:100%;display:flex;flex-direction:column;gap:6px;margin-top:6px}
+#starters{width:100%;max-width:560px;display:flex;flex-direction:column;gap:6px;margin-top:6px}
 #starters:empty{display:none}
 .starter{
   display:flex;align-items:center;gap:10px;width:100%;
