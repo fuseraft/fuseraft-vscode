@@ -571,7 +571,7 @@ body.dropping #footer{
 
 /* One centered column for the conversation and the prompt, so a wide panel doesn't stretch lines edge to edge.
    --gutter is the space either side of it; the header and status line stay full width. */
-body{--col:680px;--gutter:max(0px,(100% - var(--col)) / 2)}
+body{--col:960px;--gutter:max(0px,(100% - var(--col)) / 2)}
 #messages{padding-left:max(12px,calc((100% - var(--col)) / 2));padding-right:max(12px,calc((100% - var(--col)) / 2))}
 #attach-row,#queue-row,#input-row{width:100%;max-width:var(--col);margin-left:auto;margin-right:auto;box-sizing:border-box}
 #thinking-bar{padding-left:max(12px,calc((100% - var(--col)) / 2));padding-right:max(12px,calc((100% - var(--col)) / 2))}
