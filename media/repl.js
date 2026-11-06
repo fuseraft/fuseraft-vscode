@@ -630,7 +630,7 @@ function setEnabled(on){
   $inputWrap.classList.toggle('disabled', closed);
   $send.disabled  = closed;
   $stop.style.display = busy ? 'block' : 'none';
-  $input.placeholder = busy ? 'Add to the running turn, or send a /command…' : 'Ask something or type a /command…';
+  $input.placeholder = busy ? 'Queue a message for when it\'s done (Ctrl+Enter sends it now)…' : 'Ask something or type a /command…';
   $thinkingBar.classList.toggle('active', busy && !usingInlineThinking && !pendingApproval && pendingQuestion===null);
   $attachBtn.disabled = closed;
   if(modelsLoaded) $modelSelect.disabled = closed || busy;
@@ -1044,10 +1044,14 @@ function finalise(tokenInfo){
   }
   curBubble=null; curTools=null; curText=''; curMsgDiv=null;
   curToolList=[]; curToolState={expanded:false};
+  scrollBottom();
+}
+
+// Only the REPL's status event means it's idle: a reply can end with more to come (each turn of a /goal run).
+function endBusy(){
   isStreaming=false;
   resetThinkingLabel();
   setEnabled(true);
-  scrollBottom();
 }
 
 // Closes the assistant message being written so the rest of the turn continues in a new one further down.
@@ -1426,8 +1430,11 @@ function dispatch(m){
 }
 
 // ↑ on an empty prompt: the last held message comes back, with what was attached to it, to edit or drop.
-function unqueue(){
-  const m = queued.pop();
+function unqueue(){ return takeBack(queued.length - 1); }
+
+// A held message comes back into the prompt, with what was attached to it.
+function takeBack(i){
+  const [m] = queued.splice(i, 1);
   if(!m) return false;
   renderQueue();
   attachedFiles = attachedFiles.concat(m.files || []);
@@ -1465,18 +1472,49 @@ function renderQueue(){
   queued.forEach((m, i)=>{
     const chip = document.createElement('span');
     chip.className = 'attach-chip queue-chip';
-    chip.title = 'Sent when the running turn ends (↑ on an empty prompt takes the last one back to edit)';
+    chip.title = 'Sent when the work is done (↑ on an empty prompt takes the last one back to edit)';
     const label = document.createElement('span');
     label.textContent = '⏳ ' + (m.display.length > 60 ? m.display.slice(0,57)+'…' : m.display);
+    chip.appendChild(label);
+    if(canSendNow(m)) chip.appendChild(chipAction(ICON_SEND_NOW, 'Send now', 'the model reads it at its next call, without stopping anything', ()=>sendQueuedNow(i)));
+    chip.appendChild(chipAction(ICON_EDIT, 'Edit', 'take it back into the prompt', ()=>{ takeBack(i); $input.focus(); }));
     const rm = document.createElement('span');
     rm.className = 'attach-chip-remove';
     rm.textContent = '✕';
     rm.title = 'Don\'t send';
     rm.addEventListener('click', ()=>{ queued.splice(i,1); renderQueue(); });
-    chip.appendChild(label);
     chip.appendChild(rm);
     $queueRow.appendChild(chip);
   });
+}
+
+const ICON_SEND_NOW = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M1.5 2.2l13 5.8-13 5.8 2.3-5.8z"/><path d="M3.8 8h5.7"/></svg>';
+const ICON_EDIT     = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M10.8 2.2l3 3-8.3 8.3-3.7.7.7-3.7z"/><path d="M9.3 3.7l3 3"/></svg>';
+
+// The label shows at once on hover (see .queue-chip-action::after); `detail` is for screen readers.
+function chipAction(icon, label, detail, onClick){
+  const a = document.createElement('span');
+  a.className = 'queue-chip-action';
+  a.innerHTML = icon;
+  a.dataset.label = label;
+  a.setAttribute('role', 'button');
+  a.setAttribute('aria-label', label + ': ' + detail);
+  a.addEventListener('click', onClick);
+  return a;
+}
+
+// Only words can join running work: a /command, !command or $skill, or a message with images, waits for it to end.
+function canSendNow(m){
+  return isStreaming && !!m.text && !/^[\/!$]/.test(m.text) && !m.images.length;
+}
+
+function sendQueuedNow(i){
+  const [m] = queued.splice(i, 1);
+  if(!m) return;
+  renderQueue();
+  if(!isStreaming){ dispatch(m); return; }
+  interjected.push(addUser(m.display, '↪ sent to the running turn'));
+  vscode.postMessage({type:'user_input', text: expandPastes(m.payload)});
 }
 
 /* ── send ────────────────────────────────────────────── */
@@ -1541,7 +1579,9 @@ function foldPaste(e, ta){
 
 $input.addEventListener('paste',e=>{ if(!addPastedImages(e)) foldPaste(e, $input); });
 
-function send(){
+// While the REPL works, Send holds a message until it's done; Send now (now=true) hands it to the model at its next
+// call, which is after the running tool calls, or the next turn of a /goal run. Neither stops anything.
+function send(now){
   const text = $input.value.trim();
   // A picture with no words is still a message — the CLI supplies a default prompt.
   if(!text && !pastedImages.length) return;
@@ -1562,7 +1602,7 @@ function send(){
     vscode.postMessage({type:'user_input', text: expandPastes(text)});
     return;
   }
-  const joinsTurn = isStreaming && text && !/^[\/!$]/.test(text) && !imgCount && !hasAttachments();
+  const joinsTurn = now === true && isStreaming && text && !/^[\/!$]/.test(text) && !imgCount && !hasAttachments();
   if(joinsTurn){
     interjected.push(addUser(display, '↪ sent to the running turn'));
     vscode.postMessage({type:'user_input', text: expandPastes(text)});
@@ -1585,7 +1625,7 @@ function send(){
   dispatch(m);
 }
 
-$send.addEventListener('click',send);
+$send.addEventListener('click',()=>send(false));
 $stop.addEventListener('click',()=>{ vscode.postMessage({type:'interrupt'}); });
 $attachBtn.addEventListener('click',()=>{ vscode.postMessage({type:'pick_files'}); });
 $modelSelect.addEventListener('change',()=>{
@@ -1596,7 +1636,7 @@ $modelSelect.addEventListener('change',()=>{
   vscode.postMessage({type:'model_change',model:$modelSelect.value});
 });
 $input.addEventListener('keydown',e=>{
-  if(e.key==='Enter'&&!e.shiftKey&&!e.altKey&&!e.isComposing){e.preventDefault();send();}
+  if(e.key==='Enter'&&!e.shiftKey&&!e.altKey&&!e.isComposing){e.preventDefault();send(isStreaming&&(e.ctrlKey||e.metaKey));}
   // Alt+Enter starts a new line, as in the full-screen REPL.
   else if(e.key==='Enter'&&e.altKey&&!e.isComposing){e.preventDefault();insertNewline($input);}
 });
@@ -1690,8 +1730,7 @@ window.addEventListener('message',evt=>{
       // The REPL is waiting for its next message, so whatever was running is over.
       if(isStreaming){
         if(curMsgDiv) finalise();
-        isStreaming=false;
-        resetThinkingLabel();
+        endBusy();
       }
       stopTimer();
       for(const b of interjected) setNote(b, '↪ sent as the next message');
