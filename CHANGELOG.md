@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.9.0 — 2026-11-05
 
 ### Chat
 - While fuseraft works, **Send** holds a message as a chip above the prompt until the work is done. The chip's send arrow (or Ctrl+Enter) hands it to the model at its next call, after its current tool calls or as the next turn of a `/goal` run starts, without stopping anything; its pencil takes it back into the prompt.
