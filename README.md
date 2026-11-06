@@ -40,7 +40,7 @@ It works like the CLI's full-screen REPL.
 - A chat that's open when VS Code closes or reloads is resumed when it comes back.
 
 **Talking to it**
-- Type while it works: a message joins the running turn after its current tool calls. `/title` and `/hitl on|off` apply at once; other `/commands`, `!commands` and `$skills` wait as a chip until the turn ends. **↑** on an empty prompt takes the last one back to edit, and stopping the turn drops them.
+- Type while it works. **Send** holds a message as a chip above the prompt until the work is done. The chip's send arrow (or Ctrl+Enter instead of Enter) hands it to the model at its next call without stopping anything: after its current tool calls, or as the next turn of a `/goal` run starts. its pencil takes it back into the prompt, and **✕** drops it. `/title` and `/hitl on|off` apply at once, even between the turns of a `/goal` run; other `/commands`, `!commands` and `$skills` wait as a chip. Stopping the turn drops the chips.
 - Completions for `/commands`, `$skills` and `@paths`. An `@path` attaches the file (git-ignored files and `.env` aren't offered).
 - Paste a screenshot, or attach images with the paperclip. A paste longer than 10 lines or 2,000 characters shows as `[pasted #1 · 40 lines]` and is sent in full (Ctrl+O shows it).
 - **↑/↓** walk your history, **Ctrl+R** searches it.

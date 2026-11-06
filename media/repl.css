@@ -325,6 +325,21 @@ body{
   padding:1px 2px;border-radius:2px
 }
 .attach-chip-remove:hover{opacity:1}
+.queue-chip-action{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:22px;height:22px;border-radius:5px;cursor:pointer;opacity:.7
+}
+.queue-chip-action svg{width:13px;height:13px}
+.queue-chip-action:hover{opacity:1;background:rgba(255,255,255,.15)}
+.queue-chip-action{position:relative}
+.queue-chip-action::after{
+  content:attr(data-label);position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);
+  padding:3px 8px;border-radius:4px;white-space:nowrap;font-size:11px;pointer-events:none;
+  background:var(--vscode-editorWidget-background,#252526);color:var(--vscode-foreground);
+  border:1px solid var(--vscode-widget-border,rgba(128,128,128,.35));
+  opacity:0;transition:opacity .08s;z-index:10
+}
+.queue-chip-action:hover::after{opacity:1}
 .attach-chip-open{cursor:pointer}
 .attach-chip-open:hover{text-decoration:underline}
 .attach-chip.active-file{
@@ -395,6 +410,7 @@ body.dropping #footer{
   font-size:var(--vscode-font-size);white-space:nowrap;display:none
 }
 #stop:hover{background:var(--vscode-button-secondaryHoverBackground,rgba(128,128,128,.3))}
+
 #thinking-bar{
   display:none;flex-shrink:0;
   padding:4px 12px;
@@ -565,9 +581,14 @@ body.dropping #footer{
   color:var(--vscode-editorSuggestWidget-selectedForeground,var(--vscode-list-activeSelectionForeground))
 }
 .hs-empty{padding:6px 10px;color:var(--vscode-descriptionForeground);font-size:12px}
-#queue-row{display:none;flex-wrap:wrap;gap:4px;padding-bottom:2px}
+#queue-row{display:none;flex-wrap:wrap;gap:6px;padding-bottom:6px}
 #queue-row.has-items{display:flex}
 .queue-chip{background:var(--vscode-button-secondaryBackground,rgba(128,128,128,.2));color:var(--vscode-button-secondaryForeground,var(--vscode-editor-foreground))}
+/* The message, then its actions behind a thin divider, each with room to aim at. */
+.queue-chip{gap:2px;padding:3px 4px 3px 12px;border-radius:8px;font-size:12px}
+.queue-chip > span:first-child{margin-right:6px;padding-right:8px;border-right:1px solid rgba(128,128,128,.35)}
+.queue-chip .attach-chip-remove{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:5px;font-size:11px}
+.queue-chip .attach-chip-remove:hover{background:rgba(255,255,255,.15)}
 .audit-line{padding:1px 4px 1px 22px;color:var(--vscode-descriptionForeground);font-style:italic;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
 /* One centered column for the conversation and the prompt, so a wide panel doesn't stretch lines edge to edge.
