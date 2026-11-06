@@ -215,7 +215,7 @@ export function activate(context: vscode.ExtensionContext): void {
             }
             const sessions = readReplSessions();
             if (sessions.length === 0) {
-                vscode.window.showInformationMessage('No saved REPL sessions found.');
+                vscode.window.showInformationMessage('No saved chats found.');
                 return;
             }
             await pickAndResumeReplSession(sessions, workspaceRoot());
@@ -366,7 +366,7 @@ export function activate(context: vscode.ExtensionContext): void {
             }
 
             const confirm = await vscode.window.showWarningMessage(
-                `Delete all ${entries.length} REPL memor${entries.length === 1 ? 'y' : 'ies'}? This cannot be undone.`,
+                `Delete all ${entries.length} chat memor${entries.length === 1 ? 'y' : 'ies'}? This cannot be undone.`,
                 { modal: true },
                 'Delete All'
             );
@@ -576,8 +576,8 @@ async function pickAndResumeReplSession(sessions: ReplSessionInfo[], cwd?: strin
     });
 
     const picked = await vscode.window.showQuickPick(items, {
-        title:            'fuseraft REPL — Resume session',
-        placeHolder:      'Select a session to resume',
+        title:            'fuseraft — Resume chat',
+        placeHolder:      'Select a chat to resume',
         matchOnDetail:    true,
         matchOnDescription: true,
     });
