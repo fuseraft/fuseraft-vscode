@@ -6,7 +6,7 @@ An open-source coding agent for VS Code that works with any model, built on [fus
 
 [Docs](https://fuseraft.ai/fuseraft-cli/) · [GitHub](https://github.com/fuseraft/fuseraft-cli)
 
-![fuseraft REPL](media/fuseraft-repl.png)
+![fuseraft chat](media/fuseraft-repl.png)
 
 ## Getting started
 
@@ -70,7 +70,7 @@ Chats, memories and skills live in the fuseraft home directory, `~/.fuseraft` by
 
 | Command | Description |
 |---------|-------------|
-| `fuseraft: Open REPL` | Show the open chat, or start one |
+| `fuseraft: Open Chat` | Show the open chat, or start one |
 | `fuseraft: New Chat` | Start a fresh chat (the current one stays resumable) |
 | `fuseraft: Resume Chat` | Pick any saved chat and resume it |
 | `fuseraft: Add to Chat` | Add the editor's selection (or its file) to the message you're writing |

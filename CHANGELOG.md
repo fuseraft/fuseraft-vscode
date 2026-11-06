@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Chat
+- **Open REPL** is now **Open Chat**, and the panel, the resume picker and messages say "chat" instead of "REPL", as the Chats view already does. The command ID (`fuseraft.repl`) is unchanged, so keybindings keep working.
+
 ## 0.9.0 — 2026-11-05
 
 ### Chat

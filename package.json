@@ -34,7 +34,7 @@
     "commands": [
       {
         "command": "fuseraft.repl",
-        "title": "Open REPL",
+        "title": "Open Chat",
         "category": "fuseraft",
         "icon": "$(terminal)"
       },
@@ -195,7 +195,7 @@
       },
       {
         "view": "fuseraft.memory",
-        "contents": "No memories stored yet.\n\nRun /memory save in a REPL session to save memories (or turn on memory.autoSave). They persist across sessions in ~/.fuseraft/memory/repl."
+        "contents": "No memories stored yet.\n\nRun /memory save in a chat to save memories (or turn on memory.autoSave). They persist across sessions in ~/.fuseraft/memory/repl."
       },
       {
         "view": "fuseraft.skills",
@@ -377,7 +377,7 @@
         "fuseraft.notifications": {
           "type": "boolean",
           "default": true,
-          "description": "Show a notification when a reply finishes, or an approval or question is waiting, while you're away from the REPL panel."
+          "description": "Show a notification when a reply finishes, or an approval or question is waiting, while you're away from the chat panel."
         },
         "fuseraft.includeActiveFile": {
           "type": "boolean",

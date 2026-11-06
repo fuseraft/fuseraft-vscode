@@ -717,7 +717,7 @@ export class ReplPanelProvider {
 </head>
 <body>
 <div id="header">
-  <span class="brand">${this._mark('icon-mark', 'fr-mark-header')}fuseraft REPL</span>
+  <span class="brand">${this._mark('icon-mark', 'fr-mark-header')}fuseraft</span>
   <select id="model-select" disabled title="Switch model"></select>
   <span class="session" id="session-label"></span>
 </div>
