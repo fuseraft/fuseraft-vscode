@@ -90,6 +90,8 @@ export async function checkCli(): Promise<CliCheckResult> {
             } else {
                 _cliCheckCache = { found: true, version: stdout.trim() };
             }
+            // Swaps Update for Install in the Chats view's menu. Set only when missing, so Update shows until checked.
+            void vscode.commands.executeCommand('setContext', 'fuseraft.cliMissing', !_cliCheckCache.found);
             resolve(_cliCheckCache!);
         });
     });
