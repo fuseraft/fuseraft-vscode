@@ -1,9 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.10.0 — 2026-11-08
 
 ### Chats
 - When the fuseraft CLI isn't installed, the Chats view's **…** menu offers **Install CLI** in place of **Update CLI**, which can't run without it. It switches back once the CLI is found.
+
+### Chat
+- With fuseraft CLI 1.22.0 or later, `/mcp add` asks for the server's name, command, URL and other details in the panel's question bar instead of ending the chat.
 
 ## 0.9.1 — 2026-11-06
 
