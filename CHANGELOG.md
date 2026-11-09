@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Chats
+- When the fuseraft CLI isn't installed, the Chats view's **…** menu offers **Install CLI** in place of **Update CLI**, which can't run without it. It switches back once the CLI is found.
+
 ## 0.9.1 — 2026-11-06
 
 ### Chat

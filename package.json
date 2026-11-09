@@ -215,8 +215,13 @@
           "group": "navigation@2"
         },
         {
+          "command": "fuseraft.install",
+          "when": "view == fuseraft.chats && fuseraft.cliMissing",
+          "group": "overflow@1"
+        },
+        {
           "command": "fuseraft.update",
-          "when": "view == fuseraft.chats",
+          "when": "view == fuseraft.chats && !fuseraft.cliMissing",
           "group": "overflow@1"
         },
         {

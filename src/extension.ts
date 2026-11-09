@@ -10,7 +10,7 @@ import { registerDiffContentProvider } from './diffContentProvider';
 import { EditorTracker, selectionAttachment, isDraft } from './editorContext';
 import {
     getBinary, runInTerminal, shellQuote,
-    runInstaller, runUpdate, checkCli, invalidateCliCache, disposeOutputChannel,
+    runInstaller, runUpdate, checkCli, invalidateCliCache, disposeOutputChannel, pollForInstalledBinary,
     readReplSessions, formatRelativeTime, ReplSessionInfo,
     getMemoryReplDir, getFuseraftHome, getReplSessionsDir, writeReplSessionTitle,
 } from './fuseraftUtils';
@@ -116,6 +116,7 @@ export function activate(context: vscode.ExtensionContext): void {
         vscode.workspace.onDidChangeConfiguration(e => {
             if (e.affectsConfiguration('fuseraft.binaryPath')) {
                 invalidateCliCache();
+                void checkCli();
             }
         })
     );
@@ -428,7 +429,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
     // fuseraft.install — run the platform-appropriate CLI installer in a terminal
     context.subscriptions.push(
-        vscode.commands.registerCommand('fuseraft.install', () => {
+        vscode.commands.registerCommand('fuseraft.install', async () => {
             runInstaller();
             vscode.window.showInformationMessage(
                 'fuseraft installer running in terminal. When it finishes, click "Check again" in the setup wizard or run fuseraft.setup.',
@@ -438,6 +439,18 @@ export function activate(context: vscode.ExtensionContext): void {
                     vscode.commands.executeCommand('fuseraft.setup');
                 }
             });
+            // Without the setup wizard open nothing else rechecks, and the Chats menu would keep offering Install.
+            // The poll's own recheck covers a binary on PATH; one found off it is saved as binaryPath, as the
+            // wizard does, which rechecks through the setting's change handler.
+            if (!(await checkCli()).found) {
+                pollForInstalledBinary(async (resolvedPath, wasOnPath) => {
+                    if (!wasOnPath) {
+                        await vscode.workspace.getConfiguration('fuseraft').update(
+                            'binaryPath', resolvedPath, vscode.ConfigurationTarget.Global
+                        );
+                    }
+                });
+            }
         })
     );
 
