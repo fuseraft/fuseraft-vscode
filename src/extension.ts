@@ -5,6 +5,7 @@ import * as path from 'path';
 import { ReplSessionTreeProvider, ReplSessionItem, sessionTitle } from './replSessionTreeProvider';
 import { MemoryTreeProvider, MemoryItemNode, readMemoryEntries } from './memoryTreeProvider';
 import { SkillsTreeProvider, SkillItemNode, readSkills, getSkillsDir } from './skillsTreeProvider';
+import { openSettingsPanel } from './settingsPanel';
 import { ReplPanelProvider } from './replPanelProvider';
 import { registerDiffContentProvider } from './diffContentProvider';
 import { EditorTracker, selectionAttachment, isDraft } from './editorContext';
@@ -565,6 +566,9 @@ export function activate(context: vscode.ExtensionContext): void {
     // fuseraft.setup — first-run provider/model/API key wizard
     context.subscriptions.push(
         vscode.commands.registerCommand('fuseraft.setup', () => runSetupWizard(context.extensionUri))
+    );
+    context.subscriptions.push(
+        vscode.commands.registerCommand('fuseraft.settings', () => openSettingsPanel(context.extensionUri))
     );
 
     context.subscriptions.push(chatProvider, memoryProvider, skillsProvider);
