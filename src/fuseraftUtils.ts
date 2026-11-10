@@ -21,12 +21,26 @@ export interface CliCheckResult {
     version: string;
 }
 
-// Cache the result so we only probe once per session.
+// Only a found CLI is cached: a miss is probed again on the next check, so a CLI installed (or slow to
+// start the first time) mid-session is picked up without the user having to click Check again.
 let _cliCheckCache: CliCheckResult | undefined;
+let _cliProbe: { binary: string; promise: Promise<CliCheckResult> } | undefined;
+
+// A just-installed binary's first launch can sit behind an antivirus or Gatekeeper scan for several seconds.
+const CLI_PROBE_TIMEOUT_MS = 15_000;
 
 export function invalidateCliCache(): void {
     _cliCheckCache = undefined;
+    _cliProbe = undefined;
     _scopedKeysCache = undefined;
+}
+
+function probeCliVersion(binary: string): Promise<CliCheckResult> {
+    return new Promise(resolve => {
+        execFile(binary, ['--version'], { timeout: CLI_PROBE_TIMEOUT_MS }, (err, stdout) => {
+            resolve(err ? { found: false, version: '' } : { found: true, version: stdout.trim() });
+        });
+    });
 }
 
 /**
@@ -83,18 +97,24 @@ export async function checkCli(): Promise<CliCheckResult> {
     }
 
     const binary = getBinary();
-    return new Promise(resolve => {
-        execFile(binary, ['--version'], { timeout: 5000 }, (err, stdout) => {
-            if (err) {
-                _cliCheckCache = { found: false, version: '' };
-            } else {
-                _cliCheckCache = { found: true, version: stdout.trim() };
+    if (_cliProbe?.binary === binary) {
+        return _cliProbe.promise;
+    }
+    const probe = {
+        binary,
+        promise: probeCliVersion(binary).then(result => {
+            // A probe superseded by invalidateCliCache (or a new binaryPath) must not overwrite a newer answer.
+            if (_cliProbe === probe) {
+                _cliProbe = undefined;
+                if (result.found) { _cliCheckCache = result; }
+                // Swaps Update for Install in the Chats view's menu. Set only when missing, so Update shows until checked.
+                void vscode.commands.executeCommand('setContext', 'fuseraft.cliMissing', !result.found);
             }
-            // Swaps Update for Install in the Chats view's menu. Set only when missing, so Update shows until checked.
-            void vscode.commands.executeCommand('setContext', 'fuseraft.cliMissing', !_cliCheckCache.found);
-            resolve(_cliCheckCache!);
-        });
-    });
+            return result;
+        }),
+    };
+    _cliProbe = probe;
+    return probe.promise;
 }
 
 export function getBinary(): string {
@@ -545,8 +565,8 @@ function getKnownInstallPaths(): string[] {
 }
 
 /**
- * Poll well-known install locations and PATH until the fuseraft binary appears.
- * Calls `onFound(resolvedPath, wasOnPath)` once it is detected.
+ * Poll well-known install locations and PATH until the fuseraft binary appears and answers `--version`.
+ * Calls `onFound(resolvedPath, wasOnPath)` once it does.
  *  - `resolvedPath` is the absolute path when found off-PATH, or the current
  *    getBinary() value when already reachable via PATH.
  *  - `wasOnPath` is true when it was found via PATH (no settings change needed).
@@ -555,42 +575,39 @@ function getKnownInstallPaths(): string[] {
 export function pollForInstalledBinary(
     onFound: (resolvedPath: string, wasOnPath: boolean) => void,
     intervalMs = 2000,
-    timeoutMs  = 120_000
+    timeoutMs  = 600_000  // the release archives are 50-90 MB, so allow for a slow download
 ): () => void {
     const knownPaths = getKnownInstallPaths();
     const start = Date.now();
     let done = false;
+    let busy = false;  // a probe can outlast the interval; don't stack them
 
-    const timer = setInterval(async () => {
-        if (done || Date.now() - start > timeoutMs) {
-            clearInterval(timer);
-            return;
-        }
-
-        // 1. Check known FS paths first — cheap and catches the off-PATH case.
-        for (const p of knownPaths) {
-            if (fs.existsSync(p)) {
-                done = true;
-                clearInterval(timer);
-                onFound(p, false);
-                return;
-            }
-        }
-
-        // 2. Invalidate cache and try the configured binary — catches the on-PATH case.
-        invalidateCliCache();
-        const cli = await checkCli();
-        if (cli.found) {
-            done = true;
-            clearInterval(timer);
-            onFound(getBinary(), true);
-        }
-    }, intervalMs);
-
-    return () => {
+    const stop = () => {
         done = true;
         clearInterval(timer);
     };
+
+    const timer = setInterval(async () => {
+        if (done || busy) { return; }
+        if (Date.now() - start > timeoutMs) { stop(); return; }
+        busy = true;
+        try {
+            // 1. Known install locations catch the off-PATH case. The file existing isn't enough: its first
+            //    launch can be held up by a scan, and reporting it then left the CLI marked missing.
+            const installed = knownPaths.find(p => fs.existsSync(p));
+            if (installed && (await probeCliVersion(installed)).found) {
+                if (!done) { stop(); onFound(installed, false); }
+                return;
+            }
+
+            // 2. The configured binary catches the on-PATH case.
+            if ((await checkCli()).found && !done) { stop(); onFound(getBinary(), true); }
+        } finally {
+            busy = false;
+        }
+    }, intervalMs);
+
+    return stop;
 }
 
 /**
@@ -613,8 +630,7 @@ export function runUpdate(): void {
  *   Windows        → irm …/install.ps1 | iex  (opened in PowerShell)
  *
  * The terminal is shown immediately so the user can watch progress.
- * After it finishes they should click "Check again" in the setup wizard
- * or dismiss/re-open it to recheck the CLI.
+ * Callers detect the finished install with {@link pollForInstalledBinary}.
  */
 export function runInstaller(): void {
     const BASE = 'https://raw.githubusercontent.com/fuseraft/fuseraft-cli/main';
