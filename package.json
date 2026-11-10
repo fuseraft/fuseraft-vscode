@@ -135,6 +135,12 @@
         "icon": "$(account)"
       },
       {
+        "command": "fuseraft.settings",
+        "title": "Settings",
+        "category": "fuseraft",
+        "icon": "$(settings-gear)"
+      },
+      {
         "command": "fuseraft.setBinaryPath",
         "title": "Set Binary Path",
         "category": "fuseraft",
@@ -228,6 +234,11 @@
           "command": "fuseraft.setup",
           "when": "view == fuseraft.chats",
           "group": "overflow@2"
+        },
+        {
+          "command": "fuseraft.settings",
+          "when": "view == fuseraft.chats",
+          "group": "overflow@3"
         },
         {
           "command": "fuseraft.refreshMemory",

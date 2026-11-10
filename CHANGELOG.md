@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Settings
+- **fuseraft: Settings** (also in the Chats view's **…** menu) edits the CLI's own settings: temperature and the other sampling defaults, the memory and sub-agent models, chat limits, timeouts, telemetry and the rest of `fuseraft settings`, grouped and searchable, with each one's description, default and allowed range. A change is checked and saved by the CLI as you leave the field, and the panel reloads when the file changes elsewhere. Needs fuseraft CLI 1.23.0 or later.
+
 ## 0.10.0 — 2026-11-08
 
 ### Chats

@@ -513,7 +513,7 @@ function escHtml(s: string): string {
 }
 
 /** Inline fuseraft brand mark (matches media/icon-source.svg) for use next to the wordmark in webview content. */
-function fuseraftMarkSvg(className: string, gradId: string): string {
+export function fuseraftMarkSvg(className: string, gradId: string): string {
     return `<svg class="${className}" viewBox="0 0 1500 1500" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
   <defs><linearGradient id="${gradId}" x1="0%" y1="0%" x2="100%" y2="100%">
     <stop offset="0%" stop-color="#c4452e"/><stop offset="100%" stop-color="#d98c4f"/>

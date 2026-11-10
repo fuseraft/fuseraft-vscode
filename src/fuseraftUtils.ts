@@ -242,6 +242,50 @@ function runSettingsSet(key: string, value: string): Promise<boolean> {
     });
 }
 
+/** A global setting, as `fuseraft settings show --json` and `settings set --json` describe it. */
+export interface CliSetting {
+    key: string;
+    kind: 'text' | 'bool' | 'integer' | 'number' | 'choice' | 'list';
+    description: string;
+    value: string | null;
+    default: string | null;
+    min: number | null;
+    max: number | null;
+    choices: string[] | null;
+    clearable: boolean;
+}
+
+/**
+ * Runs a `--json` command of the CLI's wire protocol: its `items`/`item`, the error it reported, or
+ * `unsupported` when the output isn't an envelope (a CLI from before the command took `--json`).
+ */
+function runCliJson<T>(args: string[]): Promise<{ data: T } | { error: string } | { unsupported: true }> {
+    return new Promise(resolve => {
+        const env: NodeJS.ProcessEnv = { ...process.env, ...getFuseraftHomeEnvOverride() };
+        execFile(getBinary(), [...args, '--json'], { env, timeout: 10000 }, (_err, stdout) => {
+            const line = stdout.trim().split(/\r?\n/).pop() ?? '';
+            try {
+                const doc = JSON.parse(line);
+                if (typeof doc.error === 'string') { resolve({ error: doc.error }); return; }
+                const data = doc.items ?? doc.item;
+                resolve(data === undefined ? { unsupported: true } : { data });
+            } catch {
+                resolve({ unsupported: true });
+            }
+        });
+    });
+}
+
+export const listCliSettings = () => runCliJson<CliSetting[]>(['settings', 'show']);
+
+// Each call is a read-modify-write of the same file, so they run one at a time.
+let settingsWrites: Promise<unknown> = Promise.resolve();
+export function setCliSetting(key: string, value: string) {
+    const write = settingsWrites.then(() => runCliJson<CliSetting>(['settings', 'set', key, value]));
+    settingsWrites = write.catch(() => undefined);
+    return write;
+}
+
 /** The provider's model IDs, or null when they couldn't be listed. */
 export async function fetchProviderModels(
     endpoint: string,

@@ -78,6 +78,7 @@ Chats, memories and skills live in the fuseraft home directory, `~/.fuseraft` by
 | `fuseraft: Delete Memory` / `Delete All Memories` | Delete one memory entry, or all of them |
 | `fuseraft: Add Skill` / `Remove Skill` | Add or remove a skill |
 | `fuseraft: Configure fuseraft` | Change your provider, model or API key |
+| `fuseraft: Settings` | Edit the CLI's settings: sampling, memory and sub-agent models, chat limits, timeouts and more (CLI 1.23.0+) |
 | `fuseraft: Install CLI` / `Update CLI` | Install the CLI, or update it to the latest release, in a terminal |
 | `fuseraft: Set Binary Path` | Point at a fuseraft binary that isn't on your `PATH` |
 | `fuseraft: Set Home Directory` | Use a fuseraft home other than `~/.fuseraft` |
