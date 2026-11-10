@@ -92,7 +92,10 @@ export function activate(context: vscode.ExtensionContext): void {
                 'Check again'
             );
             if (choice === 'Install') {
+                // The install command watches for the binary itself; asking again here would offer Install
+                // over a CLI that is already on its way.
                 vscode.commands.executeCommand('fuseraft.install');
+                break;
             } else if (choice === 'Install Instructions') {
                 vscode.env.openExternal(vscode.Uri.parse('https://github.com/fuseraft/fuseraft-cli#install'));
             } else if (choice === 'Set Binary Path') {
@@ -433,7 +436,7 @@ export function activate(context: vscode.ExtensionContext): void {
         vscode.commands.registerCommand('fuseraft.install', async () => {
             runInstaller();
             vscode.window.showInformationMessage(
-                'fuseraft installer running in terminal. When it finishes, click "Check again" in the setup wizard or run fuseraft.setup.',
+                'Installing the fuseraft CLI in the terminal. fuseraft picks it up as soon as it finishes.',
                 'Open Setup'
             ).then(choice => {
                 if (choice === 'Open Setup') {
@@ -450,6 +453,9 @@ export function activate(context: vscode.ExtensionContext): void {
                             'binaryPath', resolvedPath, vscode.ConfigurationTarget.Global
                         );
                     }
+                    // binaryPath may already have held this path, in which case no change event rechecks.
+                    invalidateCliCache();
+                    void checkCli();
                 });
             }
         })

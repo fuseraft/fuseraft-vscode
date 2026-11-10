@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Setup
+- After **Install CLI**, fuseraft notices the new CLI on its own, even when its first launch is slow (as with a virus scan of a new download), so the Chats menu switches to **Update CLI** and **Configure fuseraft** shows it installed without clicking **Check again**. The install also has up to 10 minutes to download, up from 2.
+- Choosing **Install** on the "fuseraft CLI not found" message no longer brings that message straight back while the install runs.
+
 ### Settings
 - **fuseraft: Settings** (also in the Chats view's **…** menu) edits the CLI's own settings: temperature and the other sampling defaults, the memory and sub-agent models, chat limits, timeouts, telemetry and the rest of `fuseraft settings`, grouped and searchable, with each one's description, default and allowed range. A change is checked and saved by the CLI as you leave the field, and the panel reloads when the file changes elsewhere. Needs fuseraft CLI 1.23.0 or later.
 
