@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.11.0 — 2026-11-09
 
 ### Setup
 - After **Install CLI**, fuseraft notices the new CLI on its own, even when its first launch is slow (as with a virus scan of a new download), so the Chats menu switches to **Update CLI** and **Configure fuseraft** shows it installed without clicking **Check again**. The install also has up to 10 minutes to download, up from 2.
