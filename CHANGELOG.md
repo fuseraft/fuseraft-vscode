@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.12.0 — 2026-11-12
 
 ### MCP Servers
 - A new **MCP Servers** view in the fuseraft sidebar lists the servers every new chat connects. **+** adds one with `/mcp add` in the chat. Each server's buttons and right-click menu reconnect it, remove it, log in to or out of an OAuth server, or show a command server's log. Servers that the program which launched VS Code provides in `FUSERAFT_MCP_SERVERS` are marked *provided by the launcher*. The view needs fuseraft CLI 1.24.0 or later to remove a saved server that didn't connect, and to show or reconnect launcher-provided servers.
