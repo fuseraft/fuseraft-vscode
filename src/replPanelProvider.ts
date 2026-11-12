@@ -209,6 +209,17 @@ export class ReplPanelProvider {
         else if (ReplPanelProvider._current && !ReplPanelProvider._current._exited) { deliver(ReplPanelProvider._current); }
     }
 
+    /** Sends a /command as if typed, opening a chat first if none is live; it waits its turn behind a running reply. */
+    static runCommand(text: string, cwd?: string): void {
+        const deliver = (cur: ReplPanelProvider) => {
+            cur._panel.reveal();
+            cur._post({ type: 'run_command', text });
+        };
+        if (!ReplPanelProvider._current || ReplPanelProvider._current._exited) { ReplPanelProvider.show('', undefined, cwd); }
+        if (ReplPanelProvider._opening) { ReplPanelProvider._opening.then.push(deliver); }
+        else if (ReplPanelProvider._current && !ReplPanelProvider._current._exited) { deliver(ReplPanelProvider._current); }
+    }
+
     private static _webviewOptions(): vscode.WebviewOptions {
         return {
             enableScripts: true,

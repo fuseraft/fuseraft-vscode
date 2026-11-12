@@ -5,6 +5,7 @@ import * as path from 'path';
 import { ReplSessionTreeProvider, ReplSessionItem, sessionTitle } from './replSessionTreeProvider';
 import { MemoryTreeProvider, MemoryItemNode, readMemoryEntries } from './memoryTreeProvider';
 import { SkillsTreeProvider, SkillItemNode, readSkills, getSkillsDir } from './skillsTreeProvider';
+import { McpTreeProvider, McpServerNode } from './mcpTreeProvider';
 import { openSettingsPanel } from './settingsPanel';
 import { ReplPanelProvider } from './replPanelProvider';
 import { registerDiffContentProvider } from './diffContentProvider';
@@ -22,6 +23,7 @@ export function activate(context: vscode.ExtensionContext): void {
     const chatProvider = new ReplSessionTreeProvider();
     const memoryProvider = new MemoryTreeProvider();
     const skillsProvider = new SkillsTreeProvider();
+    const mcpProvider = new McpTreeProvider();
     ReplPanelProvider.extensionUri = context.extensionUri;
     ReplPanelProvider.editors = new EditorTracker();
     ReplPanelProvider.memento = context.workspaceState;
@@ -49,6 +51,10 @@ export function activate(context: vscode.ExtensionContext): void {
     });
     vscode.window.createTreeView('fuseraft.skills', {
         treeDataProvider: skillsProvider,
+        showCollapseAll: false,
+    });
+    vscode.window.createTreeView('fuseraft.mcp', {
+        treeDataProvider: mcpProvider,
         showCollapseAll: false,
     });
 
@@ -133,6 +139,7 @@ export function activate(context: vscode.ExtensionContext): void {
                 chatProvider.resetWatcher();
                 memoryProvider.resetWatcher();
                 skillsProvider.resetWatcher();
+                mcpProvider.resetWatcher();
             }
         })
     );
@@ -431,6 +438,53 @@ export function activate(context: vscode.ExtensionContext): void {
         })
     );
 
+    // MCP servers: each action is the chat's own /mcp command, so the CLI keeps the config and keychain.
+    context.subscriptions.push(
+        vscode.commands.registerCommand('fuseraft.refreshMcp', () => mcpProvider.refresh()),
+        vscode.commands.registerCommand('fuseraft.mcpAdd', () => {
+            ReplPanelProvider.runCommand('/mcp add', workspaceRoot());
+        }),
+        vscode.commands.registerCommand('fuseraft.mcpRemove', async (arg?: McpServerNode) => {
+            let name = arg?.server.source === 'saved' ? arg.server.name : undefined;
+            if (!name) {
+                const saved = mcpProvider.servers().filter(s => s.source === 'saved');
+                if (saved.length === 0) {
+                    vscode.window.showInformationMessage('No saved MCP servers to remove.');
+                    return;
+                }
+                const picked = await vscode.window.showQuickPick(
+                    saved.map(s => ({ label: s.name, description: s.target })),
+                    { title: 'Remove MCP Server', placeHolder: 'Select a server to remove' });
+                if (!picked) { return; }
+                name = picked.label;
+            }
+            const confirm = await vscode.window.showWarningMessage(
+                `Remove the MCP server '${name}'?`,
+                { modal: true, detail: 'New chats stop connecting it, and an open chat drops its tools now.' },
+                'Remove');
+            if (confirm !== 'Remove') { return; }
+            ReplPanelProvider.runCommand(`/mcp remove ${name}`, workspaceRoot());
+        }),
+        // A new chat connects every server, so with none open there's nothing to reconnect: one is started.
+        vscode.commands.registerCommand('fuseraft.mcpReconnect', (arg?: McpServerNode) => {
+            if (!arg) { return; }
+            if (ReplPanelProvider.liveSessionId) {
+                ReplPanelProvider.runCommand(`/mcp reconnect ${arg.server.name}`, workspaceRoot());
+            } else {
+                ReplPanelProvider.show('', undefined, workspaceRoot());
+            }
+        }),
+        vscode.commands.registerCommand('fuseraft.mcpLogin', (arg?: McpServerNode) => {
+            if (arg) { ReplPanelProvider.runCommand(`/mcp login ${arg.server.name}`, workspaceRoot()); }
+        }),
+        vscode.commands.registerCommand('fuseraft.mcpLogout', (arg?: McpServerNode) => {
+            if (arg) { ReplPanelProvider.runCommand(`/mcp logout ${arg.server.name}`, workspaceRoot()); }
+        }),
+        vscode.commands.registerCommand('fuseraft.mcpLog', (arg?: McpServerNode) => {
+            if (arg) { ReplPanelProvider.runCommand(`/mcp log ${arg.server.name}`, workspaceRoot()); }
+        }),
+    );
+
     // fuseraft.install — run the platform-appropriate CLI installer in a terminal
     context.subscriptions.push(
         vscode.commands.registerCommand('fuseraft.install', async () => {
@@ -577,7 +631,7 @@ export function activate(context: vscode.ExtensionContext): void {
         vscode.commands.registerCommand('fuseraft.settings', () => openSettingsPanel(context.extensionUri))
     );
 
-    context.subscriptions.push(chatProvider, memoryProvider, skillsProvider);
+    context.subscriptions.push(chatProvider, memoryProvider, skillsProvider, mcpProvider);
 }
 
 function workspaceRoot(): string | undefined {

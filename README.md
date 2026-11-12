@@ -64,7 +64,9 @@ It works like the CLI's full-screen REPL.
 
 **Skills:** reusable instructions the agent can load when it needs them. Click one to open its `SKILL.md`; **+** adds one, right-click removes it.
 
-Chats, memories and skills live in the fuseraft home directory, `~/.fuseraft` by default.
+**MCP Servers:** the MCP servers every new chat connects, with each one's URL or command. **+** runs `/mcp add` in the chat, which asks for the details. Each server's buttons and right-click menu run the chat's own `/mcp` commands for it: **Reconnect**, **Remove**, **Log In** and **Log Out** for an OAuth server, and **Show Server Log** for one that runs as a command. A server listed as *provided by the launcher* comes from `FUSERAFT_MCP_SERVERS` in the environment VS Code was started with. It can be reconnected here, but not removed.
+
+Chats, memories, skills and MCP servers live in the fuseraft home directory, `~/.fuseraft` by default.
 
 ## Commands
 
@@ -74,9 +76,10 @@ Chats, memories and skills live in the fuseraft home directory, `~/.fuseraft` by
 | `fuseraft: New Chat` | Start a fresh chat (the current one stays resumable) |
 | `fuseraft: Resume Chat` | Pick any saved chat and resume it |
 | `fuseraft: Add to Chat` | Add the editor's selection (or its file) to the message you're writing |
-| `fuseraft: Refresh Chats` / `Refresh Memory` / `Refresh Skills` | Reload a sidebar view |
+| `fuseraft: Refresh Chats` / `Refresh Memory` / `Refresh Skills` / `Refresh MCP Servers` | Reload a sidebar view |
 | `fuseraft: Delete Memory` / `Delete All Memories` | Delete one memory entry, or all of them |
 | `fuseraft: Add Skill` / `Remove Skill` | Add or remove a skill |
+| `fuseraft: Add MCP Server` / `Remove MCP Server` | Add an MCP server through the chat, or remove a saved one |
 | `fuseraft: Configure fuseraft` | Change your provider, model or API key |
 | `fuseraft: Settings` | Edit the CLI's settings: sampling, memory and sub-agent models, chat limits, timeouts and more (CLI 1.23.0+) |
 | `fuseraft: Install CLI` / `Update CLI` | Install the CLI, or update it to the latest release, in a terminal |

@@ -1662,6 +1662,8 @@ window.addEventListener('message',evt=>{
       // Kept so a window reload can resume this chat in the panel VS Code restores.
       try { vscode.setState({ ...(vscode.getState()||{}), sessionId }); } catch { /* state unavailable */ }
       setEnabled(!isStreaming);
+      // A command sent while the chat was starting (see run_command) goes now.
+      flushQueue();
       break;
 
     case 'title':{
@@ -1893,6 +1895,15 @@ window.addEventListener('message',evt=>{
 
     case 'draft':
       if(typeof msg.text==='string'){ setInput(msg.text); $input.focus(); }
+      break;
+
+    // A /command from outside the panel (the MCP view): sent as if typed, leaving the draft alone.
+    case 'run_command':
+      if(typeof msg.text==='string' && msg.text.startsWith('/')){
+        const m = { text: msg.text, payload: msg.text, images: [], display: msg.text, files: [], selections: [] };
+        if(isStreaming || !sessionReady){ queued.push(m); renderQueue(); }
+        else dispatch(m);
+      }
       break;
 
     case 'files_picked':

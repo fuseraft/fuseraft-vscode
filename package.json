@@ -117,6 +117,45 @@
         "icon": "$(trash)"
       },
       {
+        "command": "fuseraft.refreshMcp",
+        "title": "Refresh MCP Servers",
+        "category": "fuseraft",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "fuseraft.mcpAdd",
+        "title": "Add MCP Server",
+        "category": "fuseraft",
+        "icon": "$(add)"
+      },
+      {
+        "command": "fuseraft.mcpRemove",
+        "title": "Remove MCP Server",
+        "category": "fuseraft",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "fuseraft.mcpReconnect",
+        "title": "Reconnect",
+        "category": "fuseraft",
+        "icon": "$(debug-restart)"
+      },
+      {
+        "command": "fuseraft.mcpLogin",
+        "title": "Log In",
+        "category": "fuseraft"
+      },
+      {
+        "command": "fuseraft.mcpLogout",
+        "title": "Log Out",
+        "category": "fuseraft"
+      },
+      {
+        "command": "fuseraft.mcpLog",
+        "title": "Show Server Log",
+        "category": "fuseraft"
+      },
+      {
         "command": "fuseraft.install",
         "title": "Install CLI",
         "category": "fuseraft",
@@ -191,6 +230,12 @@
           "name": "Skills",
           "icon": "$(tools)",
           "initiallyCollapsed": true
+        },
+        {
+          "id": "fuseraft.mcp",
+          "name": "MCP Servers",
+          "icon": "$(plug)",
+          "initiallyCollapsed": true
         }
       ]
     },
@@ -206,6 +251,10 @@
       {
         "view": "fuseraft.skills",
         "contents": "No skills installed.\n\n[Add Skill](command:fuseraft.skillsAdd)\n\nSkills are reusable instructions agents can load on demand during a session."
+      },
+      {
+        "view": "fuseraft.mcp",
+        "contents": "No MCP servers yet.\n\n[Add MCP Server](command:fuseraft.mcpAdd)\n\nAn MCP server gives agents tools of its own, such as a database or a ticket tracker. Every new chat connects the servers listed here."
       }
     ],
     "menus": {
@@ -253,6 +302,16 @@
         {
           "command": "fuseraft.refreshSkills",
           "when": "view == fuseraft.skills",
+          "group": "navigation"
+        },
+        {
+          "command": "fuseraft.mcpAdd",
+          "when": "view == fuseraft.mcp",
+          "group": "navigation"
+        },
+        {
+          "command": "fuseraft.refreshMcp",
+          "when": "view == fuseraft.mcp",
           "group": "navigation"
         }
       ],
@@ -306,6 +365,41 @@
           "command": "fuseraft.skillsRemove",
           "when": "view == fuseraft.skills && viewItem == skillItem",
           "group": "1_skill"
+        },
+        {
+          "command": "fuseraft.mcpReconnect",
+          "when": "view == fuseraft.mcp && viewItem =~ /^mcpServer\\./",
+          "group": "inline@1"
+        },
+        {
+          "command": "fuseraft.mcpRemove",
+          "when": "view == fuseraft.mcp && viewItem =~ /^mcpServer\\.saved\\./",
+          "group": "inline@2"
+        },
+        {
+          "command": "fuseraft.mcpReconnect",
+          "when": "view == fuseraft.mcp && viewItem =~ /^mcpServer\\./",
+          "group": "1_mcp@1"
+        },
+        {
+          "command": "fuseraft.mcpLogin",
+          "when": "view == fuseraft.mcp && viewItem =~ /^mcpServer\\.saved\\.http\\.oauth$/",
+          "group": "1_mcp@2"
+        },
+        {
+          "command": "fuseraft.mcpLogout",
+          "when": "view == fuseraft.mcp && viewItem =~ /^mcpServer\\.saved\\.http\\.oauth$/",
+          "group": "1_mcp@3"
+        },
+        {
+          "command": "fuseraft.mcpLog",
+          "when": "view == fuseraft.mcp && viewItem =~ /^mcpServer\\.[a-z]+\\.stdio/",
+          "group": "1_mcp@4"
+        },
+        {
+          "command": "fuseraft.mcpRemove",
+          "when": "view == fuseraft.mcp && viewItem =~ /^mcpServer\\.saved\\./",
+          "group": "2_danger"
         }
       ],
       "commandPalette": [
@@ -327,6 +421,22 @@
         },
         {
           "command": "fuseraft.fixDiagnostic",
+          "when": "false"
+        },
+        {
+          "command": "fuseraft.mcpReconnect",
+          "when": "false"
+        },
+        {
+          "command": "fuseraft.mcpLogin",
+          "when": "false"
+        },
+        {
+          "command": "fuseraft.mcpLogout",
+          "when": "false"
+        },
+        {
+          "command": "fuseraft.mcpLog",
           "when": "false"
         }
       ],
