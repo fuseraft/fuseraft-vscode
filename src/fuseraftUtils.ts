@@ -298,6 +298,18 @@ function runCliJson<T>(args: string[]): Promise<{ data: T } | { error: string } 
 
 export const listCliSettings = () => runCliJson<CliSetting[]>(['settings', 'show']);
 
+/** A tool category and whether new chats start with it on, as `fuseraft settings tools --json` lists it. */
+export interface CliToolCategory {
+    name: string;
+    description: string;
+    optional: boolean;
+    enabled: boolean;
+    /** Null for the categories only a running chat can list: Skills and MCP servers. */
+    tools: { name: string; description: string; enabled: boolean }[] | null;
+}
+
+export const listCliTools = () => runCliJson<CliToolCategory[]>(['settings', 'tools']);
+
 // Each call is a read-modify-write of the same file, so they run one at a time.
 let settingsWrites: Promise<unknown> = Promise.resolve();
 export function setCliSetting(key: string, value: string) {

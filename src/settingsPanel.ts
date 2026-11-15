@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { checkCli, getFuseraftHome, listCliSettings, setCliSetting } from './fuseraftUtils';
+import { checkCli, getFuseraftHome, listCliSettings, listCliTools, setCliSetting } from './fuseraftUtils';
 import { fuseraftMarkSvg } from './setupWizard';
 
 /** Singleton panel: reuse it if it's already open. */
@@ -75,9 +75,11 @@ async function load(panel: vscode.WebviewPanel): Promise<void> {
         panel.webview.postMessage({ type: 'state', state: 'missing' });
         return;
     }
-    const result = await listCliSettings();
+    const [result, tools] = await Promise.all([listCliSettings(), listCliTools()]);
     if ('data' in result) {
         panel.webview.postMessage({ type: 'settings', settings: result.data });
+        // A CLI from before `settings tools` leaves the section out; the two list settings stay editable as text.
+        panel.webview.postMessage({ type: 'tools', tools: 'data' in tools ? tools.data : null });
     } else if ('error' in result) {
         panel.webview.postMessage({ type: 'state', state: 'error', error: result.error });
     } else {

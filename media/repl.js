@@ -14,6 +14,16 @@ const $thinkingLabel = document.getElementById('thinking-label');
 const $footer        = document.getElementById('footer');
 const $attachBtn     = document.getElementById('attach-btn');
 const $attachRow     = document.getElementById('attach-row');
+const $toolsPop    = document.getElementById('tools-pop');
+const $toolsList   = document.getElementById('tools-list');
+const $toolsSub    = document.getElementById('tools-sub');
+const $toolsNote   = document.getElementById('tools-note');
+const $toolsFilter = document.getElementById('tools-filter');
+const $toolsSave   = document.getElementById('tools-save');
+const $toolsReset  = document.getElementById('tools-reset');
+const $toolsFoot   = document.getElementById('tools-foot-text');
+let toolsInfo = null;            // the REPL's last 'tools' event (see the tools menu)
+const toolsOpenCats = new Set(); // categories expanded in the menu
 let modelsLoaded     = false;
 let activeModel      = ''; // model actually running this session, set by the CLI's 'ready' event
 let attachedFiles    = []; // [{name, path}]
@@ -1851,6 +1861,12 @@ window.addEventListener('message',evt=>{
       resetTranscript();
       break;
 
+    case 'tools':
+      toolsInfo = msg;
+      renderStatus();
+      if(toolsOpen()) renderTools();
+      break;
+
     case 'compacted':
       addSystem('Earlier messages summarized to save context.');
       break;
@@ -1974,6 +1990,7 @@ let statusInfo = null;
 let busySince = 0, busyTimer = null, busy = false;
 
 function renderStatus(){
+  if(toolsOpen()) renderToolsNote();
   if(!statusInfo){ $stLeft.innerHTML=''; }
   else {
     const pct = Math.round((statusInfo.context||0)*100);
@@ -1994,6 +2011,11 @@ function renderStatus(){
       ? 'Approvals on: shell commands, file writes and Git writes ask first. Click to run them without asking.'
       : 'Approvals off: tools run without asking'+(startInfo.unsandboxed ? '' : ' (still sandboxed to the workspace)')+'. Click to ask first again.';
     parts.push('<button type="button" class="st-mode st-hitl'+(hitl?'':' off')+'" id="st-hitl" title="'+esc(tip)+'">'+(hitl?'hitl':'yolo')+'</button>');
+    if(toolsInfo){
+      const n = toolsActiveCount();
+      parts.push('<button type="button" class="st-tools'+(toolsOpen()?' open':'')+'" id="st-tools" aria-haspopup="dialog" title="The tools the model can use in this chat. Click to choose.">'
+        + n+' tool'+(n===1?'':'s')+'</button>');
+    }
     $stLeft.innerHTML = parts.join('<span class="st-sep">·</span>');
   }
   if(sessionEnded){ $stRight.textContent='session ended'; return; }
@@ -2021,6 +2043,138 @@ $stLeft.addEventListener('click', e=>{
     renderQueue();
   }
 });
+/* ── tools menu ──────────────────────────────────────────────────────────
+   The status line's tools chip opens it: each category and tool the chat has, with a switch. A change goes to the
+   REPL as /tools enable|disable (after a running reply finishes); Save as default makes new chats start the same,
+   and Reset goes back to that. The REPL's 'tools' event is the truth, and redraws it. */
+
+function toolsOpen(){ return $toolsPop.classList.contains('active'); }
+function catUsable(c){ return c.enabled && !c.blocked; }
+function catActive(c){ return catUsable(c) ? c.tools.filter(t => t.enabled && !t.blocked).length : 0; }
+function toolsActiveCount(){ return toolsInfo ? toolsInfo.categories.reduce((n,c) => n+catActive(c), 0) : 0; }
+function catLabel(c){ return c.name.toLowerCase().startsWith('mcp:') ? c.name.slice(4) : c.name; }
+
+function openTools(){
+  if(!toolsInfo || sessionEnded) return;
+  $toolsFilter.value = '';
+  $toolsPop.classList.add('active');
+  renderTools();
+  renderStatus();
+  $toolsFilter.focus();
+}
+function closeTools(refocus){
+  if(!toolsOpen()) return;
+  $toolsPop.classList.remove('active');
+  renderStatus();
+  if(refocus) $input.focus();
+}
+
+function renderToolsNote(){
+  if(!toolsInfo) return;
+  const notes = [];
+  if(toolsInfo.safeMode) notes.push('Safe mode is on: Shell, Git and Http stay off until /safe-mode off.');
+  if(isStreaming) notes.push('Changes apply once the current reply finishes.');
+  $toolsNote.textContent = notes.join(' ');
+  $toolsNote.hidden = !notes.length;
+}
+
+function renderTools(){
+  if(!toolsInfo) return;
+  const focused = document.activeElement && document.activeElement.closest('#tools-list') ? document.activeElement : null;
+  const focusKey = focused && focused.classList.contains('tm-switch') ? (focused.dataset.cat+'|'+(focused.dataset.tool||'')) : null;
+  const total = toolsInfo.categories.reduce((n,c) => n+c.tools.length, 0);
+  $toolsSub.textContent = toolsActiveCount()+' of '+total+' on in this chat';
+  renderToolsNote();
+  const same = !!toolsInfo.matchesDefaults;
+  $toolsSave.disabled = $toolsReset.disabled = same;
+  $toolsFoot.textContent = same ? 'New chats start with these tools.' : 'New chats start with your saved defaults.';
+  $toolsSave.title = same ? 'New chats already start with these tools' : 'Start new chats with the tools on now';
+  $toolsReset.title = same ? 'Already the saved defaults' : 'Go back to the tools new chats start with';
+
+  const q = $toolsFilter.value.trim().toLowerCase();
+  const hit = (name, desc) => !q || name.toLowerCase().includes(q) || (desc||'').toLowerCase().includes(q);
+  const rows = [];
+  for(const c of toolsInfo.categories){
+    const catHit = hit(c.name, c.description);
+    const tools = c.tools.filter(t => catHit || hit(t.name, t.description));
+    if(!catHit && !tools.length) continue;
+    const open = q ? true : toolsOpenCats.has(c.name);
+    const usable = catUsable(c);
+    const badges = (c.name.toLowerCase().startsWith('mcp:') ? '<span class="tm-badge">MCP</span>' : '')
+      + (c.blocked ? '<span class="tm-badge warn">'+esc(c.blocked)+'</span>' : '');
+    const catTip = c.blocked ? 'Safe mode is keeping '+c.name+' off' : (c.enabled ? 'Turn '+c.name+' off for this chat' : 'Turn '+c.name+' on for this chat');
+    let html = '<div class="tm-cat'+(open?' open':'')+'" data-cat="'+esc(c.name)+'">'
+      + '<div class="tm-head" data-cat="'+esc(c.name)+'">'
+      +   '<span class="tm-twisty">▶</span>'
+      +   '<span class="tm-text"><span class="tm-name">'+esc(catLabel(c))+badges+'</span><span class="tm-desc">'+esc(c.description||'')+'</span></span>'
+      +   '<span class="tm-count">'+catActive(c)+'/'+c.tools.length+'</span>'
+      +   '<button type="button" class="tm-switch" role="switch" aria-checked="'+(c.enabled?'true':'false')+'"'
+      +     ' aria-label="'+esc(catLabel(c))+'" title="'+esc(catTip)+'" data-cat="'+esc(c.name)+'"'+(c.blocked?' disabled':'')+'></button>'
+      + '</div><div class="tm-tools">';
+    for(const t of tools){
+      const tip = t.blocked ? (t.blocked==='safe mode' ? 'Safe mode is keeping this off' : 'Off by /tools restrict')
+        : !usable ? 'Turn '+c.name+' on to use it'
+        : t.enabled ? 'Turn off for this chat' : 'Turn on for this chat';
+      html += '<div class="tm-tool'+(usable && !t.blocked ? '' : ' dim')+'">'
+        + '<span class="tm-text"><span class="tm-name">'+esc(t.name)+(t.blocked?'<span class="tm-badge warn">'+esc(t.blocked)+'</span>':'')+'</span>'
+        + '<span class="tm-desc" title="'+esc(t.description||'')+'">'+esc(t.description||'')+'</span></span>'
+        + '<button type="button" class="tm-switch" role="switch" aria-checked="'+(t.enabled?'true':'false')+'"'
+        +   ' aria-label="'+esc(t.name)+'" title="'+esc(tip)+'" data-cat="'+esc(c.name)+'" data-tool="'+esc(t.name)+'"'
+        +   (usable && !t.blocked ? '' : ' disabled')+'></button>'
+        + '</div>';
+    }
+    rows.push(html+'</div></div>');
+  }
+  $toolsList.innerHTML = rows.length ? rows.join('') : '<div class="tm-empty">No tools match.</div>';
+  if(focusKey){
+    const [cat, tool] = focusKey.split('|');
+    const again = [...$toolsList.querySelectorAll('.tm-switch')].find(b => b.dataset.cat===cat && (b.dataset.tool||'')===tool);
+    if(again) again.focus();
+  }
+}
+
+// Quiet: the menu shows the result itself, so the REPL doesn't also answer it in the chat.
+function sendToolsCommand(text){ vscode.postMessage({type:'user_input', text, quiet:true}); }
+
+$toolsList.addEventListener('click', e=>{
+  const sw = e.target.closest('.tm-switch');
+  if(sw){
+    e.stopPropagation();
+    if(sw.disabled) return;
+    const on = sw.getAttribute('aria-checked') !== 'true';
+    const c = toolsInfo.categories.find(x => x.name === sw.dataset.cat);
+    if(!c) return;
+    // Shown at once; the REPL's next 'tools' event confirms it (or puts it back).
+    if(sw.dataset.tool){ const t = c.tools.find(x => x.name === sw.dataset.tool); if(t) t.enabled = on; }
+    else c.enabled = on;
+    toolsInfo.matchesDefaults = false;
+    renderTools();
+    renderStatus();
+    sendToolsCommand('/tools '+(on?'enable':'disable')+' '+(sw.dataset.tool || sw.dataset.cat));
+    return;
+  }
+  const head = e.target.closest('.tm-head');
+  if(head && !$toolsFilter.value.trim()){
+    const name = head.dataset.cat;
+    if(toolsOpenCats.has(name)) toolsOpenCats.delete(name); else toolsOpenCats.add(name);
+    head.parentElement.classList.toggle('open');
+  }
+});
+$toolsFilter.addEventListener('input', renderTools);
+$toolsSave.addEventListener('click', ()=>{ if(!$toolsSave.disabled) sendToolsCommand('/tools save'); });
+$toolsReset.addEventListener('click', ()=>{ if(!$toolsReset.disabled) sendToolsCommand('/tools reset'); });
+document.getElementById('tools-close').addEventListener('click', ()=>closeTools(true));
+$toolsPop.addEventListener('keydown', e=>{
+  if(e.key === 'Escape'){ e.preventDefault(); e.stopPropagation(); closeTools(true); }
+});
+$stLeft.addEventListener('click', e=>{
+  if(!e.target.closest('#st-tools')) return;
+  if(toolsOpen()) closeTools(true); else openTools();
+});
+document.addEventListener('mousedown', e=>{
+  if(toolsOpen() && !e.target.closest('#tools-pop') && !e.target.closest('#st-tools')) closeTools(false);
+});
+
 function startTimer(){
   if(busyTimer) return;
   busySince = Date.now();
