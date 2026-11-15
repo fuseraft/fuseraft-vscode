@@ -610,6 +610,76 @@ export function pollForInstalledBinary(
     return stop;
 }
 
+/** The file the configured binary runs: binaryPath itself when it's a path, otherwise the first match on PATH. */
+export function resolveCliPath(binary = getBinary()): string | undefined {
+    const isFile = (p: string) => { try { return fs.statSync(p).isFile(); } catch { return false; } };
+    if (binary.includes('/') || binary.includes('\\')) {
+        const full = path.resolve(binary.replace(/^~(?=$|[\\/])/, os.homedir()));
+        return isFile(full) ? full : undefined;
+    }
+    const exts = process.platform === 'win32'
+        ? ['', ...(process.env['PATHEXT'] || '.EXE;.CMD;.BAT').split(';').filter(Boolean)]
+        : [''];
+    for (const dir of (process.env['PATH'] || '').split(path.delimiter).filter(Boolean)) {
+        for (const ext of exts) {
+            const candidate = path.join(dir, binary + ext);
+            if (isFile(candidate)) { return candidate; }
+        }
+    }
+    return undefined;
+}
+
+/**
+ * Deletes the CLI the extension runs, after asking, and points binaryPath back at the default, so a CLI that
+ * `fuseraft update` can't replace (one at a custom path, say) can be cleared and installed afresh.
+ * Leaves the fuseraft home directory alone. Returns true when something was removed.
+ */
+export async function removeCliInstallation(): Promise<boolean> {
+    const target = resolveCliPath();
+    if (!target) {
+        void vscode.window.showWarningMessage(`fuseraft: couldn't find the CLI at '${getBinary()}' — nothing to remove.`);
+        return false;
+    }
+    // binaryPath can name anything; only delete what looks like the CLI.
+    if (!/^fuseraft/i.test(path.basename(target))) {
+        void vscode.window.showWarningMessage(`fuseraft: ${target} doesn't look like the fuseraft CLI, so it was left alone. Delete it yourself if it should go.`);
+        return false;
+    }
+    const choice = await vscode.window.showWarningMessage(
+        `Remove the fuseraft CLI at ${target}?`,
+        { modal: true, detail: `Your chats, settings and saved keys in ${getFuseraftHome()} are kept. You can install the latest CLI afterwards.` },
+        'Remove'
+    );
+    if (choice !== 'Remove') { return false; }
+
+    // The Windows installer puts its updater beside the CLI.
+    const updater = path.join(path.dirname(target), process.platform === 'win32' ? 'fuseraft-update.exe' : 'fuseraft-update');
+    try {
+        fs.rmSync(target, { force: true });
+        if (fs.existsSync(updater)) { fs.rmSync(updater, { force: true }); }
+    } catch (e) {
+        const code = (e as NodeJS.ErrnoException).code;
+        const why = code === 'EACCES' || code === 'EPERM'
+            ? (process.platform === 'win32'
+                ? 'It may be in use: close your fuseraft chats and terminals, then try again.'
+                : `You don't have permission to delete it. Run: sudo rm ${shellQuote(target)}`)
+            : code === 'EBUSY' ? 'It is in use: close your fuseraft chats and terminals, then try again.'
+            : String((e as Error).message ?? e);
+        logToChannel(`Removing ${target} failed: ${String(e)}`);
+        void vscode.window.showErrorMessage(`fuseraft: couldn't remove ${target}. ${why}`);
+        return false;
+    }
+    logToChannel(`Removed the fuseraft CLI at ${target}`);
+
+    // A custom binaryPath would keep pointing at the deleted file.
+    const cfg = vscode.workspace.getConfiguration('fuseraft');
+    const inspected = cfg.inspect<string>('binaryPath');
+    if (inspected?.globalValue !== undefined) { await cfg.update('binaryPath', undefined, vscode.ConfigurationTarget.Global); }
+    if (inspected?.workspaceValue !== undefined) { await cfg.update('binaryPath', undefined, vscode.ConfigurationTarget.Workspace); }
+    invalidateCliCache();
+    return true;
+}
+
 /**
  * Run `fuseraft update` in a dedicated terminal to fetch and replace the
  * running binary with the latest GitHub release.

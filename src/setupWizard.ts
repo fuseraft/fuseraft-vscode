@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as http from 'http';
 import * as https from 'https';
 import * as path from 'path';
-import { checkCli, invalidateCliCache, runInstaller, runUpdate, pollForInstalledBinary, storeApiKeyToCliKeychain, getApiKeyFromCliKeychain, fetchProviderModels, listProviderModels, describeRequestError, cliHasScopedKeys, getFuseraftHome, parseProviderSection, writeProviderConfigViaCli } from './fuseraftUtils';
+import { checkCli, invalidateCliCache, runInstaller, runUpdate, removeCliInstallation, pollForInstalledBinary, storeApiKeyToCliKeychain, getApiKeyFromCliKeychain, fetchProviderModels, listProviderModels, describeRequestError, cliHasScopedKeys, getFuseraftHome, parseProviderSection, writeProviderConfigViaCli } from './fuseraftUtils';
 
 /** Re-resolved on every call (not cached) so it reflects live changes to fuseraft.homeDir. */
 function getConfigDir(): string { return getFuseraftHome(); }
@@ -253,6 +253,12 @@ export async function runSetupWizard(extensionUri: vscode.Uri): Promise<void> {
             return;
         }
 
+        if (msg.action === 'removeCli') {
+            await removeCliInstallation();
+            await rerender();
+            return;
+        }
+
         if (msg.action === 'recheckCli') {
             invalidateCliCache();
             await rerender();
@@ -394,6 +400,7 @@ function getSetupWebviewHtml(
             <span class="links">
                 <a href="#" id="updateLink">Update</a>
                 <a href="#" id="binaryPathLink">Change path</a>
+                <a href="#" id="removeCliLink" title="Delete this CLI so you can install the latest one">Remove</a>
                 <a href="#" id="recheckLink">Check again</a>
             </span>
            </div>`

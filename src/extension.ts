@@ -12,7 +12,7 @@ import { registerDiffContentProvider } from './diffContentProvider';
 import { EditorTracker, selectionAttachment, isDraft } from './editorContext';
 import {
     getBinary, runInTerminal, shellQuote,
-    runInstaller, runUpdate, checkCli, invalidateCliCache, disposeOutputChannel, pollForInstalledBinary,
+    runInstaller, runUpdate, removeCliInstallation, checkCli, invalidateCliCache, disposeOutputChannel, pollForInstalledBinary,
     readReplSessions, formatRelativeTime, ReplSessionInfo,
     getMemoryReplDir, getFuseraftHome, getReplSessionsDir, writeReplSessionTitle,
 } from './fuseraftUtils';
@@ -512,6 +512,20 @@ export function activate(context: vscode.ExtensionContext): void {
                     void checkCli();
                 });
             }
+        })
+    );
+
+    // fuseraft.removeCli — delete an install `fuseraft update` can't replace, then offer a fresh one
+    context.subscriptions.push(
+        vscode.commands.registerCommand('fuseraft.removeCli', async () => {
+            if (!await removeCliInstallation()) { return; }
+            const cli = await checkCli();
+            const next = await vscode.window.showInformationMessage(
+                cli.found ? `fuseraft CLI removed. Another one is still on your PATH (${cli.version}).` : 'fuseraft CLI removed.',
+                cli.found ? 'Open Setup' : 'Install CLI'
+            );
+            if (next === 'Install CLI') { void vscode.commands.executeCommand('fuseraft.install'); }
+            else if (next === 'Open Setup') { void vscode.commands.executeCommand('fuseraft.setup'); }
         })
     );
 
