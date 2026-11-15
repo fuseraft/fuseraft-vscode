@@ -3,12 +3,19 @@ name: Publish
 # Publishes to the VS Code Marketplace and Open VSX whenever a version bump lands on main.
 # Pushes that touch package.json without changing the version are no-ops (--skip-duplicate).
 # Both use trusted publishing (OIDC), so each registry needs a policy naming this repo and this
-# workflow file; no tokens are stored.
+# workflow file; no registry tokens are stored.
+# A version that is new to the Marketplace is then announced on Discord through the
+# DISCORD_RELEASE_WEBHOOK secret.
 on:
   push:
     branches: [main]
     paths: [package.json]
   workflow_dispatch:
+    inputs:
+      announce:
+        description: Post the Discord announcement even if this version is already on the Marketplace
+        type: boolean
+        default: false
 
 concurrency:
   group: publish
@@ -35,8 +42,25 @@ jobs:
         id: package
         run: |
           version=$(node -p "require('./package.json').version")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "vsix=fuseraft-$version.vsix" >> "$GITHUB_OUTPUT"
           npx --yes @vscode/vsce@4.1.0 package -o "fuseraft-$version.vsix"
+
+      # Checked before publishing, so a rerun or a package.json edit that doesn't bump the
+      # version finds it already listed and stays quiet. A failed lookup also stays quiet.
+      - name: Check whether this version is new
+        id: check
+        env:
+          VERSION: ${{ steps.package.outputs.version }}
+          FORCE: ${{ inputs.announce }}
+        run: |
+          if [ "$FORCE" = "true" ]; then echo "new=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          if listed=$(npx --yes @vscode/vsce@4.1.0 show fuseraft.fuseraft --json | jq -r '.versions[].version'); then
+            if grep -qxF "$VERSION" <<< "$listed"; then echo "new=false" >> "$GITHUB_OUTPUT"; else echo "new=true" >> "$GITHUB_OUTPUT"; fi
+          else
+            echo "::warning::Marketplace lookup failed; skipping the Discord announcement"
+            echo "new=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Publish to VS Code Marketplace
         run: npx --yes @vscode/vsce@4.1.0 publish --oidc --packagePath "${{ steps.package.outputs.vsix }}" --skip-duplicate
@@ -48,3 +72,28 @@ jobs:
         with:
           name: ${{ steps.package.outputs.vsix }}
           path: ${{ steps.package.outputs.vsix }}
+
+      # A Discord outage shouldn't mark a release that did ship as failed.
+      - name: Announce on Discord
+        if: steps.check.outputs.new == 'true'
+        continue-on-error: true
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_RELEASE_WEBHOOK }}
+          VERSION: ${{ steps.package.outputs.version }}
+          REPO: ${{ github.repository }}
+        run: |
+          if [ -z "$WEBHOOK" ]; then echo "DISCORD_RELEASE_WEBHOOK isn't set; skipping"; exit 0; fi
+          jq -n --arg v "$VERSION" --arg repo "$REPO" '{
+            username: "FuseRaft Releases",
+            allowed_mentions: {parse: []},
+            embeds: [{
+              title: "fuseraft for VS Code \($v) is out",
+              url: "https://marketplace.visualstudio.com/items?itemName=fuseraft.fuseraft",
+              color: 5793266,
+              fields: [
+                {name: "Version", value: $v, inline: true},
+                {name: "Repository", value: "[\($repo)](https://github.com/\($repo))", inline: true},
+                {name: "Install", value: "[VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=fuseraft.fuseraft) · [Open VSX](https://open-vsx.org/extension/fuseraft/fuseraft)"}
+              ]
+            }]
+          }' | curl --fail-with-body -sS -H "Content-Type: application/json" -d @- "$WEBHOOK"
