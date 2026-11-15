@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.14.0 — 2026-11-15
+
+### Tools
+- Click the tools count in the chat's status line to choose what the model can use: a switch for each category (Shell, Git, an MCP server, …) and, inside it, for each tool, so you can keep Git but turn off `git_commit`. Optional tools such as Http turn on here too. **Save as default** makes new chats start the same way, and **Reset** goes back. Under safe mode, Shell, Git and Http are locked with a badge.
+- **fuseraft: Settings** has a **Tools** section with the same switches for the tools new chats start with.
+
+### Chats
+- `/clear` starts a new chat: the panel shows the new-chat screen, and **Continue** on it reopens the chat you just left, which stays in the Chats list. It used to empty the panel's history in place, and the old conversation was lost on the next save.
+- A chat compacted before it got a title is listed by the first thing you asked, not by "[Compacted context from previous session] # Handoff: …". **Export to Markdown** puts the summary under *Earlier in this chat (summarized)* instead of under *You*.
+
+### Recommended CLI
+- These need fuseraft CLI 1.27.0. Run **fuseraft: Update CLI** to get it.
+
 ## 0.13.0 — 2026-11-14
 
 ### Chats
