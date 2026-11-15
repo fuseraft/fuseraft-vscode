@@ -1680,6 +1680,14 @@ window.addEventListener('message',evt=>{
     case 'applied':{
       const b = applied.shift();
       if(b) setNote(b, msg.message || 'done');
+      // The REPL sends a fresh status only at its next prompt; a mid-turn /hitl shows on the chip now.
+      const hitl = /^\/hitl\s+(on|off)$/i.exec(String(msg.command||'').trim());
+      if(hitl && statusInfo){
+        const modes = (statusInfo.modes||[]).filter(m => m!=='hitl');
+        if(hitl[1].toLowerCase()==='on') modes.push('hitl');
+        statusInfo = { ...statusInfo, modes };
+        renderStatus();
+      }
       break;
     }
 
@@ -1962,7 +1970,12 @@ function renderStatus(){
       parts.push('<span class="st-tok" title="Tokens the provider reported this session; cached is the share of input served from its cache">'
         + fmtCount(tokens)+' tokens'+cached+'</span>');
     }
-    for(const m of (statusInfo.modes||[])) parts.push('<span class="st-mode">'+esc(m)+'</span>');
+    const hitl = (statusInfo.modes||[]).includes('hitl');
+    for(const m of (statusInfo.modes||[])) if(m!=='hitl') parts.push('<span class="st-mode">'+esc(m)+'</span>');
+    const tip = hitl
+      ? 'Approvals on: shell commands, file writes and Git writes ask first. Click to run them without asking.'
+      : 'Approvals off: tools run without asking'+(startInfo.unsandboxed ? '' : ' (still sandboxed to the workspace)')+'. Click to ask first again.';
+    parts.push('<button type="button" class="st-mode st-hitl'+(hitl?'':' off')+'" id="st-hitl" title="'+esc(tip)+'">'+(hitl?'hitl':'yolo')+'</button>');
     $stLeft.innerHTML = parts.join('<span class="st-sep">·</span>');
   }
   if(sessionEnded){ $stRight.textContent='session ended'; return; }
@@ -1974,6 +1987,22 @@ function fmtCount(n){
   const trim = x => String(Number(x));
   return n < 1000 ? String(n) : n < 999500 ? trim((n/1000).toFixed(1))+'k' : trim((n/1e6).toFixed(2))+'M';
 }
+// The status line's hitl/yolo chip turns approvals on or off, even while a turn runs.
+$stLeft.addEventListener('click', e=>{
+  if(!e.target.closest('#st-hitl') || !sessionReady || sessionEnded || !statusInfo) return;
+  const text = (statusInfo.modes||[]).includes('hitl') ? '/hitl off' : '/hitl on';
+  if(!isStreaming){
+    dispatch({ text, payload: text, images: [], display: text, files: [], selections: [] });
+  } else if(runsMidTurn(text)){
+    const b = addUser(text, '…');
+    applied.push(b);
+    placeMidTurnCommand(b);
+    vscode.postMessage({type:'user_input', text});
+  } else {
+    queued.push({ text, payload: text, images: [], display: text, files: [], selections: [] });
+    renderQueue();
+  }
+});
 function startTimer(){
   if(busyTimer) return;
   busySince = Date.now();

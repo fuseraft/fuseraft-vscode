@@ -519,6 +519,10 @@ body.dropping #footer{
   border:1px solid var(--vscode-panel-border);border-radius:3px;padding:0 4px;
   color:var(--vscode-editorWarning-foreground,#cca700)
 }
+button.st-hitl{font:inherit;line-height:inherit;background:none;cursor:pointer}
+button.st-hitl:hover{background:var(--vscode-toolbar-hoverBackground)}
+button.st-hitl:focus-visible{outline:1px solid var(--vscode-focusBorder)}
+button.st-hitl.off{color:var(--vscode-errorForeground,#f48771)}
 .st-hint{opacity:.6}
 .st-spin{
   width:8px;height:8px;border-radius:50%;

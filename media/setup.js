@@ -56,6 +56,7 @@
   link('updateLink', 'runUpdate', 'Updating…');
   link('installDocsLink', 'openInstallDocs');
   link('binaryPathLink', 'openBinaryPathSetting');
+  link('removeCliLink', 'removeCli');
   link('recheckLink', 'recheckCli');
   link('secureKeyLink', 'migrateKey', 'Moving…');
   link('keyUrlLink', () => ({ action: 'openKeyPage', provider: selectedProvider() }));

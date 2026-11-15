@@ -168,6 +168,12 @@
         "icon": "$(sync)"
       },
       {
+        "command": "fuseraft.removeCli",
+        "title": "Remove CLI",
+        "category": "fuseraft",
+        "icon": "$(trash)"
+      },
+      {
         "command": "fuseraft.setup",
         "title": "Configure fuseraft",
         "category": "fuseraft",
@@ -276,6 +282,11 @@
         },
         {
           "command": "fuseraft.update",
+          "when": "view == fuseraft.chats && !fuseraft.cliMissing",
+          "group": "overflow@1"
+        },
+        {
+          "command": "fuseraft.removeCli",
           "when": "view == fuseraft.chats && !fuseraft.cliMissing",
           "group": "overflow@1"
         },
