@@ -1341,6 +1341,20 @@ let startInfo = { changes: 0, last: null, sandbox: '', unsandboxed: false }; // 
 
 function hideEmpty(){ $empty.style.display='none'; }
 
+// /clear started a new chat: the panel looks as it does for New Chat. The old chat stays saved; the extension
+// re-sends the starters, so Continue offers it back.
+function resetTranscript(){
+  splitMark = null;
+  curBubble=null; curTools=null; curText=''; curMsgDiv=null;
+  curToolList=[]; curToolState={expanded:false};
+  curThinking=null; toolsById.clear(); sawFileChanged=false; curShell=null;
+  interjected=[]; applied=[];
+  for(const el of [...$msgs.children]) if(el!==$empty) el.remove();
+  $empty.style.display='';
+  following=true;
+  $msgs.scrollTop=0;
+}
+
 function renderStarters(){
   $starters.innerHTML='';
   const rows=[];
@@ -1831,6 +1845,10 @@ window.addEventListener('message',evt=>{
       resetThinkingLabel();
       setEnabled(true);
       scrollBottom();
+      break;
+
+    case 'cleared':
+      resetTranscript();
       break;
 
     case 'compacted':

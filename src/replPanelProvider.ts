@@ -432,6 +432,11 @@ export class ReplPanelProvider {
                         if (evt.type === 'title' && typeof evt.sessionId === 'string') {
                             this._sessionId = evt.sessionId;
                         }
+                        // /clear: a new chat in this panel. The starters' Continue then offers the one just left.
+                        if (evt.type === 'cleared' && typeof evt.sessionId === 'string') {
+                            this._sessionId = evt.sessionId;
+                            void this._postStarters();
+                        }
                         if ((evt.type === 'ready' || evt.type === 'title') && this._sessionId) {
                             void ReplPanelProvider.memento?.update(SESSION_KEY, this._sessionId);
                         }
