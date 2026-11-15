@@ -111,3 +111,42 @@ footer{
   main{padding:20px 14px}
   .control input[type=number]{width:120px}
 }
+
+/* Tools: a switch per category and per tool */
+.tlist{margin-top:6px}
+.tcat{border-bottom:1px solid var(--vscode-widget-border,rgba(128,128,128,.12));border-left:2px solid transparent;margin-left:-12px;padding-left:10px}
+.tcat:last-child{border-bottom:none}
+.tcat.modified{border-left-color:var(--vscode-settings-modifiedItemIndicator,var(--vscode-focusBorder))}
+.thead,.ttool{display:flex;align-items:center;gap:10px;padding:7px 4px}
+.thead{cursor:pointer}
+.thead:hover,.ttool:hover{background:var(--vscode-list-hoverBackground)}
+.twisty{width:14px;flex-shrink:0;text-align:center;font-size:10px;color:var(--vscode-descriptionForeground);transition:transform .12s}
+.twisty.none{visibility:hidden}
+.tcat.open .twisty{transform:rotate(90deg)}
+.ttext{display:flex;flex-direction:column;flex:1;min-width:0}
+.tname{display:flex;align-items:center;gap:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.thead .tname{font-weight:600}
+.tdesc{color:var(--vscode-descriptionForeground);font-size:.92em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tcount{color:var(--vscode-descriptionForeground);font-size:.92em;font-variant-numeric:tabular-nums;flex-shrink:0}
+.badge{
+  font-size:.8em;font-weight:400;padding:0 5px;border-radius:3px;
+  border:1px solid var(--vscode-widget-border,rgba(128,128,128,.35));color:var(--vscode-descriptionForeground)
+}
+.ttools{display:none;padding:0 0 6px 24px}
+.tcat.open .ttools{display:block}
+.ttool.dim .ttext{opacity:.55}
+.ttool.modified .tname{color:var(--vscode-descriptionForeground)}
+.tnone{color:var(--vscode-descriptionForeground);font-size:.92em;padding:4px 4px 6px}
+button.switch{
+  position:relative;flex-shrink:0;width:32px;height:18px;border-radius:9px;padding:0;font-weight:400;
+  background:var(--vscode-input-background);
+  border:1px solid var(--vscode-input-border,var(--vscode-widget-border,rgba(128,128,128,.45)))
+}
+button.switch::after{
+  content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;
+  background:var(--vscode-descriptionForeground);transition:transform .12s
+}
+button.switch[aria-checked="true"]{background:var(--vscode-button-background);border-color:var(--vscode-button-background)}
+button.switch[aria-checked="true"]::after{transform:translateX(14px);background:var(--vscode-button-foreground)}
+button.switch:disabled{opacity:.4;cursor:default}
+code.tname{display:inline-block;align-self:flex-start;max-width:100%;padding:0 4px;border-radius:3px}

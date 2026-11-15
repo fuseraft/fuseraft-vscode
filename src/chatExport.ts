@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { getReplSessionsDir, ReplSessionInfo, sessionTitle } from './fuseraftUtils';
+import { compactedSummaryPrefix, getReplSessionsDir, ReplSessionInfo, sessionTitle, stripCompactedPrefix } from './fuseraftUtils';
 import { stripMessageContext } from './editorContext';
 
 interface SnapshotContent {
@@ -42,6 +42,15 @@ export function chatToMarkdown(session: ReplSessionInfo): string {
     for (const msg of history) {
         const contents = msg.Contents ?? [];
         if (msg.Role === 'user') {
+            const summary = contents.find(c => c.Type === 'text' && compactedSummaryPrefix(c.Text ?? ''));
+            if (summary) {
+                // Quoted, so the summary's own headings don't land in the export's outline.
+                const body = stripCompactedPrefix(summary.Text ?? '');
+                if (!body) { continue; }
+                flushReply();
+                out.push('', '## Earlier in this chat (summarized)', '', body.split('\n').map(l => l ? `> ${l}` : '>').join('\n'));
+                continue;
+            }
             const text = contents.filter(c => c.Type === 'text').map(c => stripMessageContext(c.Text ?? '')).join('\n\n').trim();
             const images = contents.filter(c => c.Type === 'data' || c.Type === 'uri').length;
             if (!text && images === 0) { continue; }

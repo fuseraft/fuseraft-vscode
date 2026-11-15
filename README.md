@@ -25,7 +25,7 @@ It works like the CLI's full-screen REPL.
 - The model's thinking streams in dimmed under `∴` and folds to one line when it moves on.
 - Each tool call is a line that counts up while it runs and turns ✓ or ✗ with how long it took; a sub-agent's calls are nested under it. Changed files show as `✎ path +added -removed`, and clicking one opens it.
 - Click a tool line for its arguments and output, or press **Ctrl+O** to page through recent tool output, thinking and shell output in full.
-- The status line shows the model, the turn, how full the context is (yellow as auto-compaction nears), the tokens the session has used and how many came from the provider's cache, whether approvals are on (`hitl`) or off (`yolo`), and a timer.
+- The status line shows the model, the turn, how full the context is (yellow as auto-compaction nears), the tokens the session has used and how many came from the provider's cache, whether approvals are on (`hitl`) or off (`yolo`), how many tools the model has, and a timer.
 
 **Starting a chat**
 - A new chat offers places to start from what's open: explaining the file you're in, reviewing your uncommitted changes, or continuing your last chat in this workspace. Clicking one fills in the prompt for you to edit; **Continue** resumes that chat in the same panel.
@@ -53,6 +53,7 @@ It works like the CLI's full-screen REPL.
 **Staying in control**
 - With HITL on (the default), shell commands, file writes and other changes ask first, above the prompt; file writes open a real diff. Answer with **y**/**n**, or Esc to deny.
 - Click `hitl` in the status line to let tool calls run without asking; it turns to `yolo`. Click it again to have them ask first. This works mid-turn too, and the chat stays sandboxed to its folder either way.
+- Click the tools count in the status line to choose what the model can use: a switch for each category (Shell, Git, an MCP server, …) and, inside it, for each tool, so you can keep Git but turn off `git_commit`. Optional tools such as Http turn on here too. **Save as default** makes new chats start the same way; **Reset** goes back to the defaults.
 - **Stop** or **Ctrl+C** interrupts a turn; press again to kill commands it's stuck on.
 - You get a notification when a reply finishes or an approval or question is waiting while you're elsewhere.
 - The **fuseraft** item in the status bar follows the open chat: the model and how full its context is, a spinner while it works, and a highlighted **approval needed** or **question for you** when it's waiting on you. Click it to go to the chat.
@@ -84,7 +85,7 @@ Chats, memories, skills and MCP servers live in the fuseraft home directory, `~/
 | `fuseraft: Add Skill` / `Remove Skill` | Add or remove a skill |
 | `fuseraft: Add MCP Server` / `Remove MCP Server` | Add an MCP server through the chat, or remove a saved one |
 | `fuseraft: Configure fuseraft` | Change your provider, model or API key |
-| `fuseraft: Settings` | Edit the CLI's settings: sampling, memory and sub-agent models, chat limits, timeouts and more (CLI 1.23.0+) |
+| `fuseraft: Settings` | Edit the CLI's settings: sampling, memory and sub-agent models, chat limits, timeouts, the tools new chats start with, and more (CLI 1.23.0+) |
 | `fuseraft: Install CLI` / `Update CLI` | Install the CLI, or update it to the latest release, in a terminal |
 | `fuseraft: Remove CLI` | Delete the CLI the extension runs (after asking), so you can install the latest one. Useful when it's at a custom path that **Update CLI** can't replace. Your chats, settings and keys are kept. Also a **Remove** link in **Configure fuseraft** |
 | `fuseraft: Set Binary Path` | Point at a fuseraft binary that isn't on your `PATH` |

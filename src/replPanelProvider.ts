@@ -265,7 +265,7 @@ export class ReplPanelProvider {
 
         panel.webview.onDidReceiveMessage((msg: {
             type: string; text?: string; model?: string; approved?: boolean; answer?: string | null;
-            images?: { name: string; data: string }[]; path?: string; query?: string; title?: string;
+            images?: { name: string; data: string }[]; path?: string; query?: string; title?: string; quiet?: boolean;
             line?: number; endLine?: number; lang?: string; paths?: unknown; uris?: unknown; on?: boolean; sessionId?: unknown;
         }) => {
             if (msg.type === 'user_input' || msg.type === 'approval_response' || msg.type === 'question_response') {
@@ -278,7 +278,7 @@ export class ReplPanelProvider {
                     : [];
                 this._send(images.length > 0
                     ? { type: 'user_input', text: msg.text, images }
-                    : { type: 'user_input', text: msg.text });
+                    : msg.quiet === true ? { type: 'user_input', text: msg.text, quiet: true } : { type: 'user_input', text: msg.text });
                 // A message starts a turn; a /command doesn't, and the REPL's next status settles either way.
                 if (!msg.text.startsWith('/')) { this._setStatus({ busy: true }); }
             } else if (msg.type === 'approval_response' && typeof msg.approved === 'boolean') {
@@ -431,6 +431,11 @@ export class ReplPanelProvider {
                         // A title event also follows a /switch or /fork switch, naming the session the chat now runs as.
                         if (evt.type === 'title' && typeof evt.sessionId === 'string') {
                             this._sessionId = evt.sessionId;
+                        }
+                        // /clear: a new chat in this panel. The starters' Continue then offers the one just left.
+                        if (evt.type === 'cleared' && typeof evt.sessionId === 'string') {
+                            this._sessionId = evt.sessionId;
+                            void this._postStarters();
                         }
                         if ((evt.type === 'ready' || evt.type === 'title') && this._sessionId) {
                             void ReplPanelProvider.memento?.update(SESSION_KEY, this._sessionId);
@@ -778,6 +783,20 @@ export class ReplPanelProvider {
     </div>
     <button id="stop">Stop</button>
     <button id="send" disabled>Send</button>
+  </div>
+</div>
+<div id="tools-pop" role="dialog" aria-label="Tools for this chat">
+  <div id="tools-head">
+    <div id="tools-titles"><span id="tools-title">Tools</span><span id="tools-sub"></span></div>
+    <button type="button" id="tools-close" title="Close (Esc)">✕</button>
+  </div>
+  <input id="tools-filter" type="text" placeholder="Filter tools…" autocomplete="off" aria-label="Filter tools">
+  <div id="tools-note" hidden></div>
+  <div id="tools-list"></div>
+  <div id="tools-foot">
+    <span id="tools-foot-text"></span>
+    <button type="button" id="tools-reset" class="tools-btn">Reset</button>
+    <button type="button" id="tools-save" class="tools-btn primary">Save as default</button>
   </div>
 </div>
 <div id="status-line" aria-live="polite">

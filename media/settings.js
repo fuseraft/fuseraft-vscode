@@ -38,6 +38,13 @@
   let settings = [];
   const errors = {};
 
+  // `fuseraft settings tools`: what new chats start with on. Null with a CLI from before it, which leaves the
+  // section out and its two list settings editable as text.
+  let tools = null;
+  let toolsError = null;
+  const openCats = new Set();
+  const TOOL_KEYS = ['repl.plugins', 'repl.disabledTools'];
+
   // A setting that can't be cleared and has no default (the model ID) has nothing to go back to.
   const canReset = (s) => s.value !== null && (s.clearable || (s.default !== null && s.value !== s.default));
   const isModified = canReset;
@@ -137,13 +144,13 @@
   function filter() {
     const q = searchEl.value.trim().toLowerCase();
     const onlyChanged = changedEl.checked;
-    let shown = 0;
-    for (const section of sectionsEl.querySelectorAll('section')) {
+    let shown = renderToolsSection();
+    for (const section of sectionsEl.querySelectorAll('section:not([data-section="tools"])')) {
       let any = 0;
       for (const row of section.querySelectorAll('.setting')) {
         const s = settings.find(x => x.key === row.dataset.key);
         const hay = `${labelFor(s.key)} ${s.key} ${s.description}`.toLowerCase();
-        const visible = (!q || hay.includes(q)) && (!onlyChanged || isModified(s));
+        const visible = (!q || hay.includes(q)) && (!onlyChanged || isModified(s)) && !(tools && TOOL_KEYS.includes(s.key));
         row.hidden = !visible;
         if (visible) any++;
       }
@@ -152,6 +159,105 @@
     }
     noMatchEl.hidden = shown > 0 || settings.length === 0;
   }
+
+  /* ── Tools: a switch per category and per tool, saved as repl.plugins (optional plugins on) and
+     repl.disabledTools (everything else turned off). */
+  function listOf(key) {
+    const s = settings.find(x => x.key === key);
+    return s && s.value ? s.value.split(',').map(x => x.trim()).filter(Boolean) : [];
+  }
+  const catLabel = (c) => c.name.toLowerCase().startsWith('mcp:') ? c.name.slice(4) : c.name;
+  const catChanged = (c) => c.optional ? c.enabled : !c.enabled;
+  const toolsChanged = (c) => catChanged(c) || (c.tools || []).some(t => !t.enabled);
+
+  function switchHtml(on, label, data, disabled, tip) {
+    return `<button type="button" class="switch" role="switch" aria-checked="${on}" aria-label="${esc(label)}" title="${esc(tip)}" ${data}${disabled ? ' disabled' : ''}></button>`;
+  }
+
+  // Draws the section and returns how many categories it shows.
+  function renderToolsSection() {
+    let sec = sectionsEl.querySelector('section[data-section="tools"]');
+    if (!tools) { if (sec) sec.remove(); return 0; }
+    if (!sec) {
+      sec = document.createElement('section');
+      sec.dataset.section = 'tools';
+      const after = sectionsEl.querySelector('section[data-section="repl"]');
+      if (after) after.after(sec); else sectionsEl.appendChild(sec);
+    }
+    const focused = document.activeElement && sec.contains(document.activeElement) && document.activeElement.classList.contains('switch')
+      ? `${document.activeElement.dataset.cat}|${document.activeElement.dataset.tool || ''}` : null;
+    const q = searchEl.value.trim().toLowerCase();
+    const onlyChanged = changedEl.checked;
+    const hit = (name, desc) => !q || name.toLowerCase().includes(q) || (desc || '').toLowerCase().includes(q);
+    const rows = [];
+    for (const c of tools) {
+      if (onlyChanged && !toolsChanged(c)) continue;
+      const catHit = hit(c.name, c.description) || (q && 'tools'.includes(q));
+      const list = (c.tools || []).filter(t => catHit || hit(t.name, t.description));
+      if (!catHit && !list.length) continue;
+      const open = !!q || openCats.has(c.name);
+      const count = c.tools ? `${c.enabled ? c.tools.filter(t => t.enabled).length : 0}/${c.tools.length}` : '';
+      const badge = c.name.toLowerCase().startsWith('mcp:') ? '<span class="badge">MCP</span>'
+        : c.optional ? '<span class="badge" title="Off unless you turn it on">optional</span>' : '';
+      rows.push(`<div class="tcat${open ? ' open' : ''}${toolsChanged(c) ? ' modified' : ''}">
+        <div class="thead" data-cat="${esc(c.name)}">
+          <span class="twisty${c.tools ? '' : ' none'}">▶</span>
+          <span class="ttext"><span class="tname">${esc(catLabel(c))}${badge}</span><span class="tdesc">${esc(c.description)}</span></span>
+          <span class="tcount">${count}</span>
+          ${switchHtml(c.enabled, catLabel(c), `data-cat="${esc(c.name)}"`, false, c.enabled ? 'New chats start with it on' : 'New chats start with it off')}
+        </div>
+        <div class="ttools">${c.tools ? list.map(t => `<div class="ttool${c.enabled ? '' : ' dim'}${t.enabled ? '' : ' modified'}">
+          <span class="ttext"><code class="tname">${esc(t.name)}</code><span class="tdesc" title="${esc(t.description)}">${esc(t.description)}</span></span>
+          ${switchHtml(t.enabled, t.name, `data-cat="${esc(c.name)}" data-tool="${esc(t.name)}"`, !c.enabled, c.enabled ? '' : `Turn ${c.name} on to choose its tools`)}
+        </div>`).join('') : '<div class="tnone">Its tools are listed in a chat\'s tools menu once it loads them.</div>'}</div>
+      </div>`);
+    }
+    sec.innerHTML = `<h2>Tools</h2>
+      <p class="section-note">The tools new chats start with. To change the chat you're in, use the tools button under its prompt.</p>
+      ${toolsError ? `<div class="error">${esc(toolsError)}</div>` : ''}
+      <div class="tlist">${rows.join('')}</div>`;
+    sec.hidden = rows.length === 0;
+    if (focused) {
+      const [cat, tool] = focused.split('|');
+      const again = [...sec.querySelectorAll('.switch')].find(b => b.dataset.cat === cat && (b.dataset.tool || '') === tool);
+      if (again) again.focus();
+    }
+    return rows.length;
+  }
+
+  function toggleTool(cat, tool, on) {
+    const c = tools.find(x => x.name === cat);
+    if (!c) return;
+    const same = (a, b) => a.toLowerCase() === b.toLowerCase();
+    const flip = (list, name) => on === (c.optional && !tool)
+      ? [...list.filter(x => !same(x, name)), name]
+      : list.filter(x => !same(x, name));
+    toolsError = null;
+    if (tool) {
+      c.tools.find(t => t.name === tool).enabled = on;
+      save('repl.disabledTools', flip(listOf('repl.disabledTools'), tool).join(','));
+    } else if (c.optional) {
+      c.enabled = on;
+      save('repl.plugins', flip(listOf('repl.plugins'), cat).join(','));
+    } else {
+      c.enabled = on;
+      save('repl.disabledTools', flip(listOf('repl.disabledTools'), cat).join(','));
+    }
+    filter();
+  }
+
+  sectionsEl.addEventListener('click', (e) => {
+    const sw = e.target.closest('section[data-section="tools"] .switch');
+    if (sw) {
+      if (!sw.disabled) toggleTool(sw.dataset.cat, sw.dataset.tool, sw.getAttribute('aria-checked') !== 'true');
+      return;
+    }
+    const head = e.target.closest('section[data-section="tools"] .thead');
+    if (head && !searchEl.value.trim()) {
+      if (openCats.has(head.dataset.cat)) openCats.delete(head.dataset.cat); else openCats.add(head.dataset.cat);
+      head.parentElement.classList.toggle('open');
+    }
+  });
 
   function save(key, value) {
     const row = sectionsEl.querySelector(`.setting[data-key="${CSS.escape(key)}"]`);
@@ -243,7 +349,12 @@
         }
         return;
       }
+      case 'tools':
+        tools = msg.tools;
+        filter();
+        return;
       case 'saveFailed': {
+        if (TOOL_KEYS.includes(msg.key)) { toolsError = msg.error; vscode.postMessage({ action: 'ready' }); }
         errors[msg.key] = msg.error;
         const row = sectionsEl.querySelector(`.setting[data-key="${CSS.escape(msg.key)}"]`);
         if (row) {
