@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.13.0 — 2026-11-14
+
+### Chats
+- The chat's status line shows whether approvals are on (`hitl`) or off (`yolo`), and clicking it switches them, mid-turn too. With approvals off, tool calls run without asking. The chat stays sandboxed to its folder unless `repl.yolo` is on.
+
+### Setup
+- **fuseraft: Remove CLI** (also in the Chats view's **…** menu, and a **Remove** link in **Configure fuseraft**) deletes the CLI the extension runs, after asking, so you can install the latest release. A CLI at a custom `fuseraft.binaryPath` couldn't be replaced by **Update CLI**; now it can be removed and reinstalled in a couple of clicks. A custom `binaryPath` is cleared, and your chats, settings and keys are kept.
+
+### Recommended CLI
+- fuseraft CLI 1.26.0 fixes Claude replies that make several tool calls at once: all but the last were dropped, so an agent could "forget" a patch it had just made. Run **fuseraft: Update CLI** to get it.
+
 ## 0.12.0 — 2026-11-12
 
 ### MCP Servers
