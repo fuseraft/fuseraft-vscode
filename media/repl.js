@@ -1834,7 +1834,7 @@ window.addEventListener('message',evt=>{
       break;
 
     case 'compacted':
-      addSystem('Session compacted — history replaced with handoff summary.');
+      addSystem('Earlier messages summarized to save context.');
       break;
 
     case 'text':

@@ -470,6 +470,21 @@ export function writeReplSessionTitle(sessionId: string, title: string): void {
     fs.writeFileSync(file, JSON.stringify(d, null, 2));
 }
 
+// What the CLI's /compact puts before its summary (ReplCommands.CompactedContextPrefix), current and older wording.
+const COMPACTED_SUMMARY_PREFIXES = [
+    '[Earlier messages in this conversation, summarized to save context]',
+    '[Compacted context from previous session]',
+];
+
+export function compactedSummaryPrefix(text: string): string | undefined {
+    return COMPACTED_SUMMARY_PREFIXES.find(p => text.startsWith(p));
+}
+
+export function stripCompactedPrefix(text: string): string {
+    const prefix = compactedSummaryPrefix(text);
+    return prefix ? text.slice(prefix.length).trim() : text;
+}
+
 /**
  * Read all REPL session snapshots from ~/.fuseraft/repl-sessions/, sorted
  * newest-first by lastUpdatedAt.
@@ -485,15 +500,16 @@ export function readReplSessions(): ReplSessionInfo[] {
             try {
                 const raw = fs.readFileSync(path.join(dir, file), 'utf8');
                 const d = JSON.parse(raw);
-                // Find the first user-role message's text content.
                 let firstMsg = '';
                 if (Array.isArray(d.History)) {
-                    const userMsg = d.History.find((m: { Role?: string }) => m.Role === 'user');
-                    if (userMsg && Array.isArray(userMsg.Contents)) {
-                        const textContent = (userMsg.Contents as Array<{ Type?: string; Text?: string }>)
-                            .find(c => c.Type === 'text');
-                        firstMsg = stripMessageContext(textContent?.Text ?? '');
-                    }
+                    const texts: string[] = (d.History as Array<{ Role?: string; Contents?: unknown }>)
+                        .filter(m => m.Role === 'user' && Array.isArray(m.Contents))
+                        .map(m => (m.Contents as Array<{ Type?: string; Text?: string }>).find(c => c.Type === 'text')?.Text)
+                        .filter((t): t is string => typeof t === 'string');
+                    const asked = texts.find(t => !compactedSummaryPrefix(t));
+                    firstMsg = asked !== undefined
+                        ? stripMessageContext(asked)
+                        : texts.length > 0 ? stripCompactedPrefix(texts[0]) : '';
                 }
                 sessions.push({
                     sessionId:        d.SessionId ?? '',
