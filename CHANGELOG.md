@@ -1,12 +1,15 @@
 # Changelog
 
-## Unreleased
+## 0.15.0 — 2026-11-20
 
 ### Security
 - Images in replies are no longer loaded. A reply that named a remote image made the chat panel fetch it straight away, and the image's address could carry whatever the model had been steered into putting there, for example by instructions hidden in a file it read. Images now show as an **Image:** link that you can choose to open, and the chat panel's page only loads the extension's own files.
 
 ### Settings
 - **Context budget**, when empty, now says it follows the model's input limit: from CLI 1.29.0 the budget comes from the model's provider rather than an estimate from its name.
+
+### Recommended CLI
+- fuseraft CLI 1.29.0, for the context budget above and `fuseraft log cache`. Run **fuseraft: Update CLI** to get it.
 
 ## 0.14.0 — 2026-11-15
 
