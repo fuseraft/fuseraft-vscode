@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as cp from 'child_process';
+import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -724,10 +725,14 @@ export class ReplPanelProvider {
     private _html(): string {
         const webview = this._panel.webview;
         const media = (file: string) => webview.asWebviewUri(vscode.Uri.joinPath(ReplPanelProvider.extensionUri, 'media', file));
+        // The page shows model output, so it runs only its own scripts and loads nothing from the network: a remote
+        // image or stylesheet in a reply would otherwise be fetched unasked.
+        const nonce = crypto.randomBytes(16).toString('base64');
         return /* html */`<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource}; style-src ${webview.cspSource}; font-src ${webview.cspSource}; script-src 'nonce-${nonce}';">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <link rel="stylesheet" href="${media('repl.css')}">
 </head>
@@ -819,7 +824,8 @@ export class ReplPanelProvider {
   <input id="hsearch-input" type="text" placeholder="Search earlier messages…" autocomplete="off">
   <div id="hsearch-list"></div>
 </div>
-<script src="${media('repl.js')}"></script>
+<script nonce="${nonce}" src="${media('markdown.js')}"></script>
+<script nonce="${nonce}" src="${media('repl.js')}"></script>
 </body>
 </html>`;
     }

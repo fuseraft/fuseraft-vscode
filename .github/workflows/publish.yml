@@ -38,6 +38,8 @@ jobs:
 
       - run: npm ci
 
+      - run: npm test
+
       - name: Package
         id: package
         run: |

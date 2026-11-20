@@ -527,7 +527,8 @@
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./"
+    "watch": "tsc -watch -p ./",
+    "test": "node --test \"test/**/*.test.js\""
   },
   "devDependencies": {
     "@types/node": "^20.19.41",
