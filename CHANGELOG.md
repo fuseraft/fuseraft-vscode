@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Settings
+- **Context budget**, when empty, now says it follows the model's input limit: from CLI 1.29.0 the budget comes from the model's provider rather than an estimate from its name.
+
 ## 0.14.0 — 2026-11-15
 
 ### Tools
