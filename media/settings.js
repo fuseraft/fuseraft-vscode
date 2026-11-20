@@ -65,7 +65,7 @@
     if (s.key.startsWith('sampling.')) return "Provider's default";
     if (s.key === 'provider.endpoint' || s.key === 'provider.type' || s.key.endsWith('.provider')) return 'Detected';
     if (s.key.endsWith('.model')) return 'Chat model';
-    if (s.key === 'repl.contextBudget') return "Model's estimate";
+    if (s.key === 'repl.contextBudget') return "Model's input limit";
     return 'Not set';
   }
 

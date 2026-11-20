@@ -10,3 +10,4 @@ out/test/**
 .claude/**
 .fuseraft/**
 ISSUE.md
+test/**
