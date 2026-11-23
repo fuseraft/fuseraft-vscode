@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.16.0 — 2026-11-22
+
+### Uninstall
+- **fuseraft: Uninstall fuseraft…**, in the Command Palette and the **Chats** view's **…** menu, removes the fuseraft CLI, or the CLI and all its data: chats, settings, memory, skills, and the API keys and MCP sign-ins it saved in your OS keychain. It closes the open chat, then runs `fuseraft uninstall` in a terminal, which lists everything first and asks before removing anything. Project `.fuseraft/` folders are always kept. Once it's done, it offers to uninstall this extension too.
+
+### Recommended CLI
+- Uninstall needs fuseraft CLI 1.32.0. With an older CLI, the command offers to update it first.
+
 ## 0.15.0 — 2026-11-20
 
 ### Security
