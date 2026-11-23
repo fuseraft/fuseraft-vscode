@@ -88,6 +88,7 @@ Chats, memories, skills and MCP servers live in the fuseraft home directory, `~/
 | `fuseraft: Settings` | Edit the CLI's settings: sampling, memory and sub-agent models, chat limits, timeouts, the tools new chats start with, and more (CLI 1.23.0+) |
 | `fuseraft: Install CLI` / `Update CLI` | Install the CLI, or update it to the latest release, in a terminal |
 | `fuseraft: Remove CLI` | Delete the CLI the extension runs (after asking), so you can install the latest one. Useful when it's at a custom path that **Update CLI** can't replace. Your chats, settings and keys are kept. Also a **Remove** link in **Configure fuseraft** |
+| `fuseraft: Uninstall fuseraft…` | Remove the CLI, or the CLI and all its data (chats, settings, memory, skills, saved API keys and MCP sign-ins), then optionally this extension. Runs `fuseraft uninstall` in a terminal, which lists everything first and asks before removing anything. Also in the **Chats** view's **…** menu |
 | `fuseraft: Set Binary Path` | Point at a fuseraft binary that isn't on your `PATH` |
 | `fuseraft: Set Home Directory` | Use a fuseraft home other than `~/.fuseraft` |
 

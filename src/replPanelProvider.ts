@@ -70,6 +70,31 @@ export class ReplPanelProvider {
     private static readonly _onDidChangeLiveTitle = new vscode.EventEmitter<void>();
     static readonly onDidChangeLiveTitle = ReplPanelProvider._onDidChangeLiveTitle.event;
 
+    /** Whether a chat panel is open. */
+    static get hasChat(): boolean {
+        return ReplPanelProvider._current !== undefined;
+    }
+
+    /** Closes the chat panel, resolving once its CLI has exited (or after 5 s), so nothing still holds the CLI open. */
+    static closeChat(): Promise<void> {
+        const cur = ReplPanelProvider._current;
+        if (!cur) { return Promise.resolve(); }
+        const proc = cur._proc;
+        const exited = !proc || proc.exitCode !== null || proc.signalCode !== null
+            ? Promise.resolve()
+            : new Promise<void>(resolve => {
+                const timer = setTimeout(resolve, 5000);
+                proc.once('exit', () => { clearTimeout(timer); resolve(); });
+            });
+        cur._panel.dispose();
+        return exited;
+    }
+
+    /** Forgets the chat this workspace reopens after a reload, once its session has been deleted. */
+    static forgetChat(): void {
+        void ReplPanelProvider.memento?.update(SESSION_KEY, undefined);
+    }
+
     /** Renames the open chat through its CLI; an empty title clears it. */
     static setLiveTitle(title: string): void {
         ReplPanelProvider._current?._send({ type: 'user_input', text: title ? `/title ${title}` : '/title --clear' });

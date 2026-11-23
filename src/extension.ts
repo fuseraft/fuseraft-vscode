@@ -18,6 +18,7 @@ import {
 } from './fuseraftUtils';
 import { isConfigured, runSetupWizard } from './setupWizard';
 import { chatToMarkdown, exportFileName } from './chatExport';
+import { uninstallFuseraft } from './uninstall';
 
 export function activate(context: vscode.ExtensionContext): void {
     const chatProvider = new ReplSessionTreeProvider();
@@ -527,6 +528,11 @@ export function activate(context: vscode.ExtensionContext): void {
             if (next === 'Install CLI') { void vscode.commands.executeCommand('fuseraft.install'); }
             else if (next === 'Open Setup') { void vscode.commands.executeCommand('fuseraft.setup'); }
         })
+    );
+
+    // fuseraft.uninstall — remove the CLI (and with it, optionally, all its data), then offer to remove this extension
+    context.subscriptions.push(
+        vscode.commands.registerCommand('fuseraft.uninstall', () => uninstallFuseraft())
     );
 
     // fuseraft.update — update the CLI to the latest release via `fuseraft update`
